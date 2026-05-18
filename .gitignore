@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environment variables (JANGAN diupload ke GitHub!)
+.env
+
+# Database (jangan upload sqlite lokal jika ada)
+db.sqlite3
+
+# Media / Uploads
+media/
