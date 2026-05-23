@@ -33,7 +33,7 @@ class UserMeSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer(read_only=True)
     divisi_nama = serializers.CharField(source="divisi.nama", read_only=True, default=None)
     is_online = serializers.SerializerMethodField()
-
+    
     class Meta:
         model = CustomUser
         fields = [
@@ -55,14 +55,22 @@ class UserMeSerializer(serializers.ModelSerializer):
             "date_joined",
             "is_online",
             "profile",
+            "status_karyawan",
+            "jenis_kontrak",
+            "kontrak_mulai",
+            "kontrak_selesai",
+            "no_kpj",
+            "bpjs_kes",
+            "file_pkwt",
         ]
         read_only_fields = ["id", "role", "last_login", "date_joined"]
 
     def get_is_online(self, obj):
-        try:
+        if hasattr(obj, 'profile'):
             return obj.profile.is_online
-        except Profile.DoesNotExist:
-            return False
+        return False
+
+
 
 
 class StaffStatusSerializer(serializers.ModelSerializer):

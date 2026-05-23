@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, ProductPrice, AppConfig, FAQ
+from .models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, ProductPrice, SystemConfig, FAQ
 
 class CustomUserAdmin(UserAdmin):
     model = CustomUser
@@ -41,5 +41,5 @@ admin.site.register(Order, OrderAdmin)
 admin.site.register(JobBoard, JobBoardAdmin)
 admin.site.register(InventoryItem)
 admin.site.register(ProductPrice)
-admin.site.register(AppConfig)
+admin.site.register(SystemConfig)
 admin.site.register(FAQ)

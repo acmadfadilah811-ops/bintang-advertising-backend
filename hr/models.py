@@ -65,6 +65,73 @@ class Absensi(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# 1B. SESI ABSENSI HARIAN & IZIN KETERLAMBATAN
+# ---------------------------------------------------------------------------
+
+class DailyAttendanceSession(models.Model):
+    tanggal = models.DateField(unique=True, db_index=True)
+    waktu_mulai = models.DateTimeField(help_text="Kapan absensi mulai dibuka.")
+    batas_maksimal = models.DateTimeField(help_text="Batas akhir waktu absen sebelum akun terkunci.")
+    is_active = models.BooleanField(default=True, help_text="Apakah sesi hari ini sedang berlangsung.")
+    dihidupkan_oleh = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="sesi_absensi_dihidupkan",
+    )
+    dibuat_pada = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "daily_attendance_session"
+        ordering = ["-tanggal"]
+        verbose_name = "Sesi Absensi Harian"
+        verbose_name_plural = "Sesi Absensi Harian"
+
+    def __str__(self):
+        status = "Aktif" if self.is_active else "Selesai"
+        return f"Sesi {self.tanggal} ({status})"
+
+
+class UnlockRequest(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Menunggu Persetujuan"),
+        ("approved", "Disetujui"),
+        ("rejected", "Ditolak"),
+    ]
+
+    staff = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="unlock_requests",
+    )
+    sesi = models.ForeignKey(
+        DailyAttendanceSession,
+        on_delete=models.CASCADE,
+        related_name="unlock_requests",
+    )
+    alasan = models.TextField(help_text="Alasan terlambat atau tidak absen.")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    waktu_request = models.DateTimeField(auto_now_add=True)
+    direspon_oleh = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="unlock_requests_direspon",
+    )
+    waktu_respon = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "unlock_request"
+        ordering = ["-waktu_request"]
+        verbose_name = "Permintaan Buka Akses"
+        verbose_name_plural = "Permintaan Buka Akses"
+
+    def __str__(self):
+        return f"[{self.get_status_display()}] {self.staff.username} - {self.sesi.tanggal}"
+
+
+# ---------------------------------------------------------------------------
 # 2. KONTRAK — Data kontrak kerja per staff
 # ---------------------------------------------------------------------------
 
@@ -169,3 +236,32 @@ class StaffAnnouncement(models.Model):
 
     def __str__(self):
         return f"[{self.get_target_display()}] {self.judul}"
+
+# ---------------------------------------------------------
+# 9. FINANCE & BUKU BESAR (GENERAL LEDGER)
+# ---------------------------------------------------------
+class Akun(models.Model):
+    kode_akun = models.CharField(max_length=20, unique=True, help_text="Misal: 1-100, 4-200")
+    nama_akun = models.CharField(max_length=100, help_text="Misal: Kas Besar, Pendapatan Jasa")
+    kategori = models.CharField(max_length=50, help_text="Misal: Aset, Kewajiban, Ekuitas, Pendapatan, Beban")
+    
+    def __str__(self):
+        return f"{self.kode_akun} - {self.nama_akun}"
+
+class TransaksiBukuBesar(models.Model):
+    akun = models.ForeignKey(Akun, on_delete=models.CASCADE, related_name='transaksi')
+    tanggal = models.DateField()
+    no_referensi = models.CharField(max_length=50, blank=True, null=True, help_text="Bisa diisi ID Order atau Nomor Kwitansi")
+    keterangan = models.TextField()
+    
+    # Menyimpan nominal transaksi
+    debit = models.DecimalField(max_digits=15, decimal_places=0, default=0)
+    kredit = models.DecimalField(max_digits=15, decimal_places=0, default=0)
+    
+    waktu_input = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['tanggal', 'waktu_input']
+
+    def __str__(self):
+        return f"{self.tanggal} | {self.akun.nama_akun} | D: {self.debit} | K: {self.kredit}"

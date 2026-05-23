@@ -8,11 +8,12 @@ from django.utils import timezone
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 import uuid
-from .models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, RestockHistory, ProductPrice, AppConfig, FAQ
+from .models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, RestockHistory, ProductPrice, SystemConfig, FAQ
 from .serializers import (
     DivisiSerializer, TahapProsesSerializer, CustomUserSerializer,
     ContactSerializer, OrderSerializer, OrderItemSerializer, JobBoardSerializer,
-    InventoryItemSerializer, ProductPriceSerializer, AppConfigSerializer, FAQSerializer
+    InventoryItemSerializer, ProductPriceSerializer, SystemConfigSerializer, FAQSerializer,
+    BusinessSettingsSerializer,
 )
 
 # ---------------------------------------------------------
@@ -25,6 +26,29 @@ class IsOwnerOrManager(BasePermission):
             request.user.is_authenticated and
             getattr(request.user, 'role', '') in ['owner', 'manager']
         )
+
+# ---------------------------------------------------------
+# CUSTOM PERMISSION — Harus Clock In (Untuk Staff)
+# ---------------------------------------------------------
+class IsClockedIn(BasePermission):
+    def has_permission(self, request, view):
+        if not (request.user and request.user.is_authenticated):
+            return False
+        # Owner/Manager bebas akses tanpa clock-in
+        if getattr(request.user, 'role', '') in ['owner', 'manager']:
+            return True
+        
+        # Cek absensi staff hari ini: jam_masuk ada, jam_keluar kosong
+        from hr.models import Absensi
+        from django.utils import timezone
+        today = timezone.localdate()
+        
+        return Absensi.objects.filter(
+            staff=request.user,
+            tanggal=today,
+            jam_masuk__isnull=False,
+            jam_keluar__isnull=True
+        ).exists()
 
 class DivisiViewSet(viewsets.ModelViewSet):
     queryset = Divisi.objects.all()
@@ -89,7 +113,7 @@ class ContactViewSet(viewsets.ModelViewSet):
             )
             latest = my_orders.order_by('-waktu').first()
             if latest:
-                contact.last_order = latest.waktu.strftime("%Y-%m-%d %H:%M")
+                contact.last_order = latest.waktu.date()
 
             contact.save()
             updated += 1
@@ -220,7 +244,7 @@ class JobMaterialDeductView(APIView):
     Body: { materials: [{item_id: "INV-xxx", qty: 1.2, catatan: "..."}, ...] }
     Mengurangi stok inventori & mencatat RestockHistory per item.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsClockedIn]
 
     def post(self, request, job_id):
         job = get_object_or_404(JobBoard, pk=job_id)
@@ -379,7 +403,7 @@ class OrderItemViewSet(viewsets.ModelViewSet):
 
 class JobBoardViewSet(viewsets.ModelViewSet):
     serializer_class = JobBoardSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsClockedIn]
 
     def get_queryset(self):
         user = self.request.user
@@ -389,25 +413,58 @@ class JobBoardViewSet(viewsets.ModelViewSet):
         # Staff hanya lihat job yang di-assign ke mereka
         return JobBoard.objects.filter(pic_staff=user).order_by('-id')
 
-class InventoryItemViewSet(viewsets.ModelViewSet):
-    queryset = InventoryItem.objects.all()
-    serializer_class = InventoryItemSerializer
-    permission_classes = [IsAuthenticated]
+# CATATAN: InventoryItemViewSet sudah didefinisikan lengkap di atas (baris ~126).
+# Duplikat class yang lebih simpel ini dihapus agar get_queryset filter & restock @action aktif.
 
 class ProductPriceViewSet(viewsets.ModelViewSet):
     queryset = ProductPrice.objects.all()
     serializer_class = ProductPriceSerializer
     permission_classes = [IsAuthenticated]
 
-class AppConfigViewSet(viewsets.ModelViewSet):
-    queryset = AppConfig.objects.all()
-    serializer_class = AppConfigSerializer
+class SystemConfigViewSet(viewsets.ModelViewSet):
+    queryset = SystemConfig.objects.all()
+    serializer_class = SystemConfigSerializer
     permission_classes = [IsAuthenticated]
 
 class FAQViewSet(viewsets.ModelViewSet):
     queryset = FAQ.objects.all()
     serializer_class = FAQSerializer
     permission_classes = [IsAuthenticated]
+
+
+# ---------------------------------------------------------
+# BUSINESS SETTINGS VIEW — GET/PATCH pengaturan bisnis
+# Mirip OrgSettingsView di Django CRM, Divisi sebagai "org"
+# ---------------------------------------------------------
+class BusinessSettingsView(APIView):
+    """
+    GET  /api/business-settings/ — Baca pengaturan bisnis
+    PATCH /api/business-settings/ — Update pengaturan bisnis (Owner/Manager only)
+
+    Pengaturan disimpan di SystemConfig dengan prefix 'bisnis_'.
+    Divisi digunakan sebagai satuan organisasi/departemen.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Kembalikan semua pengaturan bisnis + daftar divisi."""
+        serializer = BusinessSettingsSerializer(instance={})
+        return Response(serializer.to_representation({}))
+
+    def patch(self, request):
+        """Update pengaturan bisnis — hanya Owner atau Manager."""
+        if getattr(request.user, 'role', '') not in ['owner', 'manager']:
+            return Response(
+                {'error': 'Hanya Owner atau Manager yang dapat mengubah pengaturan bisnis.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = BusinessSettingsSerializer(data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            # Kembalikan data terbaru setelah disimpan
+            return Response(BusinessSettingsSerializer(instance={}).to_representation({}))
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 # ---------------------------------------------------------
@@ -592,7 +649,7 @@ class ForwardJobView(APIView):
       tahap_id    : (wajib jika aksi='forward') ID TahapProses tujuan
       pic_staff_id: (opsional) ID staff untuk tahap baru
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsClockedIn]
 
     def post(self, request, job_id):
         # Ambil job
@@ -904,14 +961,21 @@ class FonnteWebhookView(APIView):
             contact, _ = Contact.objects.get_or_create(
                 nomor_wa=nomor, defaults={'nama': nama_kontak}
             )
-            contact.total_order = Order.objects.filter(nomor_wa=nomor).count() + 1
-            contact.last_order  = timezone.now().strftime("%Y-%m-%d %H:%M")
+            # BUG FIX: last_order adalah DateField, gunakan localdate() bukan strftime dengan jam:menit
+            existing_orders = Order.objects.filter(nomor_wa=nomor)
+            contact.total_order = existing_orders.count() + 1
+            contact.total_spent = sum(
+                item.harga_jual
+                for o in existing_orders.prefetch_related('items')
+                for item in o.items.all()
+            )
+            contact.last_order  = timezone.localdate()
             contact.save()
 
             order_id = f"ORD-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
             order = Order.objects.create(
                 id=order_id,
-                nomor_wa=contact,
+                nomor_wa=contact.nomor_wa,  # BUG FIX: harus string, bukan objek Contact
                 nama=nama_order,
                 status_global='review',
                 catatan_pelanggan=detail[:500],

@@ -1,8 +1,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryItemViewSet, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView
-from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView
+from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryItemViewSet, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, BusinessSettingsView
+from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView
 
 router = DefaultRouter()
 
@@ -16,7 +16,7 @@ router.register(r'jobs',        views.JobBoardViewSet, basename='job')
 
 router.register(r'inventory', views.InventoryItemViewSet, basename='inventory')
 router.register(r'product-prices', views.ProductPriceViewSet)
-router.register(r'app-config', views.AppConfigViewSet)
+router.register(r'app-config', views.SystemConfigViewSet)
 router.register(r'faq', views.FAQViewSet)
 
 
@@ -33,10 +33,14 @@ urlpatterns = [
     path('export/inventory/', ExportInventoryView.as_view(), name='export-inventory'),
     path('export/jobs/', ExportJobsView.as_view(), name='export-jobs'),
     path('export/contacts/', ExportContactsView.as_view(), name='export-contacts'),
+    path('export/absensi/', ExportAbsensiView.as_view(), name='export-absensi'),
 
     # Explicit restock URL — standalone APIView, tidak pakai @action ViewSet
     path('inventory/<str:pk>/restock/', InventoryRestockView.as_view(), name='inventory-restock'),
     
     # Webhook Bot WA (Fonnte)
     path('webhook/fonnte/', FonnteWebhookView.as_view(), name='webhook-fonnte'),
+
+    # Business Settings (mirip OrgSettings di Django CRM)
+    path('business-settings/', BusinessSettingsView.as_view(), name='business-settings'),
 ]

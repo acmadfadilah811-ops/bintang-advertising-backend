@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Absensi, Kontrak, StaffAnnouncement
+from .models import Absensi, Kontrak, StaffAnnouncement, Akun, TransaksiBukuBesar
 
 
 @admin.register(Absensi)
@@ -23,3 +23,18 @@ class KontrakAdmin(admin.ModelAdmin):
 class AnnouncementAdmin(admin.ModelAdmin):
     list_display = ["judul", "target", "divisi", "dibuat_oleh", "aktif_sampai", "dibuat_pada"]
     list_filter = ["target"]
+
+
+@admin.register(Akun)
+class AkunAdmin(admin.ModelAdmin):
+    list_display = ["kode_akun", "nama_akun", "kategori"]
+    list_filter = ["kategori"]
+    search_fields = ["kode_akun", "nama_akun"]
+
+
+@admin.register(TransaksiBukuBesar)
+class TransaksiBukuBesarAdmin(admin.ModelAdmin):
+    list_display = ["tanggal", "akun", "debit", "kredit", "no_referensi", "waktu_input"]
+    list_filter = ["akun", "tanggal"]
+    search_fields = ["keterangan", "no_referensi"]
+    date_hierarchy = "tanggal"

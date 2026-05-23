@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Absensi, Kontrak, StaffAnnouncement
+from .models import Absensi, Kontrak, StaffAnnouncement, Akun, TransaksiBukuBesar
 
 
 class AbsensiSerializer(serializers.ModelSerializer):
@@ -78,3 +78,30 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             "dibuat_pada",
         ]
         read_only_fields = ["id", "dibuat_pada"]
+
+
+class AkunSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Akun
+        fields = ["id", "kode_akun", "nama_akun", "kategori"]
+
+
+class TransaksiBukuBesarSerializer(serializers.ModelSerializer):
+    akun_nama = serializers.CharField(source="akun.nama_akun", read_only=True)
+    akun_kode = serializers.CharField(source="akun.kode_akun", read_only=True)
+
+    class Meta:
+        model = TransaksiBukuBesar
+        fields = [
+            "id",
+            "akun",
+            "akun_nama",
+            "akun_kode",
+            "tanggal",
+            "no_referensi",
+            "keterangan",
+            "debit",
+            "kredit",
+            "waktu_input",
+        ]
+        read_only_fields = ["id", "waktu_input"]

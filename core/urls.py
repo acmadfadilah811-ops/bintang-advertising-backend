@@ -27,6 +27,9 @@ urlpatterns = [
     # Endpoint HR & Kepegawaian
     path('api/hr/', include('hr.urls')),
 
+    # Endpoint Keuangan (Finance / Buku Besar)
+    path('api/finance/', include('hr.finance_urls')),
+
     # Endpoint Utama API (lama)
     path('api/', include('api.urls')),
 

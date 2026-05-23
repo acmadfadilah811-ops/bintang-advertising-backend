@@ -142,22 +142,14 @@ class CustomLoginView(TokenObtainPairView):
 
         # Update last_seen langsung
         Profile.objects.filter(user=user).update(last_seen=timezone.now())
+        
+        user_data = UserMeSerializer(user, context={"request": request}).data
 
         return Response(
             {
                 "access": str(access_token),
                 "refresh": str(refresh_token),
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "role": user.role,
-                    "divisi": user.divisi.nama if user.divisi else None,
-                    "foto_profil": (
-                        request.build_absolute_uri(user.foto_profil.url)
-                        if user.foto_profil
-                        else None
-                    ),
-                },
+                "user": user_data,
             },
             status=status.HTTP_200_OK,
         )
@@ -203,6 +195,14 @@ class LogoutView(APIView):
             user_agent=ua,
             berhasil=True,
         )
+
+        # Force offline status
+        try:
+            profile = request.user.profile
+            profile.last_seen = None
+            profile.save(update_fields=['last_seen'])
+        except Exception:
+            pass
 
         return Response({"detail": "Logout berhasil."}, status=status.HTTP_200_OK)
 
