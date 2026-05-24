@@ -230,6 +230,9 @@ CHANNEL_LAYERS = {
 
 # --- KEAMANAN LAYANAN PRODUKSI (AKAN AKTIF JIKA DEBUG = FALSE) ---
 if not DEBUG:
+    # Memberi tahu Django bahwa proxy Nginx sudah menangani HTTPS
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    
     # Memaksa koneksi HTTPS di production
     SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'True') == 'True'
     SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True') == 'True'
