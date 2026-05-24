@@ -1,0 +1,17 @@
+.git
+.github
+.gitignore
+.env
+.venv
+.antigravity*
+uv.lock
+db.sqlite3
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+media/
+static_collected/
+Dockerfile
+.dockerignore

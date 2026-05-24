@@ -1,6 +1,6 @@
-from django.db.models import Count, Q, Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,8 +8,8 @@ from rest_framework.views import APIView
 from api.models import JobBoard
 from api.views import IsOwnerOrManager
 
-from .models import Absensi, Kontrak, StaffAnnouncement, DailyAttendanceSession, UnlockRequest
-from .serializers import AbsensiSerializer, AnnouncementSerializer, KontrakSerializer
+from .models import Absensi, Kontrak, StaffAnnouncement, DailyAttendanceSession, UnlockRequest, Akun, TransaksiBukuBesar
+from .serializers import AbsensiSerializer, AnnouncementSerializer, KontrakSerializer, AkunSerializer, TransaksiBukuBesarSerializer
 
 
 # ---------------------------------------------------------------------------
@@ -19,6 +19,34 @@ from .serializers import AbsensiSerializer, AnnouncementSerializer, KontrakSeria
 class IsOwnerOrManagerPerm(IsOwnerOrManager):
     """Alias agar tidak konflik nama."""
     pass
+
+
+def sync_attendance_for_date(target_date):
+    """
+    Memastikan semua staff aktif memiliki record absensi pada tanggal tersebut.
+    Jika belum ada, otomatis dibuat dengan status 'alpha' (Tidak Masuk).
+    Untuk tanggal hari ini, hanya dibuat jika batas_maksimal absensi telah terlewati.
+    """
+    from api.models import CustomUser
+    
+    today = timezone.localdate()
+    if target_date > today:
+        return
+        
+    if target_date == today:
+        session = DailyAttendanceSession.objects.filter(tanggal=today).first()
+        if not session or timezone.now() <= session.batas_maksimal:
+            # Belum melewati batas waktu absen hari ini
+            return
+            
+    active_staff = CustomUser.objects.filter(is_active=True, role__in=["staff", "manager"])
+    for member in active_staff:
+        Absensi.objects.get_or_create(
+            staff=member,
+            tanggal=target_date,
+            defaults={"status": "alpha"}
+        )
+
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +88,7 @@ class ClockInView(APIView):
 
         # 3. Cek apakah sudah clock-in
         existing = Absensi.objects.filter(staff=request.user, tanggal=today).first()
-        if existing:
+        if existing and existing.status != "alpha":
             return Response(
                 {
                     "detail": "Anda sudah clock-in hari ini.",
@@ -70,18 +98,26 @@ class ClockInView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 4. Buat Absensi
+        # 4. Buat / Update Absensi
         status_hadir = "hadir"
         if now > session.batas_maksimal:
             status_hadir = "izin" # Bisa disesuaikan jika terlambat dihitung izin/terlambat
 
-        absensi = Absensi.objects.create(
-            staff=request.user,
-            tanggal=today,
-            jam_masuk=now,
-            status=status_hadir,
-            catatan=request.data.get("catatan", ""),
-        )
+        if existing and existing.status == "alpha":
+            absensi = existing
+            absensi.jam_masuk = now
+            absensi.status = status_hadir
+            if request.data.get("catatan"):
+                absensi.catatan = request.data["catatan"]
+            absensi.save()
+        else:
+            absensi = Absensi.objects.create(
+                staff=request.user,
+                tanggal=today,
+                jam_masuk=now,
+                status=status_hadir,
+                catatan=request.data.get("catatan", ""),
+            )
         return Response(
             {
                 "detail": f"Clock-in berhasil pukul {now.strftime('%H:%M')}.",
@@ -104,9 +140,9 @@ class ClockOutView(APIView):
 
         absensi = Absensi.objects.filter(
             staff=request.user, tanggal=today, jam_keluar__isnull=True
-        ).first()
+        ).exclude(status="alpha").first()
 
-        if not absensi:
+        if not absensi or not absensi.jam_masuk:
             return Response(
                 {"detail": "Belum ada clock-in hari ini, atau sudah clock-out."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -141,9 +177,35 @@ class AbsensiListView(APIView):
         tahun = request.query_params.get("tahun", timezone.localdate().year)
 
         if tanggal:
+            from datetime import datetime
+            try:
+                if isinstance(tanggal, str):
+                    query_date = datetime.strptime(tanggal, "%Y-%m-%d").date()
+                else:
+                    query_date = tanggal
+            except ValueError:
+                query_date = timezone.localdate()
+            sync_attendance_for_date(query_date)
             base_qs = Absensi.objects.filter(tanggal=tanggal)
         else:
-            base_qs = Absensi.objects.filter(tanggal__month=bulan, tanggal__year=tahun)
+            today = timezone.localdate()
+            try:
+                b_int = int(bulan)
+                t_int = int(tahun)
+            except ValueError:
+                b_int = today.month
+                t_int = today.year
+            
+            import calendar
+            _, last_day = calendar.monthrange(t_int, b_int)
+            
+            if t_int < today.year or (t_int == today.year and b_int <= today.month):
+                end_day = today.day if (t_int == today.year and b_int == today.month) else last_day
+                from datetime import date
+                for d in range(1, end_day + 1):
+                    sync_attendance_for_date(date(t_int, b_int, d))
+
+            base_qs = Absensi.objects.filter(tanggal__month=b_int, tanggal__year=t_int)
 
         if user.role in ("owner", "manager"):
             qs = base_qs.select_related("staff", "staff__divisi")
@@ -155,6 +217,25 @@ class AbsensiListView(APIView):
 
         serializer = AbsensiSerializer(qs, many=True)
         return Response(serializer.data)
+
+
+class AbsensiDetailView(APIView):
+    """
+    PATCH /api/hr/absensi/{id}/
+    Manager/Owner: memperbarui status atau catatan keterangan kehadiran staff secara manual.
+    """
+    permission_classes = [IsOwnerOrManagerPerm]
+
+    def patch(self, request, pk):
+        absensi = Absensi.objects.filter(pk=pk).first()
+        if not absensi:
+            return Response({"detail": "Absensi tidak ditemukan."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AbsensiSerializer(absensi, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class AbsensiVerifikasiView(APIView):
@@ -193,6 +274,17 @@ class TimecardView(APIView):
         bulan = int(request.query_params.get("bulan", timezone.localdate().month))
         tahun = int(request.query_params.get("tahun", timezone.localdate().year))
         user = request.user
+
+        # Sync attendance harian untuk seluruh hari di bulan tersebut up to today
+        today = timezone.localdate()
+        import calendar
+        _, last_day = calendar.monthrange(tahun, bulan)
+        
+        if tahun < today.year or (tahun == today.year and bulan <= today.month):
+            end_day = today.day if (tahun == today.year and bulan == today.month) else last_day
+            from datetime import date
+            for d in range(1, end_day + 1):
+                sync_attendance_for_date(date(tahun, bulan, d))
 
         # Tentukan target staff
         if user.role in ("owner", "manager"):
@@ -344,7 +436,6 @@ class AnnouncementView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from django.db.models import Q
         from django.utils import timezone
 
         user = request.user
@@ -441,7 +532,6 @@ class StaffDashboardView(APIView):
         kontrak_data = KontrakSerializer(kontrak).data if kontrak else None
 
         # --- Pengumuman Terbaru (5 terbaru) ---
-        from django.db.models import Q
 
         pengumuman = StaffAnnouncement.objects.filter(
             Q(aktif_sampai__isnull=True) | Q(aktif_sampai__gte=today),
@@ -477,8 +567,9 @@ class StaffDashboardView(APIView):
         if user.role == "staff":
             if sesi_aktif:
                 now = timezone.now()
-                # Terkunci jika sudah lewat batas maksimal, belum absen, dan tidak punya izin approved
-                if now > sesi_hari_ini.batas_maksimal and not absensi_hari_ini:
+                # Terkunci jika sudah lewat batas maksimal, belum absen (atau status alpha), dan tidak punya izin approved
+                has_checked_in = absensi_hari_ini is not None and absensi_hari_ini.status != "alpha"
+                if now > sesi_hari_ini.batas_maksimal and not has_checked_in:
                     approved_req = UnlockRequest.objects.filter(staff=user, sesi=sesi_hari_ini, status="approved").exists()
                     if not approved_req:
                         is_locked = True
@@ -668,9 +759,6 @@ class UnlockRequestActionView(APIView):
 # ---------------------------------------------------------------------------
 # 7. FINANCE & BUKU BESAR
 # ---------------------------------------------------------------------------
-from rest_framework import viewsets
-from .models import Akun, TransaksiBukuBesar
-from .serializers import AkunSerializer, TransaksiBukuBesarSerializer
 
 class AkunViewSet(viewsets.ReadOnlyModelViewSet):
     """

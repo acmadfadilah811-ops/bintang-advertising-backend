@@ -1,8 +1,10 @@
+# ruff: noqa: E402
 """
 Script reset: hapus semua data Order, OrderItem, JobBoard
 Jalankan: uv run python reset_data.py
 """
-import django, os
+import django
+import os
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'bintang_project.settings')
 django.setup()
 

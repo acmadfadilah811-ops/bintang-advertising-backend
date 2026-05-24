@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """
 Script: Auto-create Profile untuk semua CustomUser yang sudah ada di database.
 Jalankan SEKALI setelah migrate:

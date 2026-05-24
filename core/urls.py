@@ -17,6 +17,8 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenRefreshView
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -37,9 +39,6 @@ urlpatterns = [
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     # CATATAN: /api/auth/login/ sekarang ditangani oleh users.urls (CustomLoginView)
 ]
-
-from django.conf import settings
-from django.conf.urls.static import static
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryItemViewSet, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, BusinessSettingsView
+from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, BusinessSettingsView
 from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView
 
 router = DefaultRouter()

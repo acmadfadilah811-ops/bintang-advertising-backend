@@ -1,7 +1,7 @@
+# ruff: noqa: E402, E701, E722
 import os
 import sys
 import sqlite3
-import json
 from datetime import datetime
 
 # Setup Django Environment (Harus dijalankan di dalam folder bintang_django_backend)

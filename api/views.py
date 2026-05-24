@@ -1,13 +1,14 @@
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, BasePermission
+from rest_framework.permissions import IsAuthenticated, BasePermission, AllowAny
 from rest_framework.decorators import action
 from django.db.models import Count, Sum, Q, F
 from django.utils import timezone
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 import uuid
+import re as _re
 from .models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, RestockHistory, ProductPrice, SystemConfig, FAQ
 from .serializers import (
     DivisiSerializer, TahapProsesSerializer, CustomUserSerializer,
@@ -332,6 +333,39 @@ class OrderViewSet(viewsets.ModelViewSet):
         order_id = f'ORD-{today}-{short_id}'
         serializer.save(id=order_id)
 
+    @action(detail=True, methods=['post'], url_path='bayar')
+    def bayar(self, request, pk=None):
+        order = self.get_object()
+        jumlah_bayar = request.data.get('jumlah_bayar')
+        metode = request.data.get('metode_pembayaran', 'tunai')
+
+        if jumlah_bayar is None:
+            return Response({'error': 'jumlah_bayar wajib diisi.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            jumlah_bayar = int(jumlah_bayar)
+        except (ValueError, TypeError):
+            return Response({'error': 'jumlah_bayar harus berupa angka bulat.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        order.dp_dibayar += jumlah_bayar
+        order.metode_pembayaran = metode
+        order.save()
+
+        # Update statistik Contact
+        try:
+            contact = Contact.objects.get(nomor_wa=order.nomor_wa)
+            my_orders = Order.objects.filter(nomor_wa=contact.nomor_wa).prefetch_related('items')
+            contact.total_spent = sum(
+                item.harga_jual
+                for o in my_orders
+                for item in o.items.all()
+            )
+            contact.save()
+        except Contact.DoesNotExist:
+            pass
+
+        return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
+
 
 class AssignOrderView(APIView):
     """POST /api/orders/{order_id}/assign/ — Manager assign staff ke semua item dalam order"""
@@ -362,7 +396,7 @@ class AssignOrderView(APIView):
             try:
                 from .models import TahapProses as TahapModel
                 tahap = TahapModel.objects.get(pk=tahap_id)
-            except:
+            except Exception:
                 pass
 
         # Buat atau update JobBoard untuk setiap OrderItem
@@ -421,6 +455,93 @@ class ProductPriceViewSet(viewsets.ModelViewSet):
     serializer_class = ProductPriceSerializer
     permission_classes = [IsAuthenticated]
 
+    @action(detail=False, methods=['post'], url_path='seed')
+    def seed_prices(self, request):
+        import os
+        import json
+        from django.conf import settings
+        
+        path = os.path.join(settings.BASE_DIR, '..', 'bintang_advertising_app', 'data', 'db_harga.json')
+        if not os.path.exists(path):
+            path = os.path.join(settings.BASE_DIR, 'db_harga.json')
+            
+        if not os.path.exists(path):
+            return Response({"detail": "File db_harga.json tidak ditemukan."}, status=status.HTTP_404_NOT_FOUND)
+            
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        # Hapus data lama
+        ProductPrice.objects.all().delete()
+        
+        categories = {
+            'print_outdoor_per_m2': 'Print Outdoor / m²',
+            'stand_banner': 'Stand Banner',
+            'print_a3_plus': 'Print A3+',
+            'sticker_a3_plus': 'Sticker A3+',
+            'laminasi_a3_plus': 'Laminasi A3+',
+            'paket_cetak_brosur': 'Paket Cetak Brosur',
+            'merchandise_dan_seminar_kit': 'Merchandise & Seminar Kit',
+            'buku_yasin_dan_finishing': 'Buku Yasin & Finishing',
+            'kartu_nama_ivory_260': 'Kartu Nama Ivory 260',
+            'kartu_nama_aster_200': 'Kartu Nama Aster 200',
+        }
+        
+        created_count = 0
+        for cat_key, cat_val in data.items():
+            cat_name = categories.get(cat_key, cat_key)
+            for prod_name, prod_val in cat_val.items():
+                if isinstance(prod_val, str):
+                    clean_price = int(float(prod_val.replace('.', '')))
+                    ProductPrice.objects.create(
+                        kategori=cat_key,
+                        nama_produk=prod_name,
+                        harga=clean_price,
+                        price_type='flat'
+                    )
+                    created_count += 1
+                elif isinstance(prod_val, dict):
+                    keys = list(prod_val.keys())
+                    is_qty_tier = any('lbr' in k.lower() or 'pcs' in k.lower() or 'box' in k.lower() or '>' in k.lower() for k in keys)
+                    
+                    if is_qty_tier:
+                        cleaned_tiers = {}
+                        for tk, tv in prod_val.items():
+                            cleaned_tiers[tk] = int(float(tv.replace('.', '')))
+                        ProductPrice.objects.create(
+                            kategori=cat_key,
+                            nama_produk=prod_name,
+                            price_type='tiered',
+                            tiers=cleaned_tiers
+                        )
+                        created_count += 1
+                    else:
+                        for mat_name, mat_val in prod_val.items():
+                            if isinstance(mat_val, str):
+                                clean_price = int(float(mat_val.replace('.', '')))
+                                ProductPrice.objects.create(
+                                    kategori=cat_key,
+                                    nama_produk=prod_name,
+                                    material=mat_name,
+                                    harga=clean_price,
+                                    price_type='flat'
+                                )
+                                created_count += 1
+                            elif isinstance(mat_val, dict):
+                                cleaned_tiers = {}
+                                for tk, tv in mat_val.items():
+                                    cleaned_tiers[tk] = int(float(tv.replace('.', '')))
+                                ProductPrice.objects.create(
+                                    kategori=cat_key,
+                                    nama_produk=prod_name,
+                                    material=mat_name,
+                                    price_type='tiered',
+                                    tiers=cleaned_tiers
+                                )
+                                created_count += 1
+                                
+        return Response({"detail": f"Berhasil mengimpor {created_count} produk dari db_harga.json."})
+
 class SystemConfigViewSet(viewsets.ModelViewSet):
     queryset = SystemConfig.objects.all()
     serializer_class = SystemConfigSerializer
@@ -475,7 +596,7 @@ class DashboardView(APIView):
 
     def get(self, request):
         import calendar
-        from datetime import datetime, timedelta
+        from datetime import timedelta
 
         # Ambil waktu sekarang sesuai timezone lokal
         now = timezone.localtime(timezone.now())
@@ -769,8 +890,6 @@ class ForwardJobView(APIView):
 # ---------------------------------------------------------
 # 12. WEBHOOK FONNTE (BOT WHATSAPP) — Full logic
 # ---------------------------------------------------------
-from rest_framework.permissions import AllowAny
-import re as _re
 
 class FonnteWebhookView(APIView):
     """
@@ -789,7 +908,7 @@ class FonnteWebhookView(APIView):
 
     def post(self, request, *args, **kwargs):
         from .wa_logic import (
-            memori_percakapan, menunggu_nama,
+            menunggu_nama,
             simpan_ke_memori, cek_tracking, cek_harga, cek_rules_awal,
             cek_database_faq, tanya_ai_finishing, ekstrak_nama_dari_pesan,
         )

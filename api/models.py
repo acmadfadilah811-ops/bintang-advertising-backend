@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
+from django.utils import timezone
 import uuid
 
 # ---------------------------------------------------------
@@ -93,13 +94,14 @@ class Order(models.Model):
     )
 
     id = models.CharField(max_length=50, primary_key=True, default=_generate_order_id)
-    waktu = models.DateTimeField(auto_now_add=True)
+    waktu = models.DateTimeField(default=timezone.now)
     
     # Hubungkan ke model Contact (Foreign Key lebih baik, tapi pakai CharField juga tidak masalah jika existingnya begitu)
     nomor_wa = models.CharField(max_length=20)
     nama = models.CharField(max_length=100)
     status_global = models.CharField(max_length=30, choices=STATUS_GLOBAL_CHOICES, default='review')
     catatan_pelanggan = models.TextField(null=True, blank=True)
+    metode_pembayaran = models.CharField(max_length=20, default='tunai')
 
     # TAMBAHAN FIELD MODUL 1: KEUANGAN & DISKON
     dp_dibayar = models.IntegerField(default=0, help_text="Uang muka yang sudah dibayar")
@@ -145,6 +147,7 @@ class OrderItem(models.Model):
     biaya_bahan = models.IntegerField(default=0)
     estimasi = models.CharField(max_length=50, default="-")
     gdrive_customer_link = models.URLField(max_length=500, null=True, blank=True)
+    keterangan_detail = models.TextField(null=True, blank=True, help_text="Keterangan khusus/detail cetak dari CS")
 
     def save(self, *args, **kwargs):
         # Auto kalkulasi luas m2 dari P x L sebelum disimpan ke database
@@ -248,7 +251,10 @@ class RestockHistory(models.Model):
 class ProductPrice(models.Model):
     kategori = models.CharField(max_length=50)
     nama_produk = models.CharField(max_length=100)
-    harga = models.IntegerField()
+    harga = models.IntegerField(default=0)
+    material = models.CharField(max_length=100, null=True, blank=True)
+    price_type = models.CharField(max_length=20, default='flat') # 'flat', 'tiered'
+    tiers = models.JSONField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.nama_produk} - Rp{self.harga}"

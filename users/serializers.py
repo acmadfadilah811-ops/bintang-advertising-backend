@@ -167,28 +167,6 @@ class SecurityAuditLogSerializer(serializers.ModelSerializer):
             "username",
             "event",
             "ip_address",
-            "device_name" if hasattr(SecurityAuditLog, "device_name") else "user_agent",
-            "keterangan",
-            "berhasil",
-            "waktu",
-        ]
-
-    def get_username(self, obj):
-        if obj.user:
-            return obj.user.username
-        return obj.username_input or "Unknown"
-
-
-class SecurityAuditLogSerializer(serializers.ModelSerializer):
-    username = serializers.SerializerMethodField()
-
-    class Meta:
-        model = SecurityAuditLog
-        fields = [
-            "id",
-            "username",
-            "event",
-            "ip_address",
             "user_agent",
             "keterangan",
             "berhasil",

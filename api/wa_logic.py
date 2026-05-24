@@ -282,8 +282,8 @@ def cek_harga(pesan, nama_pelanggan):
                 lines = [f"💰 *Info Harga {produk_ditanya.title()}* untuk {panggilan}:\n"]
                 for item in items[:8]:
                     lines.append(f"• {item.nama_produk}: *Rp {item.harga:,}*".replace(',', '.'))
-                lines.append(f"\n_Harga bisa berubah tergantung ukuran, bahan, dan jumlah order._")
-                lines.append(f"Mau pesan atau butuh info lebih lanjut? Balas aja ya Kak 😊")
+                lines.append("\n_Harga bisa berubah tergantung ukuran, bahan, dan jumlah order._")
+                lines.append("Mau pesan atau butuh info lebih lanjut? Balas aja ya Kak 😊")
                 return "\n".join(lines)
 
     # Fallback harga hardcoded jika DB kosong
@@ -421,9 +421,9 @@ def cek_rules_awal(pesan, nomor, nama_pelanggan):
             return cek_harga("harga", nama_pelanggan) or "Produk apa yang ingin ditanyakan harganya?"
         elif p == '3':
             return (
-                f"Untuk cek status pesanan, kirimkan ID order kakak ya.\n"
-                f"Contoh: *Cek ORD-20260517-XXXX*\n\n"
-                f"ID order dikirimkan saat pertama kali pesan masuk. 😊"
+                "Untuk cek status pesanan, kirimkan ID order kakak ya.\n"
+                "Contoh: *Cek ORD-20260517-XXXX*\n\n"
+                "ID order dikirimkan saat pertama kali pesan masuk. 😊"
             )
 
     # ── TANYA KATALOG / PRODUK APA SAJA ──────────────────────────

@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     AbsensiListView,
+    AbsensiDetailView,
     AbsensiVerifikasiView,
     AnnouncementView,
     AnnouncementDetailView,
@@ -26,6 +27,7 @@ urlpatterns = [
     path("absensi/clock-in/", ClockInView.as_view(), name="clock_in"),
     path("absensi/clock-out/", ClockOutView.as_view(), name="clock_out"),
     path("absensi/", AbsensiListView.as_view(), name="absensi_list"),
+    path("absensi/<int:pk>/", AbsensiDetailView.as_view(), name="absensi_detail"),
     path("absensi/<int:pk>/verifikasi/", AbsensiVerifikasiView.as_view(), name="absensi_verifikasi"),
     
     # Izin Buka Akun (Unlock Request)

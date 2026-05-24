@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
+from datetime import timedelta
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 
 # Load variabel dari file .env
@@ -152,6 +154,36 @@ MEDIA_URL = '/media/'
 # Di production, Nginx serve /media/ dari path ini
 MEDIA_ROOT = os.getenv('MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
 
+# --- KONFIGURASI CLOUDFLARE R2 STORAGE (S3-COMPATIBLE) ---
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME')
+AWS_S3_ENDPOINT_URL = os.getenv('AWS_S3_ENDPOINT_URL')
+AWS_S3_CUSTOM_DOMAIN = os.getenv('AWS_S3_CUSTOM_DOMAIN')
+
+if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and AWS_STORAGE_BUCKET_NAME and AWS_S3_ENDPOINT_URL:
+    # Mendaftarkan storages di INSTALLED_APPS secara dinamis
+    if 'storages' not in INSTALLED_APPS:
+        INSTALLED_APPS.append('storages')
+    
+    # Atur file storage default ke S3/R2
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    
+    # Pengaturan performa & kompatibilitas S3v4 untuk R2
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_DEFAULT_ACL = None
+    AWS_QUERYSTRING_AUTH = False  # Agar URL file bersifat publik tanpa kedaluwarsa
+    
+    # Path folder penyimpanan di dalam bucket
+    AWS_LOCATION = 'media'
+    
+    # Jika menggunakan custom domain, gunakan custom domain tersebut untuk media URL
+    if AWS_S3_CUSTOM_DOMAIN:
+        MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/{AWS_LOCATION}/'
+    else:
+        MEDIA_URL = f'{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/{AWS_LOCATION}/'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/6.0/ref/settings/#default-auto-field
 
@@ -164,7 +196,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOW_ALL_ORIGINS = True # Catatan: Nanti saat produksi ini harus diubah demi keamanan
 
 # Izinkan custom header dari frontend (khususnya untuk bypass ngrok)
-from corsheaders.defaults import default_headers
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'ngrok-skip-browser-warning',
 ]
@@ -183,7 +214,6 @@ REST_FRAMEWORK = {
 }
 
 # --- Konfigurasi Simple JWT ---
-from datetime import timedelta
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
@@ -197,3 +227,19 @@ CHANNEL_LAYERS = {
         "BACKEND": "channels.layers.InMemoryChannelLayer"
     }
 }
+
+# --- KEAMANAN LAYANAN PRODUKSI (AKAN AKTIF JIKA DEBUG = FALSE) ---
+if not DEBUG:
+    # Memaksa koneksi HTTPS di production
+    SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'True') == 'True'
+    SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True') == 'True'
+    CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'True') == 'True'
+    
+    # HTTP Strict Transport Security (HSTS)
+    SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '31536000')) # 1 tahun
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'True') == 'True'
+    SECURE_HSTS_PRELOAD = os.getenv('SECURE_HSTS_PRELOAD', 'True') == 'True'
+    
+    # Proteksi browser XSS & content-type sniffing
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True

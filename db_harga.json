@@ -1,0 +1,233 @@
+{
+    "print_outdoor_per_m2": {
+        "Banner 240gr Ekonomis": "18.000",
+        "Banner 280gr Best": "25.000",
+        "Banner 340gr Super": "35.000",
+        "Banner 440gr Premium": "65.000",
+        "Albatros": "75.000",
+        "Satin/Clothbanner": "75.000",
+        "Backlite 510gr": "120.000",
+        "Luster/Photopaper": "125.000",
+        "Oneway Vision": "125.000",
+        "Sticker Vinnyl Glossy": "130.000",
+        "Sticker Vinnyl Doff": "130.000",
+        "Sticker Backlite": "130.000"
+    },
+    "stand_banner": {
+        "X/Y Banner 60x160 (Stand Only)": "55.000",
+        "X/Y Banner 60x160 (Banner 280gr)": "75.000",
+        "X/Y Banner 60x160 (Banner 440gr)": "120.000",
+        "X/Y Banner 60x160 (Albatros)": "120.000",
+        "Roll Banner 60x160 (Stand Only)": "175.000",
+        "Roll Banner 60x160 (Banner 440gr)": "250.000",
+        "Roll Banner 60x160 (Albatros)": "265.000",
+        "Roll Banner 80x200 (Stand Only)": "200.000",
+        "Roll Banner 80x200 (Banner 440gr)": "300.000",
+        "Roll Banner 80x200 (Albatros)": "325.000",
+        "Tripod Banner (Stand Only)": "180.000",
+        "Tripod Banner 1 Sisi": "300.000",
+        "Tripod Banner 2 Sisi": "350.000",
+        "Segitiga Banner + Rangka Hollow 60x100": "300.000"
+    },
+    "print_a3_plus": {
+        "HVS CLR": {
+            "1-25 lbr": "4.200",
+            "26-50 lbr": "4.000",
+            "51-100 lbr": "3.700",
+            ">100 lbr": "3.500"
+        },
+        "AP150": {
+            "1-25 lbr": "5.500",
+            "26-50 lbr": "5.000",
+            "51-100 lbr": "4.500",
+            ">100 lbr": "4.000"
+        },
+        "Ivory 230": {
+            "1-25 lbr": "6.000",
+            "26-50 lbr": "5.500",
+            "51-100 lbr": "5.000",
+            ">100 lbr": "4.500"
+        },
+        "Ivory 260": {
+            "1-25 lbr": "6.200",
+            "26-50 lbr": "5.700",
+            "51-100 lbr": "5.200",
+            ">100 lbr": "4.700"
+        },
+        "Astronot": {
+            "1-25 lbr": "6.800",
+            "26-50 lbr": "6.500",
+            "51-100 lbr": "6.200",
+            ">100 lbr": "5.800"
+        },
+        "Milenium": {
+            "1-25 lbr": "6.800",
+            "26-50 lbr": "6.500",
+            "51-100 lbr": "6.200",
+            ">100 lbr": "5.800"
+        },
+        "Gloria 210": {
+            "1-25 lbr": "7.000",
+            "26-50 lbr": "6.800",
+            "51-100 lbr": "6.500",
+            ">100 lbr": "6.200"
+        }
+    },
+    "sticker_a3_plus": {
+        "Chromo": {
+            "1-25 lbr": "7.000",
+            "26-50 lbr": "6.800",
+            "51-100 lbr": "6.500",
+            ">100 lbr": "6.200"
+        },
+        "Vinyl Glossy": {
+            "1-25 lbr": "15.000",
+            "26-50 lbr": "14.000",
+            "51-100 lbr": "13.000",
+            ">100 lbr": "12.000"
+        },
+        "Vinyl Doff": {
+            "1-25 lbr": "15.000",
+            "26-50 lbr": "14.000",
+            "51-100 lbr": "13.000",
+            ">100 lbr": "12.000"
+        },
+        "Transparan": {
+            "1-25 lbr": "15.000",
+            "26-50 lbr": "14.000",
+            "51-100 lbr": "13.000",
+            ">100 lbr": "12.000"
+        },
+        "Hologram": {
+            "1-25 lbr": "18.000",
+            "26-50 lbr": "17.000",
+            "51-100 lbr": "16.000",
+            ">100 lbr": "15.000"
+        }
+    },
+    "laminasi_a3_plus": {
+        "Panas": {
+            "1-25 lbr": "3.000",
+            "26-50 lbr": "2.800",
+            ">51 lbr": "2.500"
+        },
+        "Dingin": {
+            "1-25 lbr": "7.000",
+            "26-50 lbr": "6.500",
+            ">51 lbr": "6.000"
+        }
+    },
+    "paket_cetak_brosur": {
+        "100 lembar A6": {
+            "HVS": "55.000",
+            "AP150": "70.000",
+            "Ivory 230": "80.000",
+            "Ivory 260": "80.000"
+        },
+        "100 lembar A5": {
+            "HVS": "110.000",
+            "AP150": "140.000",
+            "Ivory 230": "150.000",
+            "Ivory 260": "150.000"
+        },
+        "100 lembar A4": {
+            "HVS": "200.000",
+            "AP150": "265.000",
+            "Ivory 230": "270.000",
+            "Ivory 260": "280.000"
+        },
+        "100 lembar A3+": {
+            "HVS": "350.000",
+            "AP150": "450.000",
+            "Ivory 230": "480.000",
+            "Ivory 260": "500.000"
+        },
+        "250 lembar A6": {
+            "HVS": "130.000",
+            "AP150": "170.000",
+            "Ivory 230": "190.000",
+            "Ivory 260": "200.000"
+        },
+        "250 lembar A5": {
+            "HVS": "230.000",
+            "AP150": "300.000",
+            "Ivory 230": "340.000",
+            "Ivory 260": "370.000"
+        }
+    },
+    "merchandise_dan_seminar_kit": {
+        "Mug Custom Standar": "25.000",
+        "Mug Custom Love": "28.000",
+        "Lanyard": {
+            "1-15 pcs": "30.000",
+            "16-30 pcs": "27.500",
+            ">30 pcs": "25.000"
+        },
+        "Jam Dinding": "65.000",
+        "Tumbler Stainless": "65.000",
+        "Tumbler Plastik 1pcs": "30.000",
+        "Tumbler Plastik 2pcs": "25.000",
+        "Payung Standar": "55.000",
+        "Payung Jumbo": "75.000",
+        "Bolpoint": "5.000",
+        "Blocknote A6": "8.000",
+        "Pin 4.5": "6.000",
+        "Pin 5.5": "6.500"
+    },
+    "buku_yasin_dan_finishing": {
+        "Yasin Soft Cover": "14.000",
+        "Yasin Foil Cover": "20.000",
+        "Yasin Hard Cover": "30.000",
+        "Amplop": "1.000",
+        "Jilid Staples": "10.000",
+        "Jilid Spiral": "15.000",
+        "Hardcover A5": "20.000",
+        "Hardcover A4": "30.000",
+        "Laminating A3": "10.000",
+        "Laminating A4": "5.000"
+    },
+    "kartu_nama_ivory_260": {
+        "1 Sisi": {
+            "1 Box": "35.000",
+            "2-5 Box": "33.000",
+            ">5 Box": "30.000"
+        },
+        "1 Sisi + Laminasi": {
+            "1 Box": "45.000",
+            "2-5 Box": "43.000",
+            ">5 Box": "40.000"
+        },
+        "2 Sisi": {
+            "1 Box": "45.000",
+            "2-5 Box": "43.000",
+            ">5 Box": "40.000"
+        },
+        "2 Sisi + Laminasi": {
+            "1 Box": "60.000",
+            "2-5 Box": "58.000",
+            ">5 Box": "55.000"
+        }
+    },
+    "kartu_nama_aster_200": {
+        "1 Sisi": {
+            "1 Box": "37.000",
+            "2-5 Box": "35.000",
+            ">5 Box": "32.000"
+        },
+        "1 Sisi + Laminasi": {
+            "1 Box": "47.000",
+            "2-5 Box": "45.000",
+            ">5 Box": "42.000"
+        },
+        "2 Sisi": {
+            "1 Box": "47.000",
+            "2-5 Box": "45.000",
+            ">5 Box": "42.000"
+        },
+        "2 Sisi + Laminasi": {
+            "1 Box": "62.000",
+            "2-5 Box": "60.000",
+            ">5 Box": "57.000"
+        }
+    }
+}

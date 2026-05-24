@@ -30,6 +30,19 @@ class CustomUserSerializer(serializers.ModelSerializer):
             'no_kpj', 'bpjs_kes', 'file_pkwt'
         ]
 
+    def to_internal_value(self, data):
+        # Buat salinan mutable jika data adalah QueryDict atau dict
+        if hasattr(data, '_mutable'):
+            data = data.copy()
+        elif isinstance(data, dict):
+            data = data.copy()
+
+        # Bersihkan tanggal kosong menjadi None agar validasi serializer lolos
+        for key in ['kontrak_mulai', 'kontrak_selesai']:
+            if key in data and data[key] == '':
+                data[key] = None
+        return super().to_internal_value(data)
+
     def update(self, instance, validated_data):
         # Update base user model
         instance = super().update(instance, validated_data)
@@ -105,20 +118,29 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             'id', 'waktu', 'nomor_wa', 'nama', 'status_global', 'catatan_pelanggan', 
-            'items', 'dp_dibayar', 'diskon_persen', 'total_harga', 'sisa_tagihan'
+            'items', 'dp_dibayar', 'diskon_persen', 'total_harga', 'sisa_tagihan', 'metode_pembayaran'
         ]
         extra_kwargs = {
             'id': {'read_only': True},       
-            'waktu': {'read_only': True},    
+            'waktu': {'required': False},    
             'total_harga': {'read_only': True},  # Biarkan backend yang menjumlahkan totalnya
             'sisa_tagihan': {'read_only': True}, # Backend auto kurang total dengan DP
         }
 
 # --- 6. Contact & Pendukung ---
 class ContactSerializer(serializers.ModelSerializer):
+    total_piutang = serializers.SerializerMethodField()
+
     class Meta:
         model = Contact
-        fields = ['nomor_wa', 'nama', 'total_order', 'total_spent', 'last_order', 'keterangan']
+        fields = ['nomor_wa', 'nama', 'total_order', 'total_spent', 'last_order', 'keterangan', 'total_piutang']
+
+    def get_total_piutang(self, obj):
+        from django.db.models import Sum
+        result = Order.objects.filter(
+            nomor_wa=obj.nomor_wa
+        ).exclude(status_global='batal').aggregate(total=Sum('sisa_tagihan'))['total']
+        return result or 0
 
 # --- 7. Inventory Serializer ---
 class RestockHistorySerializer(serializers.ModelSerializer):
