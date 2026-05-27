@@ -24,7 +24,7 @@ class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'username', 'role', 'divisi', 'divisi_nama', 'no_hp', 'kota', 
+            'id', 'username', 'email', 'role', 'divisi', 'divisi_nama', 'no_hp', 'kota', 
             'negara', 'alamat', 'bio', 'foto_profil', 'last_login', 'date_joined', 
             'status_karyawan', 'jenis_kontrak', 'kontrak_mulai', 'kontrak_selesai',
             'no_kpj', 'bpjs_kes', 'file_pkwt'
@@ -193,6 +193,7 @@ class BusinessSettingsSerializer(serializers.Serializer):
     # BUG FIX: URLField dengan allow_blank=True kadang masih melempar ValidationError
     # untuk string kosong pada beberapa versi DRF. Pakai CharField agar aman.
     logo_url        = serializers.CharField(required=False, allow_blank=True)
+    logo_file       = serializers.ImageField(required=False, write_only=True)
     deskripsi       = serializers.CharField(required=False, allow_blank=True)
     # Metadata: daftar divisi (read-only)
     divisi_list     = serializers.SerializerMethodField()
@@ -217,17 +218,87 @@ class BusinessSettingsSerializer(serializers.Serializer):
                 result[field_name] = SystemConfig.objects.get(key=config_key).value
             except SystemConfig.DoesNotExist:
                 result[field_name] = ''
+        
+        # Resolve logo_url to absolute URL if it is a relative path
+        logo_val = result.get('logo_url')
+        if logo_val:
+            if not (logo_val.startswith('http://') or logo_val.startswith('https://')):
+                from django.core.files.storage import default_storage
+                try:
+                    url = default_storage.url(logo_val)
+                    if url.startswith('http://') or url.startswith('https://'):
+                        result['logo_url'] = url
+                    else:
+                        request = self.context.get('request')
+                        if request:
+                            result['logo_url'] = request.build_absolute_uri(url)
+                        else:
+                            result['logo_url'] = url
+                except Exception:
+                    pass
+
         result['divisi_list'] = self.get_divisi_list(instance)
         return result
 
     def save(self):
         """Tulis perubahan ke SystemConfig."""
         data = self.validated_data
+        
+        # Handle file upload logo_file
+        logo_file = data.get('logo_file')
+        if logo_file:
+            from django.core.files.storage import default_storage
+            import os
+            import uuid
+            
+            # Buat nama file unik
+            ext = os.path.splitext(logo_file.name)[1].lower()
+            if not ext:
+                ext = '.png'
+            filename = f"business_logo/logo_{uuid.uuid4().hex[:8]}{ext}"
+            
+            # Hapus file lama jika ada
+            try:
+                old_logo = SystemConfig.objects.get(key='bisnis_logo_url').value
+                if old_logo and not (old_logo.startswith('http://') or old_logo.startswith('https://')):
+                    # Bersihkan path dari MEDIA_URL jika ada
+                    clean_path = old_logo
+                    from django.conf import settings
+                    if clean_path.startswith(settings.MEDIA_URL):
+                        clean_path = clean_path[len(settings.MEDIA_URL):]
+                    if default_storage.exists(clean_path):
+                        default_storage.delete(clean_path)
+            except Exception:
+                pass
+                
+            # Simpan file baru
+            path = default_storage.save(filename, logo_file)
+            SystemConfig.objects.update_or_create(
+                key='bisnis_logo_url',
+                defaults={'value': path}
+            )
+
         for field_name, config_key in self.FIELD_KEY_MAP.items():
-            if field_name in data:
+            if field_name in data and field_name != 'logo_file':
+                # Jika upload logo_file dilakukan, jangan timpa bisnis_logo_url dengan logo_url kosong/lama yang dikirim
+                if field_name == 'logo_url' and logo_file:
+                    continue
+                
+                value_to_save = data[field_name]
+                if field_name == 'logo_url' and value_to_save:
+                    from django.conf import settings
+                    media_url = settings.MEDIA_URL  # '/media/'
+                    if value_to_save.startswith('http://') or value_to_save.startswith('https://'):
+                        if media_url in value_to_save:
+                            parts = value_to_save.split(media_url, 1)
+                            if len(parts) > 1:
+                                value_to_save = parts[1]
+                    elif value_to_save.startswith(media_url):
+                        value_to_save = value_to_save[len(media_url):]
+
                 SystemConfig.objects.update_or_create(
                     key=config_key,
-                    defaults={'value': data[field_name]}
+                    defaults={'value': value_to_save}
                 )
         return data
 

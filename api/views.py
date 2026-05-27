@@ -39,16 +39,14 @@ class IsClockedIn(BasePermission):
         if getattr(request.user, 'role', '') in ['owner', 'manager']:
             return True
         
-        # Cek absensi staff hari ini: jam_masuk ada, jam_keluar kosong
+        # Cek absensi staff hari ini: jam_masuk ada, jam_keluar kosong ATAU workspace_unlocked di-enable oleh Owner
         from hr.models import Absensi
         from django.utils import timezone
         today = timezone.localdate()
         
         return Absensi.objects.filter(
-            staff=request.user,
-            tanggal=today,
-            jam_masuk__isnull=False,
-            jam_keluar__isnull=True
+            Q(staff=request.user, tanggal=today, jam_masuk__isnull=False, jam_keluar__isnull=True) |
+            Q(staff=request.user, tanggal=today, jam_masuk__isnull=False, workspace_unlocked=True)
         ).exists()
 
 class DivisiViewSet(viewsets.ModelViewSet):
@@ -78,6 +76,47 @@ class CustomUserViewSet(viewsets.ModelViewSet):
                 serializer.save()
                 return Response(serializer.data)
             return Response(serializer.errors, status=400)
+
+    @action(detail=True, methods=['post'], url_path='reset-password')
+    def reset_password(self, request, pk=None):
+        # Hanya Owner atau Manager yang boleh mereset password
+        if request.user.role not in ['owner', 'manager']:
+            return Response({'error': 'Hanya Owner atau Manager yang dapat mereset password.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        user_to_reset = self.get_object()
+        
+        # Manager tidak boleh mereset password Owner atau Manager lain
+        if request.user.role == 'manager' and user_to_reset.role in ['owner', 'manager']:
+            return Response({'error': 'Manager tidak boleh mereset password Owner atau Manager.'}, status=status.HTTP_403_FORBIDDEN)
+            
+        new_password = request.data.get('new_password')
+        if not new_password:
+            return Response({'error': 'Password baru wajib diisi.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        try:
+            validate_password(new_password, user=user_to_reset)
+        except DjangoValidationError as e:
+            return Response({'error': ", ".join(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
+            
+        user_to_reset.set_password(new_password)
+        user_to_reset.save()
+        
+        # Catat audit log
+        from users.models import SecurityAuditLog
+        SecurityAuditLog.objects.create(
+            user=request.user,
+            username_input=request.user.username,
+            event="PASSWORD_CHANGED",
+            ip_address=request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR", "")).split(",")[0].strip(),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            keterangan=f"Reset password untuk user {user_to_reset.username} oleh {request.user.role}",
+            berhasil=True,
+        )
+        
+        return Response({'message': f'Password untuk {user_to_reset.username} berhasil diubah.'}, status=status.HTTP_200_OK)
+
 
 class ContactViewSet(viewsets.ModelViewSet):
     queryset = Contact.objects.all()
@@ -440,12 +479,38 @@ class JobBoardViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsClockedIn]
 
     def get_queryset(self):
+        # Auto-run makemigrations and migrate on hit to apply new migrations automatically!
+        from django.core.management import call_command
+        try:
+            call_command('makemigrations', 'api', interactive=False)
+            call_command('migrate', interactive=False)
+        except Exception as e:
+            print("Auto-migrate/makemigrations error:", e)
+
         user = self.request.user
         # Owner & Manager bisa lihat semua job
         if user.role in ['owner', 'manager']:
             return JobBoard.objects.all().order_by('-id')
         # Staff hanya lihat job yang di-assign ke mereka
         return JobBoard.objects.filter(pic_staff=user).order_by('-id')
+
+    def update(self, request, *args, **kwargs):
+        print("--- DEBUG UPDATE ---", request.data)
+        try:
+            return super().update(request, *args, **kwargs)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise e
+
+    def partial_update(self, request, *args, **kwargs):
+        print("--- DEBUG PARTIAL UPDATE ---", request.data)
+        try:
+            return super().partial_update(request, *args, **kwargs)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise e
 
 # CATATAN: InventoryItemViewSet sudah didefinisikan lengkap di atas (baris ~126).
 # Duplikat class yang lebih simpel ini dihapus agar get_queryset filter & restock @action aktif.
@@ -474,22 +539,8 @@ class ProductPriceViewSet(viewsets.ModelViewSet):
         # Hapus data lama
         ProductPrice.objects.all().delete()
         
-        categories = {
-            'print_outdoor_per_m2': 'Print Outdoor / m²',
-            'stand_banner': 'Stand Banner',
-            'print_a3_plus': 'Print A3+',
-            'sticker_a3_plus': 'Sticker A3+',
-            'laminasi_a3_plus': 'Laminasi A3+',
-            'paket_cetak_brosur': 'Paket Cetak Brosur',
-            'merchandise_dan_seminar_kit': 'Merchandise & Seminar Kit',
-            'buku_yasin_dan_finishing': 'Buku Yasin & Finishing',
-            'kartu_nama_ivory_260': 'Kartu Nama Ivory 260',
-            'kartu_nama_aster_200': 'Kartu Nama Aster 200',
-        }
-        
         created_count = 0
         for cat_key, cat_val in data.items():
-            cat_name = categories.get(cat_key, cat_key)
             for prod_name, prod_val in cat_val.items():
                 if isinstance(prod_val, str):
                     clean_price = int(float(prod_val.replace('.', '')))
@@ -569,8 +620,8 @@ class BusinessSettingsView(APIView):
 
     def get(self, request):
         """Kembalikan semua pengaturan bisnis + daftar divisi."""
-        serializer = BusinessSettingsSerializer(instance={})
-        return Response(serializer.to_representation({}))
+        serializer = BusinessSettingsSerializer(instance={}, context={'request': request})
+        return Response(serializer.data)
 
     def patch(self, request):
         """Update pengaturan bisnis — hanya Owner atau Manager."""
@@ -580,11 +631,11 @@ class BusinessSettingsView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        serializer = BusinessSettingsSerializer(data=request.data, partial=True)
+        serializer = BusinessSettingsSerializer(data=request.data, context={'request': request}, partial=True)
         if serializer.is_valid():
             serializer.save()
             # Kembalikan data terbaru setelah disimpan
-            return Response(BusinessSettingsSerializer(instance={}).to_representation({}))
+            return Response(BusinessSettingsSerializer(instance={}, context={'request': request}).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -798,6 +849,9 @@ class ForwardJobView(APIView):
             # Tandai job saat ini sebagai SELESAI
             job.status_pekerjaan = 'selesai'
             job.waktu_selesai    = timezone.now()
+            job.otp_code         = ''
+            job.otp_requested    = False
+            job.otp_sent         = False
             job.save()
 
             if aksi == 'forward':
@@ -949,8 +1003,12 @@ class FonnteWebhookView(APIView):
         # ── STEP 1: Tanya nama (kontak baru) ──────────────────────
         if not nama_pelanggan and sender not in menunggu_nama:
             menunggu_nama.add(sender)
+            try:
+                biz_name = SystemConfig.objects.get(key='bisnis_nama').value or 'Brandy'
+            except Exception:
+                biz_name = 'Brandy'
             jawaban = (
-                "Halo Kak! 👋 Selamat datang di *Bintang Advertising*.\n"
+                f"Halo Kak! 👋 Selamat datang di *{biz_name}*.\n"
                 "Boleh tahu dengan Kakak siapa ini biar lebih enak ngobrolnya? 😊"
             )
             return self._kirim_balas(jawaban)
@@ -1173,3 +1231,129 @@ class FonnteWebhookView(APIView):
 
 
         return order_id
+
+
+# ---------------------------------------------------------
+# STAFF PERFORMANCE REPORT VIEW — Agregasi kinerja karyawan
+# ---------------------------------------------------------
+class StaffPerformanceReportView(APIView):
+    """
+    GET /api/reports/staff-performance/
+    Mengembalikan statistik kinerja masing-masing staff:
+    - Jumlah job diselesaikan, sedang berjalan, gagal, dll.
+    - Total insentif yang diperoleh.
+    - Rata-rata durasi penyelesaian tugas (menit).
+    """
+    permission_classes = [IsOwnerOrManager]
+
+    def get(self, request):
+        import calendar
+        from django.utils import timezone
+        
+        time_range = request.query_params.get('range', 'bulan_ini')
+        now = timezone.localtime(timezone.now())
+        
+        # Default rentang waktu
+        start = None
+        end = None
+        
+        if time_range == 'bulan_ini':
+            start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            _, last_day = calendar.monthrange(now.year, now.month)
+            end = now.replace(day=last_day, hour=23, minute=59, second=59, microsecond=999999)
+        elif time_range == 'bulan_lalu':
+            year = now.year
+            month = now.month - 1
+            if month <= 0:
+                month = 12
+                year -= 1
+            start = now.replace(year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
+            _, last_day = calendar.monthrange(year, month)
+            end = now.replace(year=year, month=month, day=last_day, hour=23, minute=59, second=59, microsecond=999999)
+
+        # Ambil semua user dengan role staff (dioptimasi dengan prefetch_related)
+        staff_members = CustomUser.objects.filter(role='staff').select_related('divisi').prefetch_related('my_tasks', 'absensi')
+        
+        from hr.models import DailyAttendanceSession
+        if start and end:
+            sessions = DailyAttendanceSession.objects.filter(tanggal__gte=start.date(), tanggal__lte=end.date())
+        else:
+            sessions = DailyAttendanceSession.objects.all()
+        session_map = {s.tanggal: s.batas_maksimal for s in sessions}
+
+        report_data = []
+        for staff in staff_members:
+            jobs = staff.my_tasks.all()
+            
+            # Saring berdasarkan rentang waktu jika diset
+            if start and end:
+                completed_jobs = jobs.filter(status_pekerjaan='selesai', waktu_selesai__gte=start, waktu_selesai__lte=end)
+                failed_jobs = jobs.filter(status_pekerjaan__in=['gagal', 'batal'], waktu_selesai__gte=start, waktu_selesai__lte=end)
+            else:
+                completed_jobs = jobs.filter(status_pekerjaan='selesai')
+                failed_jobs = jobs.filter(status_pekerjaan__in=['gagal', 'batal'])
+                
+            active_jobs = jobs.filter(status_pekerjaan='dikerjakan')
+            pending_jobs = jobs.filter(status_pekerjaan='antrean')
+            constraint_jobs = jobs.filter(status_pekerjaan='kendala')
+
+            total_jobs = completed_jobs.count() + failed_jobs.count() + active_jobs.count() + pending_jobs.count() + constraint_jobs.count()
+            total_insentif = sum(j.insentif for j in completed_jobs)
+            
+            # Rata-rata durasi pengerjaan job selesai (menit)
+            durations = []
+            for j in completed_jobs:
+                if j.waktu_mulai and j.waktu_selesai:
+                    diff = j.waktu_selesai - j.waktu_mulai
+                    durations.append(diff.total_seconds() / 60.0)
+            
+            avg_duration = round(sum(durations) / len(durations), 1) if durations else 0
+
+            # Hitung statistik kehadiran
+            absensi_list = staff.absensi.all()
+            if start and end:
+                absensi_list = [a for a in absensi_list if start.date() <= a.tanggal <= end.date()]
+            
+            ontime_count = 0
+            late_count = 0
+            alpha_count = 0
+            
+            for a in absensi_list:
+                if a.status == 'alpha':
+                    alpha_count += 1
+                elif a.status in ['hadir', 'wfh', 'izin']:
+                    batas = session_map.get(a.tanggal)
+                    if batas and a.jam_masuk:
+                        if a.jam_masuk > batas:
+                            late_count += 1
+                        else:
+                            ontime_count += 1
+                    else:
+                        if a.status == 'izin':
+                            late_count += 1
+                        else:
+                            ontime_count += 1
+            
+            report_data.append({
+                'id': staff.id,
+                'username': staff.username,
+                'nama_lengkap': staff.get_full_name() or staff.username,
+                'divisi': staff.divisi.nama if staff.divisi else '-',
+                'jobs_total': total_jobs,
+                'jobs_completed': completed_jobs.count(),
+                'jobs_in_progress': active_jobs.count(),
+                'jobs_pending': pending_jobs.count(),
+                'jobs_failed': failed_jobs.count(),
+                'jobs_constraint': constraint_jobs.count(),
+                'total_insentif': total_insentif,
+                'avg_duration_minutes': avg_duration,
+                'att_ontime': ontime_count,
+                'att_late': late_count,
+                'att_alpha': alpha_count,
+                'att_total': len(absensi_list)
+            })
+            
+        return Response({
+            'range': time_range,
+            'data': report_data
+        })

@@ -1,8 +1,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, BusinessSettingsView
-from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView
+from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, BusinessSettingsView, StaffPerformanceReportView
+from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView
 
 router = DefaultRouter()
 
@@ -34,6 +34,10 @@ urlpatterns = [
     path('export/jobs/', ExportJobsView.as_view(), name='export-jobs'),
     path('export/contacts/', ExportContactsView.as_view(), name='export-contacts'),
     path('export/absensi/', ExportAbsensiView.as_view(), name='export-absensi'),
+    path('export/staff-performance/', ExportStaffPerformanceView.as_view(), name='export-staff-performance'),
+
+    # Reports Endpoints
+    path('reports/staff-performance/', StaffPerformanceReportView.as_view(), name='staff-performance-report'),
 
     # Explicit restock URL — standalone APIView, tidak pakai @action ViewSet
     path('inventory/<str:pk>/restock/', InventoryRestockView.as_view(), name='inventory-restock'),

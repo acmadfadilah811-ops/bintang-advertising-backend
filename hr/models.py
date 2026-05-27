@@ -29,6 +29,10 @@ class Absensi(models.Model):
         null=True, blank=True, help_text="Clock-out — diisi saat staff klik tombol keluar."
     )
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="hadir")
+    workspace_unlocked = models.BooleanField(
+        default=False,
+        help_text="Bypass checkout/lock status, owner mengizinkan staff mengakses papan kerja meskipun sudah checkout."
+    )
     catatan = models.TextField(blank=True, default="")
     diverifikasi = models.BooleanField(
         default=False, help_text="Manager menandai kehadiran sudah diverifikasi."

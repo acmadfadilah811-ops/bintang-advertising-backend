@@ -26,6 +26,7 @@ class AbsensiSerializer(serializers.ModelSerializer):
             "catatan",
             "durasi_kerja_jam",
             "sudah_clock_out",
+            "workspace_unlocked",
             "diverifikasi",
             "diverifikasi_oleh_nama",
         ]

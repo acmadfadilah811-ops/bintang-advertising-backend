@@ -35,6 +35,7 @@ class CustomUser(AbstractUser):
     ROLE_CHOICES = (
         ('owner', 'Owner / Boss'),
         ('manager', 'Manager'),
+        ('admin', 'Admin'),
         ('staff', 'Staff Produksi'),
     )
     
@@ -196,9 +197,14 @@ class JobBoard(models.Model):
     # Catatan hasil modifikasi/interview staff berbentuk tabel Excel (JSON)
     catatan_staff = models.JSONField(default=list, null=True, blank=True, help_text="Keterangan staff berformat Tabel/Excel (JSON)")
     gdrive_output_link = models.URLField(max_length=500, null=True, blank=True, help_text="Link file hasil kerja staff di Google Drive")
+    alasan_gagal = models.TextField(null=True, blank=True, help_text="Alasan kenapa pengerjaan job ini gagal atau dibatalkan")
     
     # Nominal insentif ditentukan secara manual oleh Manager
     insentif = models.IntegerField(default=0, help_text="Insentif yang ditentukan oleh Manager untuk tugas ini")
+    
+    otp_code = models.CharField(max_length=10, blank=True, default="")
+    otp_requested = models.BooleanField(default=False)
+    otp_sent = models.BooleanField(default=False)
     
     waktu_mulai = models.DateTimeField(null=True, blank=True)
     waktu_selesai = models.DateTimeField(null=True, blank=True)

@@ -221,3 +221,100 @@ class ExportAbsensiView(APIView):
             return Response({'error': f'Gagal membuat file Excel: {str(e)}'}, status=500)
 
         return response
+
+
+class ExportStaffPerformanceView(APIView):
+    """
+    GET /api/export/staff-performance/?range=bulan_ini
+    Mengekspor laporan kinerja seluruh staff ke dalam format Excel (.xlsx)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not _check_role(request.user):
+            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
+
+        time_range = request.query_params.get('range', 'bulan_ini')
+        
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="kinerja_karyawan_{time_range}_{timezone.now().strftime("%Y%m%d")}.xlsx"'
+
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Kinerja Karyawan"
+
+            headers = [
+                'Nama Karyawan', 'Username', 'Divisi', 
+                'Total Tugas', 'Tugas Selesai', 'Sedang Dikerjakan', 
+                'Antrean', 'Gagal/Batal', 'Ada Kendala', 
+                'Total Insentif (Rp)', 'Rata-rata Durasi (Menit)'
+            ]
+            ws.append(headers)
+
+            import calendar
+            from api.models import CustomUser
+            
+            now = timezone.localtime(timezone.now())
+            start = None
+            end = None
+            
+            if time_range == 'bulan_ini':
+                start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                _, last_day = calendar.monthrange(now.year, now.month)
+                end = now.replace(day=last_day, hour=23, minute=59, second=59, microsecond=999999)
+            elif time_range == 'bulan_lalu':
+                year = now.year
+                month = now.month - 1
+                if month <= 0:
+                    month = 12
+                    year -= 1
+                start = now.replace(year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
+                _, last_day = calendar.monthrange(year, month)
+                end = now.replace(year=year, month=month, day=last_day, hour=23, minute=59, second=59, microsecond=999999)
+
+            staff_members = CustomUser.objects.filter(role='staff').select_related('divisi').prefetch_related('my_tasks')
+
+            for staff in staff_members:
+                jobs = staff.my_tasks.all()
+                if start and end:
+                    completed_jobs = jobs.filter(status_pekerjaan='selesai', waktu_selesai__gte=start, waktu_selesai__lte=end)
+                    failed_jobs = jobs.filter(status_pekerjaan__in=['gagal', 'batal'], waktu_selesai__gte=start, waktu_selesai__lte=end)
+                else:
+                    completed_jobs = jobs.filter(status_pekerjaan='selesai')
+                    failed_jobs = jobs.filter(status_pekerjaan__in=['gagal', 'batal'])
+                    
+                active_jobs = jobs.filter(status_pekerjaan='dikerjakan')
+                pending_jobs = jobs.filter(status_pekerjaan='antrean')
+                constraint_jobs = jobs.filter(status_pekerjaan='kendala')
+
+                total_jobs = completed_jobs.count() + failed_jobs.count() + active_jobs.count() + pending_jobs.count() + constraint_jobs.count()
+                total_insentif = sum(j.insentif for j in completed_jobs)
+
+                durations = []
+                for j in completed_jobs:
+                    if j.waktu_mulai and j.waktu_selesai:
+                        diff = j.waktu_selesai - j.waktu_mulai
+                        durations.append(diff.total_seconds() / 60.0)
+                
+                avg_duration = round(sum(durations) / len(durations), 1) if durations else 0
+
+                ws.append([
+                    staff.get_full_name() or staff.username,
+                    staff.username,
+                    staff.divisi.nama if staff.divisi else '-',
+                    total_jobs,
+                    completed_jobs.count(),
+                    active_jobs.count(),
+                    pending_jobs.count(),
+                    failed_jobs.count(),
+                    constraint_jobs.count(),
+                    total_insentif,
+                    avg_duration
+                ])
+
+            wb.save(response)
+        except Exception as e:
+            return Response({'error': f'Gagal membuat file Excel: {str(e)}'}, status=500)
+
+        return response

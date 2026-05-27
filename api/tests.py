@@ -71,7 +71,7 @@ class ModelsTestCase(TestCase):
             diskon_persen=10.0 # Diskon 10%
         )
         
-        item = OrderItem.objects.create(
+        OrderItem.objects.create(
             order=order,
             jenis_produk="Spanduk Flexi",
             harga_jual=100000,

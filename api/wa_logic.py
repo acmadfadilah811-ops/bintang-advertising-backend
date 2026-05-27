@@ -17,6 +17,14 @@ import re
 import difflib
 
 
+def get_business_name():
+    from .models import SystemConfig
+    try:
+        return SystemConfig.objects.get(key='bisnis_nama').value or 'Brandy'
+    except Exception:
+        return 'Brandy'
+
+
 # ── AI Client (KoboiLLM — OpenAI-compatible) ──────────────────────────
 def get_ai_client():
     from openai import OpenAI
@@ -96,8 +104,9 @@ def get_system_prompt(nama_pelanggan=""):
         conf = AppConfig.objects.get(pk="system_prompt")
         template_ai = conf.value
     except AppConfig.DoesNotExist:
+        biz_name = get_business_name()
         template_ai = (
-            "Kamu adalah asisten virtual Bintang Advertising yang ramah dan profesional. "
+            f"Kamu adalah asisten virtual {biz_name} yang ramah dan profesional. "
             "Jawab dalam bahasa Indonesia yang santai dan singkat.\n\n"
             "=== ATURAN WAJIB ===\n"
             "1. Jika pelanggan menyebut ingin mencetak, memesan, membuat, atau order produk apapun, "
@@ -106,7 +115,7 @@ def get_system_prompt(nama_pelanggan=""):
             "2. Jika hanya tanya harga atau info produk, jawab singkat tanpa form.\n"
             "3. Jangan mengarang harga — gunakan data harga yang tersedia.\n\n"
             "=== TEMPLATE FORM ORDER (gunakan PERSIS ini, jangan ubah format) ===\n"
-            "📋 *FORM ORDER - Bintang Advertising*\n"
+            f"📋 *FORM ORDER - {biz_name}*\n"
             "_(Bisa isi lebih dari 1 item)_\n\n"
             "👤 *Data Pemesan*\n"
             "- Nama    : \n"
@@ -342,8 +351,9 @@ def cek_harga(pesan, nama_pelanggan):
 def get_form_order(nama_pelanggan=""):
     from .models import AppConfig
     nama_isi = nama_pelanggan if nama_pelanggan else ""
+    biz_name = get_business_name()
     default_template = (
-        f"📋 *FORM ORDER - Bintang Advertising*\n"
+        f"📋 *FORM ORDER - {biz_name}*\n"
         f"_(Bisa isi lebih dari 1 item, copy baris Item 2 dst. jika perlu)_\n\n"
         f"👤 *Data Pemesan*\n"
         f"- Nama    : {nama_isi}\n"
@@ -397,14 +407,15 @@ def cek_rules_awal(pesan, nomor, nama_pelanggan):
     sapaan_list = ['halo', 'p', 'ping', 'hai', 'hi', 'min', 'tes', 'test',
                    'pagi', 'siang', 'sore', 'malam', 'hei', 'permisi', 'selamat', 'assalamualaikum', 'ass']
     if p in sapaan_list or p.startswith('ass') or p.startswith('wass'):
+        biz_name = get_business_name()
         if not nama_pelanggan:
             menunggu_nama.add(nomor)
             return (
-                "Halo Kak! Selamat datang di *Bintang Advertising* ⭐\n"
+                f"Halo Kak! Selamat datang di *{biz_name}* ⭐\n"
                 "Boleh tahu nama Kakak siapa? 😊"
             )
         return (
-            f"Halo {panggilan}! 👋 Selamat datang kembali di Bintang Advertising.\n\n"
+            f"Halo {panggilan}! 👋 Selamat datang kembali di {biz_name}.\n\n"
             f"Ada yang bisa kami bantu? Mau:\n"
             f"1. 📋 *Order* produk cetak\n"
             f"2. 💰 *Tanya harga* produk\n"

@@ -1,0 +1,230 @@
+ERROR 2026-05-26 00:01:23,775 basehttp 7020 8012 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:01:24,666 basehttp 7020 284 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:02:16,643 basehttp 7020 6764 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:02:17,192 basehttp 7020 532 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:02:40,193 basehttp 7020 13436 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:02:40,419 basehttp 7020 15180 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:02:55,550 basehttp 7020 18140 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:02:56,122 basehttp 7020 10048 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:03:32,464 basehttp 7020 10724 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:03:32,504 basehttp 7020 4536 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:03:41,139 basehttp 7020 19248 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:03:41,148 basehttp 7020 11304 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:08:59,112 basehttp 7020 13252 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:08:59,453 basehttp 7020 6600 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:09:43,445 basehttp 2784 18992 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:09:43,453 basehttp 2784 4168 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:09:43,458 basehttp 2784 20224 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:09:43,465 basehttp 2784 3808 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:19,908 basehttp 2784 15852 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:20,157 basehttp 2784 4980 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:20,223 basehttp 2784 17512 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:20,477 basehttp 2784 13784 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:49,755 basehttp 2784 8496 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:49,772 basehttp 2784 7240 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:50,009 basehttp 2784 9000 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:50,063 basehttp 2784 20736 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:50,082 basehttp 2784 12916 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 00:10:50,325 basehttp 2784 13376 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 21:58:27,605 basehttp 20528 14492 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 21:58:27,609 basehttp 20528 2812 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:07:01,520 basehttp 20528 10604 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:07:01,521 basehttp 20528 10880 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:07:01,523 basehttp 20528 17944 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:07:01,525 basehttp 20528 4812 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:07:14,105 basehttp 20528 9312 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:07:14,107 basehttp 20528 10092 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:07:14,108 basehttp 20528 10032 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:07:14,110 basehttp 20528 7784 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:54,698 basehttp 17164 6940 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:54,702 basehttp 17164 17036 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:54,705 basehttp 17164 5904 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:54,709 basehttp 17164 17308 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:54,731 basehttp 17164 20276 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:54,740 basehttp 17164 8884 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:56,082 basehttp 17164 14516 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:56,087 basehttp 17164 8456 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:56,091 basehttp 17164 1352 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:09:56,094 basehttp 17164 17876 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:11:56,475 basehttp 17164 15324 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:11:56,477 basehttp 17164 20536 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:14:29,383 basehttp 17164 20288 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:14:29,389 basehttp 17164 8256 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:21,923 basehttp 19488 2108 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:21,928 basehttp 19488 11936 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:21,933 basehttp 19488 6464 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:21,951 basehttp 19488 19824 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:21,973 basehttp 19488 20596 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:21,977 basehttp 19488 15660 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:29,655 basehttp 19488 11232 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:29,658 basehttp 19488 20708 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:35,452 basehttp 19488 5092 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:35,453 basehttp 19488 4768 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:35,456 basehttp 19488 9060 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:20:35,457 basehttp 19488 8040 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:28:05,069 basehttp 19492 7908 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:28:05,074 basehttp 19492 17036 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:28:05,087 basehttp 19492 16804 You're accessing the development server over HTTPS, but it only supports HTTP.
+ERROR 2026-05-26 22:28:05,215 basehttp 19492 12148 You're accessing the development server over HTTPS, but it only supports HTTP.
+WARNING 2026-05-26 22:32:58,235 base 2060 8580 Session data corrupted
+WARNING 2026-05-26 22:32:58,316 base 2060 8580 Session data corrupted
+WARNING 2026-05-26 22:32:59,095 base 2060 9916 Session data corrupted
+WARNING 2026-05-26 22:32:59,095 log 2060 9916 Not Found: /favicon.ico
+WARNING 2026-05-26 22:32:59,095 basehttp 2060 9916 "GET /favicon.ico HTTP/1.1" 404 2800
+WARNING 2026-05-26 22:33:40,966 base 2060 9916 Session data corrupted
+WARNING 2026-05-27 01:21:40,302 log 5292 14420 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:21:40,305 basehttp 5292 14420 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:21:40,359 log 5292 14420 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:21:40,378 basehttp 5292 14420 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:21:40,405 log 5292 9672 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-05-27 01:21:40,415 basehttp 5292 9672 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:21:40,428 log 5292 9672 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-05-27 01:21:40,433 basehttp 5292 9672 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:01,902 log 5292 9672 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:22:01,906 basehttp 5292 9672 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:01,973 log 5292 9672 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:22:01,975 basehttp 5292 9672 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:05,733 log 5292 15640 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:22:05,737 basehttp 5292 15640 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:05,772 log 5292 15640 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:22:05,789 basehttp 5292 15640 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:09,453 log 5292 9672 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:22:09,458 basehttp 5292 9672 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:09,508 log 5292 1892 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-05-27 01:22:09,509 log 5292 9672 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:22:09,515 basehttp 5292 1892 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:09,522 basehttp 5292 9672 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:09,565 log 5292 15640 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-05-27 01:22:09,568 basehttp 5292 15640 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:43,488 log 5292 3732 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:22:43,499 basehttp 5292 3732 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:43,506 log 5292 1892 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:22:43,519 basehttp 5292 1892 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:43,572 log 5292 1892 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-05-27 01:22:43,575 basehttp 5292 1892 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:22:43,590 log 5292 1892 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-05-27 01:22:43,599 basehttp 5292 1892 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:24:13,255 log 5292 1892 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:24:13,256 basehttp 5292 1892 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:24:13,288 log 5292 1892 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:24:13,307 basehttp 5292 1892 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:24:13,341 log 5292 9672 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-05-27 01:24:13,353 basehttp 5292 9672 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:24:13,372 log 5292 9672 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-05-27 01:24:13,379 basehttp 5292 9672 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:28:11,263 log 3636 20812 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:28:11,278 basehttp 3636 20812 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:29:50,236 log 3636 4604 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:29:50,262 basehttp 3636 4604 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:29:50,281 log 3636 4604 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:29:50,292 basehttp 3636 4604 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:30:27,932 log 3636 20812 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:30:27,951 basehttp 3636 20812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:30:27,979 log 3636 20812 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:30:27,982 basehttp 3636 20812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:31:30,494 log 3636 7004 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:31:30,496 basehttp 3636 7004 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:31:30,528 log 3636 7004 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:31:30,558 basehttp 3636 7004 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:31:57,642 log 3636 4604 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:31:57,654 basehttp 3636 4604 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:31:57,673 log 3636 20812 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:31:57,699 basehttp 3636 20812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:35:22,349 log 3636 16576 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:35:22,403 basehttp 3636 16576 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:35:22,427 log 3636 7004 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:35:22,460 basehttp 3636 7004 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:36:33,621 log 3636 20812 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:36:33,625 basehttp 3636 20812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:36:33,670 log 3636 20812 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:36:33,678 basehttp 3636 20812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:36:38,212 log 3636 16576 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:36:38,231 basehttp 3636 16576 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:36:38,274 log 3636 7004 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:36:38,293 basehttp 3636 7004 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:36:41,602 log 3636 16828 Bad Request: /api/hr/absensi/clock-in/
+WARNING 2026-05-27 01:36:41,609 basehttp 3636 16828 "POST /api/hr/absensi/clock-in/ HTTP/1.1" 400 67
+WARNING 2026-05-27 01:38:08,893 log 3636 16576 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:38:08,904 basehttp 3636 16576 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:38:08,938 log 3636 7004 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:38:08,950 basehttp 3636 7004 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:38:23,519 log 3636 5972 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:38:23,537 basehttp 3636 5972 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:38:23,569 log 3636 5972 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:38:23,579 basehttp 3636 5972 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:40:21,754 log 3636 16828 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:40:21,758 basehttp 3636 16828 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:40:21,818 log 3636 16828 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:40:21,828 basehttp 3636 16828 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:40:25,539 log 3636 16576 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:40:25,544 basehttp 3636 16576 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:40:25,605 log 3636 16576 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:40:25,625 basehttp 3636 16576 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:40:27,400 log 3636 16828 Bad Request: /api/hr/absensi/clock-in/
+WARNING 2026-05-27 01:40:27,405 basehttp 3636 16828 "POST /api/hr/absensi/clock-in/ HTTP/1.1" 400 67
+WARNING 2026-05-27 01:41:06,774 log 3636 16828 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:41:06,780 basehttp 3636 16828 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:41:06,806 log 3636 16828 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:41:06,810 basehttp 3636 16828 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:41:10,737 log 3636 20812 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:41:10,765 basehttp 3636 20812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:41:10,798 log 3636 20812 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:41:10,809 basehttp 3636 20812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:43:06,029 log 3636 5972 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:43:06,042 basehttp 3636 5972 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:43:06,068 log 3636 5972 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:43:06,107 basehttp 3636 5972 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:43:28,821 log 3636 20812 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:43:28,853 basehttp 3636 20812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:43:28,885 log 3636 20812 Forbidden: /api/jobs/
+WARNING 2026-05-27 01:43:28,904 basehttp 3636 20812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:43:34,339 log 3636 5972 Bad Request: /api/hr/absensi/clock-in/
+WARNING 2026-05-27 01:43:34,340 basehttp 3636 5972 "POST /api/hr/absensi/clock-in/ HTTP/1.1" 400 67
+WARNING 2026-05-27 01:49:08,467 log 3636 11604 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:49:08,481 basehttp 3636 11604 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 01:49:08,505 log 3636 11604 Forbidden: /api/users/online/
+WARNING 2026-05-27 01:49:08,521 basehttp 3636 11604 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-05-27 02:02:45,235 log 3636 16796 Not Found: /api/customers/
+WARNING 2026-05-27 02:02:45,236 basehttp 3636 16796 "GET /api/customers/?limit=1 HTTP/1.1" 404 21278
+WARNING 2026-05-27 02:02:45,271 log 3636 10980 Not Found: /api/customers/
+WARNING 2026-05-27 02:02:45,275 basehttp 3636 10980 "GET /api/customers/?limit=1 HTTP/1.1" 404 21278
+WARNING 2026-05-27 02:10:15,597 log 3636 1652 Not Found: /api/customers/
+WARNING 2026-05-27 02:10:15,602 basehttp 3636 1652 "GET /api/customers/?limit=1 HTTP/1.1" 404 21278
+WARNING 2026-05-27 02:10:15,640 log 3636 6176 Not Found: /api/customers/
+WARNING 2026-05-27 02:10:15,643 basehttp 3636 6176 "GET /api/customers/?limit=1 HTTP/1.1" 404 21278
+WARNING 2026-05-27 10:35:29,557 log 3636 22496 Not Found: /api/customers/
+WARNING 2026-05-27 10:35:29,574 basehttp 3636 22496 "GET /api/customers/?limit=1 HTTP/1.1" 404 21278
+WARNING 2026-05-27 10:35:29,686 log 3636 18040 Not Found: /api/customers/
+WARNING 2026-05-27 10:35:29,688 basehttp 3636 18040 "GET /api/customers/?limit=1 HTTP/1.1" 404 21278
+WARNING 2026-05-27 10:35:52,022 log 3636 8256 Bad Request: /api/hr/absensi/clock-in/
+WARNING 2026-05-27 10:35:52,024 basehttp 3636 8256 "POST /api/hr/absensi/clock-in/ HTTP/1.1" 400 67
+WARNING 2026-05-27 10:58:44,143 log 3636 1676 Not Found: /api/customers/
+WARNING 2026-05-27 10:58:44,182 basehttp 3636 1676 "GET /api/customers/?limit=1 HTTP/1.1" 404 21278
+WARNING 2026-05-27 10:58:44,475 log 3636 21008 Not Found: /api/customers/
+WARNING 2026-05-27 10:58:44,487 basehttp 3636 21008 "GET /api/customers/?limit=1 HTTP/1.1" 404 21278
+WARNING 2026-05-27 11:02:53,450 log 3636 13132 Forbidden: /api/jobs/
+WARNING 2026-05-27 11:02:53,470 basehttp 3636 13132 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 11:02:53,488 log 3636 1676 Forbidden: /api/jobs/
+WARNING 2026-05-27 11:02:53,503 basehttp 3636 1676 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 11:32:14,387 log 6696 5364 Forbidden: /api/jobs/
+WARNING 2026-05-27 11:32:14,394 basehttp 6696 5364 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 11:32:14,436 log 6696 5364 Forbidden: /api/jobs/
+WARNING 2026-05-27 11:32:14,443 basehttp 6696 5364 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 18:42:07,155 log 18764 14780 Forbidden: /api/jobs/
+WARNING 2026-05-27 18:42:07,165 basehttp 18764 14780 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 18:42:07,177 log 18764 14780 Forbidden: /api/jobs/
+WARNING 2026-05-27 18:42:07,179 basehttp 18764 14780 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 18:42:33,898 log 18764 14780 Forbidden: /api/jobs/
+WARNING 2026-05-27 18:42:33,902 basehttp 18764 14780 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 18:42:33,942 log 18764 14780 Forbidden: /api/jobs/
+WARNING 2026-05-27 18:42:33,950 basehttp 18764 14780 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 19:00:24,510 log 18448 1460 Forbidden: /api/jobs/
+WARNING 2026-05-27 19:00:24,667 basehttp 18448 1460 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 19:00:25,534 log 18448 8680 Forbidden: /api/jobs/
+WARNING 2026-05-27 19:00:25,702 basehttp 18448 8680 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-27 19:00:46,400 log 18448 1460 Unauthorized: /api/auth/login/
+WARNING 2026-05-27 19:00:46,413 basehttp 18448 1460 "POST /api/auth/login/ HTTP/1.1" 401 81
+WARNING 2026-05-27 19:01:22,165 log 18448 1460 Unauthorized: /api/auth/login/
+WARNING 2026-05-27 19:01:22,171 basehttp 18448 1460 "POST /api/auth/login/ HTTP/1.1" 401 81
+WARNING 2026-05-27 19:02:46,238 log 18448 1460 Bad Request: /api/auth/forgot-password/verify/
+WARNING 2026-05-27 19:02:46,248 basehttp 18448 1460 "POST /api/auth/forgot-password/verify/ HTTP/1.1" 400 59
