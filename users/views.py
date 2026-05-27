@@ -136,18 +136,18 @@ class CustomLoginView(TokenObtainPairView):
             )
 
             # Kirim OTP via email
-            subject = "[ZIS CRM] Kode Verifikasi Keamanan Login"
+            subject = "[Brandy CRM] Kode Verifikasi Keamanan Login"
             message = f"""Halo {user.username},
 
 Sistem kami mendeteksi upaya login dari alamat IP yang berbeda ({ip}) dibandingkan dengan sesi Anda sebelumnya.
 
 Silakan gunakan kode OTP berikut untuk memverifikasi identitas Anda:
-👉 KODE VERIFIKASI: {otp}
+KODE VERIFIKASI: {otp}
 
 Kode ini hanya berlaku selama 5 menit. Jika ini bukan Anda, segera hubungi Owner atau ganti password Anda.
 
 Terima kasih,
-Tim Keamanan ZIS CRM
+Tim Keamanan Brandy CRM
 """
             send_mail(
                 subject,
@@ -641,18 +641,18 @@ class ForgotPasswordRequestView(APIView):
         cache.set(f"pw_reset_otp_{username}", otp, 300) # Berlaku 5 menit
 
         # Kirim email
-        subject = "[ZIS CRM] Kode OTP Lupa Password"
+        subject = "[Brandy CRM] Kode OTP Lupa Password"
         message = f"""Halo {user.username},
 
-Anda menerima email ini karena ada permintaan untuk mengatur ulang kata sandi Akun ZIS CRM Anda.
+Anda menerima email ini karena ada permintaan untuk mengatur ulang kata sandi Akun Brandy CRM Anda.
 
 Silakan gunakan kode OTP berikut untuk mereset kata sandi Anda:
-👉 KODE OTP: {otp}
+KODE OTP: {otp}
 
 Kode ini hanya berlaku selama 5 menit. Jika Anda tidak meminta ini, abaikan email ini secara aman.
 
 Terima kasih,
-Tim Keamanan ZIS CRM
+Tim Keamanan Brandy CRM
 """
         send_mail(
             subject,
