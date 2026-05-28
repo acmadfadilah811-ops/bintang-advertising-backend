@@ -358,12 +358,19 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        base_qs = Order.objects.prefetch_related(
+            'items__jobs',
+            'items__jobs__tahap',
+            'items__jobs__tahap__divisi',
+            'items__jobs__pic_staff',
+            'items__jobs__pic_staff__divisi'
+        ).order_by('-waktu')
         if user.role in ['owner', 'manager']:
-            return Order.objects.all().order_by('-waktu')
+            return base_qs
         my_order_ids = JobBoard.objects.filter(
             pic_staff=user
         ).values_list('order_item__order_id', flat=True)
-        return Order.objects.filter(id__in=my_order_ids).order_by('-waktu')
+        return base_qs.filter(id__in=my_order_ids)
 
     def perform_create(self, serializer):
         # Auto-generate ID: ORD-20260517-A3F2
@@ -488,11 +495,19 @@ class JobBoardViewSet(viewsets.ModelViewSet):
             print("Auto-migrate/makemigrations error:", e)
 
         user = self.request.user
+        base_qs = JobBoard.objects.select_related(
+            'tahap',
+            'tahap__divisi',
+            'pic_staff',
+            'pic_staff__divisi',
+            'order_item',
+            'order_item__order'
+        ).order_by('-id')
         # Owner & Manager bisa lihat semua job
         if user.role in ['owner', 'manager']:
-            return JobBoard.objects.all().order_by('-id')
+            return base_qs
         # Staff hanya lihat job yang di-assign ke mereka
-        return JobBoard.objects.filter(pic_staff=user).order_by('-id')
+        return base_qs.filter(pic_staff=user)
 
     def update(self, request, *args, **kwargs):
         print("--- DEBUG UPDATE ---", request.data)

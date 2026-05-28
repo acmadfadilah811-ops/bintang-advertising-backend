@@ -40,6 +40,9 @@ ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',')] if _allowed != '*' else
 CSRF_TRUSTED_ORIGINS = [
     f'https://{h}' for h in ALLOWED_HOSTS
     if h not in ('127.0.0.1', 'localhost', '*')
+] + [
+    'https://brandy-crm-811.web.app',
+    'https://brandy-crm-811.firebaseapp.com',
 ]
 
 

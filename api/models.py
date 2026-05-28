@@ -39,7 +39,7 @@ class CustomUser(AbstractUser):
         ('staff', 'Staff Produksi'),
     )
     
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='staff')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='staff', db_index=True)
     divisi = models.ForeignKey(Divisi, on_delete=models.SET_NULL, null=True, blank=True, related_name='users') 
     no_hp = models.CharField(max_length=20, null=True, blank=True)
     kota = models.CharField(max_length=50, null=True, blank=True)
@@ -66,7 +66,7 @@ class CustomUser(AbstractUser):
 # ---------------------------------------------------------
 class Contact(models.Model):
     nomor_wa = models.CharField(max_length=20, primary_key=True)
-    nama = models.CharField(max_length=100)
+    nama = models.CharField(max_length=100, db_index=True)
     total_order = models.IntegerField(default=0)
     total_spent = models.IntegerField(default=0)
     # FIX: Ganti CharField ke DateField agar sorting/filtering tanggal bekerja benar
@@ -96,12 +96,12 @@ class Order(models.Model):
     )
 
     id = models.CharField(max_length=50, primary_key=True, default=_generate_order_id)
-    waktu = models.DateTimeField(default=timezone.now)
+    waktu = models.DateTimeField(default=timezone.now, db_index=True)
     
     # Hubungkan ke model Contact (Foreign Key lebih baik, tapi pakai CharField juga tidak masalah jika existingnya begitu)
-    nomor_wa = models.CharField(max_length=20)
-    nama = models.CharField(max_length=100)
-    status_global = models.CharField(max_length=30, choices=STATUS_GLOBAL_CHOICES, default='review')
+    nomor_wa = models.CharField(max_length=20, db_index=True)
+    nama = models.CharField(max_length=100, db_index=True)
+    status_global = models.CharField(max_length=30, choices=STATUS_GLOBAL_CHOICES, default='review', db_index=True)
     catatan_pelanggan = models.TextField(null=True, blank=True)
     metode_pembayaran = models.CharField(max_length=20, default='tunai')
 
@@ -193,7 +193,7 @@ class JobBoard(models.Model):
     order_item = models.ForeignKey(OrderItem, on_delete=models.CASCADE, related_name='jobs')
     tahap = models.ForeignKey(TahapProses, on_delete=models.SET_NULL, null=True, related_name='jobs')
     pic_staff = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, limit_choices_to={'role': 'staff'}, related_name='my_tasks')
-    status_pekerjaan = models.CharField(max_length=20, choices=STATUS_JOB_CHOICES, default='antrean') 
+    status_pekerjaan = models.CharField(max_length=20, choices=STATUS_JOB_CHOICES, default='antrean', db_index=True) 
     
     # Catatan hasil modifikasi/interview staff berbentuk tabel Excel (JSON)
     catatan_staff = models.JSONField(default=list, null=True, blank=True, help_text="Keterangan staff berformat Tabel/Excel (JSON)")
@@ -208,7 +208,7 @@ class JobBoard(models.Model):
     otp_sent = models.BooleanField(default=False)
     
     waktu_mulai = models.DateTimeField(null=True, blank=True)
-    waktu_selesai = models.DateTimeField(null=True, blank=True)
+    waktu_selesai = models.DateTimeField(null=True, blank=True, db_index=True)
 
     def __str__(self):
         tahap_nama = self.tahap.nama if self.tahap else "Tanpa Tahap"
