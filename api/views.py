@@ -702,7 +702,7 @@ class DashboardView(APIView):
         # --- Distribusi Status Order ---
         order_per_status = {
             s: Order.objects.filter(status_global=s).count()
-            for s in ['review', 'proses', 'selesai', 'batal']
+            for s in ['review', 'proses', 'ready', 'selesai', 'batal']
         }
 
         # --- Distribusi Status Job ---
@@ -931,11 +931,11 @@ class ForwardJobView(APIView):
                 ).exists()
 
                 if not active_jobs_exist:
-                    order.status_global = 'selesai'
+                    order.status_global = 'ready'
                     order.save()
 
                 return Response(
-                    {'message': 'Job ditandai selesai. Tidak ada tahap lanjutan.' + (' Order secara global telah selesai.' if not active_jobs_exist else '')},
+                    {'message': 'Job ditandai selesai. Tidak ada tahap lanjutan.' + (' Order secara global telah siap diambil (READY).' if not active_jobs_exist else '')},
                     status=status.HTTP_200_OK
                 )
 

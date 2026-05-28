@@ -199,6 +199,8 @@ CORS_ALLOW_ALL_ORIGINS = True # Catatan: Nanti saat produksi ini harus diubah de
 # Izinkan custom header dari frontend (khususnya untuk bypass ngrok)
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'ngrok-skip-browser-warning',
+    'baggage',        # Dibutuhkan oleh Sentry tracing
+    'sentry-trace',   # Dibutuhkan oleh Sentry tracing
 ]
 
 # --- Kustomisasi Autentikasi ---

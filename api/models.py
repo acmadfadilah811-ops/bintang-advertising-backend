@@ -90,6 +90,7 @@ class Order(models.Model):
     STATUS_GLOBAL_CHOICES = (
         ('review', 'Menunggu Review Manager'),
         ('proses', 'Dalam Proses Produksi'),
+        ('ready', 'Siap Diambil / Selesai Produksi'),
         ('selesai', 'Selesai Seluruhnya'),
         ('batal', 'Dibatalkan / Cancel'),
     )
