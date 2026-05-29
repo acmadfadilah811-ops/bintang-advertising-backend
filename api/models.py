@@ -24,6 +24,10 @@ class TahapProses(models.Model):
 
     class Meta:
         ordering = ['urutan']
+        indexes = [
+            # Query: tahapan milik suatu divisi diurutkan
+            models.Index(fields=['divisi', 'urutan'], name='idx_tahap_divisi_urutan'),
+        ]
 
     def __str__(self):
         return f"{self.urutan}. {self.nama} ({self.divisi.nama})"
@@ -73,6 +77,14 @@ class Contact(models.Model):
     last_order = models.DateField(null=True, blank=True)
     keterangan = models.TextField(null=True, blank=True, help_text="Catatan/keterangan tentang pelanggan ini")
 
+    class Meta:
+        indexes = [
+            # Query: sort pelanggan by last_order (terbaru di atas)
+            models.Index(fields=['-last_order'], name='idx_contact_last_order'),
+            # Query: sort by total_spent (pelanggan terbesar)
+            models.Index(fields=['-total_spent'], name='idx_contact_total_spent'),
+        ]
+
     def __str__(self):
         return self.nama
 
@@ -89,6 +101,7 @@ def _generate_order_id():
 class Order(models.Model):
     STATUS_GLOBAL_CHOICES = (
         ('review', 'Menunggu Review Manager'),
+        ('desain', 'Proses Desain'),
         ('proses', 'Dalam Proses Produksi'),
         ('ready', 'Siap Diambil / Selesai Produksi'),
         ('selesai', 'Selesai Seluruhnya'),
@@ -120,9 +133,40 @@ class Order(models.Model):
         # Jangan pakai self.save() di sini jika dipanggil dari signal/save, agar tidak infinite loop
 
     def save(self, *args, **kwargs):
+        # Hitung ulang total_harga dari item-itemnya secara dinamis jika order sudah ada
+        if self.pk:
+            try:
+                subtotal = sum(item.harga_jual for item in self.items.all())
+                potongan = int(subtotal * (self.diskon_persen / 100))
+                self.total_harga = subtotal - potongan
+            except Exception:
+                pass
+
         # Auto kalkulasi sisa tagihan setiap kali nota disimpan
         self.sisa_tagihan = max(0, self.total_harga - self.dp_dibayar)
         super().save(*args, **kwargs)
+
+        # Sinkronisasi status job board jika order dibatalkan (batal) atau selesai (selesai)
+        if self.status_global == 'batal':
+            try:
+                # Import lokal untuk mencegah circular import
+                from .models import JobBoard
+                JobBoard.objects.filter(order_item__order=self).exclude(status_pekerjaan__in=['selesai', 'batal']).update(
+                    status_pekerjaan='batal',
+                    waktu_selesai=timezone.now()
+                )
+            except Exception:
+                pass
+        elif self.status_global == 'selesai':
+            try:
+                # Import lokal untuk mencegah circular import
+                from .models import JobBoard
+                JobBoard.objects.filter(order_item__order=self).exclude(status_pekerjaan__in=['selesai', 'batal', 'gagal']).update(
+                    status_pekerjaan='selesai',
+                    waktu_selesai=timezone.now()
+                )
+            except Exception:
+                pass
 
     def __str__(self):
         return f"{self.id} - {self.nama}"
@@ -132,7 +176,7 @@ class Order(models.Model):
 # ---------------------------------------------------------
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
-    jenis_produk = models.CharField(max_length=100) 
+    jenis_produk = models.CharField(max_length=100, db_index=True)
     
     # TAMBAHAN FIELD MODUL 1: KALKULATOR PERCETAKAN
     panjang = models.FloatField(default=0.0, help_text="Panjang cetakan dalam meter")
@@ -150,6 +194,14 @@ class OrderItem(models.Model):
     estimasi = models.CharField(max_length=50, default="-")
     gdrive_customer_link = models.URLField(max_length=500, null=True, blank=True)
     keterangan_detail = models.TextField(null=True, blank=True, help_text="Keterangan khusus/detail cetak dari CS")
+
+    class Meta:
+        indexes = [
+            # Query: semua item dari satu order (paling sering)
+            models.Index(fields=['order'], name='idx_orderitem_order'),
+            # Query: filter jenis produk tertentu lintas order
+            models.Index(fields=['jenis_produk'], name='idx_orderitem_jenis'),
+        ]
 
     def save(self, *args, **kwargs):
         # Auto kalkulasi luas m2 dari P x L sebelum disimpan ke database
@@ -210,6 +262,20 @@ class JobBoard(models.Model):
     waktu_mulai = models.DateTimeField(null=True, blank=True)
     waktu_selesai = models.DateTimeField(null=True, blank=True, db_index=True)
 
+    class Meta:
+        indexes = [
+            # Query terbanyak: job milik seorang staff dengan status tertentu
+            models.Index(fields=['pic_staff', 'status_pekerjaan'], name='idx_job_staff_status'),
+            # Query: job per staff + bulan selesai (untuk timecard & insentif)
+            models.Index(fields=['pic_staff', 'waktu_selesai'], name='idx_job_staff_selesai'),
+            # Query: job per tahap produksi (papan kanban view)
+            models.Index(fields=['tahap', 'status_pekerjaan'], name='idx_job_tahap_status'),
+            # Query: semua job dari satu order item
+            models.Index(fields=['order_item'], name='idx_job_orderitem'),
+            # Query: filter job yang ada OTP request pending (admin view)
+            models.Index(fields=['otp_requested', 'otp_sent'], name='idx_job_otp_flags'),
+        ]
+
     def __str__(self):
         tahap_nama = self.tahap.nama if self.tahap else "Tanpa Tahap"
         pic_nama = self.pic_staff.username if self.pic_staff else "Belum Ada PIC"
@@ -227,13 +293,21 @@ def _generate_inv_id():
 
 class InventoryItem(models.Model):
     id            = models.CharField(max_length=50, primary_key=True, default=_generate_inv_id)
-    nama          = models.CharField(max_length=100)
+    nama          = models.CharField(max_length=100, db_index=True)
     stok          = models.FloatField(default=0.0)
     satuan        = models.CharField(max_length=20)
-    kategori      = models.CharField(max_length=50)
+    kategori      = models.CharField(max_length=50, db_index=True)
     min_stok      = models.FloatField(default=0.0)
     cost_per_unit = models.FloatField(default=0.0)
-    supplier      = models.CharField(max_length=100, default='Unknown')
+    supplier      = models.CharField(max_length=100, default='Unknown', db_index=True)
+
+    class Meta:
+        indexes = [
+            # Query: filter item per kategori + sort nama
+            models.Index(fields=['kategori', 'nama'], name='idx_inv_kategori_nama'),
+            # Query: item stok di bawah min_stok (notifikasi stok rendah)
+            models.Index(fields=['stok', 'min_stok'], name='idx_inv_stok_min'),
+        ]
 
     def __str__(self):
         return self.nama
@@ -246,22 +320,36 @@ class RestockHistory(models.Model):
     stok_awal  = models.FloatField(default=0.0)
     stok_akhir = models.FloatField(default=0.0)
     keterangan = models.TextField(blank=True, default='')
-    waktu      = models.DateTimeField(auto_now_add=True)
+    waktu      = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ['-waktu']
+        indexes = [
+            # Query: riwayat per item diurutkan waktu (paling sering)
+            models.Index(fields=['item', '-waktu'], name='idx_restock_item_waktu'),
+            # Query: riwayat per user (siapa yang stok/ambil)
+            models.Index(fields=['user', '-waktu'], name='idx_restock_user_waktu'),
+        ]
 
     def __str__(self):
         return f"{self.item.nama} {'+' if self.delta >= 0 else ''}{self.delta} ({self.waktu:%Y-%m-%d})"
 
 
 class ProductPrice(models.Model):
-    kategori = models.CharField(max_length=50)
-    nama_produk = models.CharField(max_length=100)
+    kategori = models.CharField(max_length=50, db_index=True)
+    nama_produk = models.CharField(max_length=100, db_index=True)
     harga = models.IntegerField(default=0)
     material = models.CharField(max_length=100, null=True, blank=True)
-    price_type = models.CharField(max_length=20, default='flat') # 'flat', 'tiered'
+    price_type = models.CharField(max_length=20, default='flat', db_index=True)
     tiers = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            # Query: cari produk by kategori (dropdown filter pricelist)
+            models.Index(fields=['kategori', 'nama_produk'], name='idx_price_kat_produk'),
+            # Query: cari by kategori + material (kalkulasi harga)
+            models.Index(fields=['kategori', 'material'], name='idx_price_kat_material'),
+        ]
 
     def __str__(self):
         return f"{self.nama_produk} - Rp{self.harga}"

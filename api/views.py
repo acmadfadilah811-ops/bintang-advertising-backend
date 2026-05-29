@@ -420,6 +420,7 @@ class AssignOrderView(APIView):
     def post(self, request, order_id):
         staff_id = request.data.get('staff_id')
         tahap_id = request.data.get('tahap_id', None)
+        status_global = request.data.get('status_global', None)
 
         if not staff_id:
             return Response({'error': 'staff_id wajib diisi.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -445,13 +446,20 @@ class AssignOrderView(APIView):
             except Exception:
                 pass
 
+        # JIKA tahap masih None, coba ambil tahap pertama sesuai divisi staff sebagai fallback
+        if not tahap and staff.divisi:
+            try:
+                from .models import TahapProses as TahapModel
+                tahap = TahapModel.objects.filter(divisi=staff.divisi).order_by('urutan').first()
+            except Exception:
+                pass
+
         # Buat atau update JobBoard untuk setiap OrderItem
         items = order.items.all()
         if not items.exists():
             return Response({'error': 'Order ini belum memiliki item produk.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Buat atau update JobBoard — lookup by (order_item, tahap) bukan hanya order_item
-        # Ini mencegah MultipleObjectsReturned setelah forward menciptakan record baru
         created_jobs = []
         for item in items:
             job, created = JobBoard.objects.update_or_create(
@@ -467,8 +475,21 @@ class AssignOrderView(APIView):
             created_jobs.append({'job_id': job.id, 'item': item.jenis_produk, 'created': created})
 
 
-        # Update status order ke 'proses'
-        order.status_global = 'proses'
+        # Update status order
+        if status_global:
+            order.status_global = status_global
+        else:
+            # Fallback cerdas berdasarkan divisi staff/tahap
+            is_desain = False
+            if tahap and tahap.divisi and tahap.divisi.nama.lower() == 'desain':
+                is_desain = True
+            elif staff.divisi and staff.divisi.nama.lower() == 'desain':
+                is_desain = True
+                
+            if is_desain:
+                order.status_global = 'desain'
+            else:
+                order.status_global = 'proses'
         order.save()
 
         return Response({
@@ -486,14 +507,6 @@ class JobBoardViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsClockedIn]
 
     def get_queryset(self):
-        # Auto-run makemigrations and migrate on hit to apply new migrations automatically!
-        from django.core.management import call_command
-        try:
-            call_command('makemigrations', 'api', interactive=False)
-            call_command('migrate', interactive=False)
-        except Exception as e:
-            print("Auto-migrate/makemigrations error:", e)
-
         user = self.request.user
         base_qs = JobBoard.objects.select_related(
             'tahap',
@@ -510,22 +523,10 @@ class JobBoardViewSet(viewsets.ModelViewSet):
         return base_qs.filter(pic_staff=user)
 
     def update(self, request, *args, **kwargs):
-        print("--- DEBUG UPDATE ---", request.data)
-        try:
-            return super().update(request, *args, **kwargs)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            raise e
+        return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
-        print("--- DEBUG PARTIAL UPDATE ---", request.data)
-        try:
-            return super().partial_update(request, *args, **kwargs)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            raise e
+        return super().partial_update(request, *args, **kwargs)
 
 # CATATAN: InventoryItemViewSet sudah didefinisikan lengkap di atas (baris ~126).
 # Duplikat class yang lebih simpel ini dihapus agar get_queryset filter & restock @action aktif.
@@ -717,7 +718,7 @@ class DashboardView(APIView):
         # --- Distribusi Status Order ---
         order_per_status = {
             s: Order.objects.filter(status_global=s).count()
-            for s in ['review', 'proses', 'ready', 'selesai', 'batal']
+            for s in ['review', 'desain', 'proses', 'ready', 'selesai', 'batal']
         }
 
         # --- Distribusi Status Job ---
