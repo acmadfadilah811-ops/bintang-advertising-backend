@@ -376,24 +376,6 @@ if SENTRY_DSN:
         print("⚠️ Sentry SDK not installed. Skipping initialization.")
 
 
-# ==============================================================================
-# SKALABILITAS: CACHING SYSTEM (REDIS / IN-MEMORY FALLBACK)
-# ==============================================================================
-REDIS_URL = os.getenv('REDIS_URL')
-if REDIS_URL:
-    CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-            'LOCATION': REDIS_URL,
-        }
-    }
-else:
-    CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'bintang_adv_locmem_cache',
-        }
-    }
 
 
 # ==============================================================================

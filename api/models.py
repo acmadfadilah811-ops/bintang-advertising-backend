@@ -3,6 +3,9 @@ from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.utils import timezone
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------
 # 1. MASTER DATA: DIVISI
@@ -160,46 +163,49 @@ class Order(models.Model):
         # Jangan pakai self.save() di sini jika dipanggil dari signal/save, agar tidak infinite loop
 
     def save(self, *args, **kwargs):
-        # Hitung ulang total_harga dari item-itemnya secara dinamis jika order sudah ada
-        if self.pk:
-            try:
-                subtotal = sum(item.harga_jual for item in self.items.all())
-                potongan = int(subtotal * (self.diskon_persen / 100))
-                self.total_harga = subtotal - potongan
-            except Exception:
-                pass
+        from django.db import transaction
+        
+        with transaction.atomic():
+            # Hitung ulang total_harga dari item-itemnya secara dinamis jika order sudah ada
+            if self.pk:
+                try:
+                    subtotal = sum(item.harga_jual for item in self.items.all())
+                    potongan = int(subtotal * (self.diskon_persen / 100))
+                    self.total_harga = subtotal - potongan
+                except Exception as e:
+                    logger.warning(f"Failed to calculate subtotal/potongan on order save for {self.pk}: {e}")
 
-        # Auto kalkulasi sisa tagihan setiap kali nota disimpan
-        self.sisa_tagihan = max(0, self.total_harga - self.dp_dibayar)
-        super().save(*args, **kwargs)
+            # Auto kalkulasi sisa tagihan setiap kali nota disimpan
+            self.sisa_tagihan = max(0, self.total_harga - self.dp_dibayar)
+            super().save(*args, **kwargs)
 
-        # Sinkronisasi status job board jika order dibatalkan (batal) atau selesai (selesai)
-        if self.status_global == 'batal':
-            try:
-                # Import lokal untuk mencegah circular import
-                from .models import JobBoard
-                JobBoard.objects.filter(order_item__order=self).exclude(status_pekerjaan__in=['selesai', 'batal']).update(
-                    status_pekerjaan='batal',
-                    waktu_selesai=timezone.now()
-                )
-            except Exception:
-                pass
-        elif self.status_global == 'selesai':
-            try:
-                # Import lokal untuk mencegah circular import
-                from .models import JobBoard
-                JobBoard.objects.filter(order_item__order=self).exclude(status_pekerjaan__in=['selesai', 'batal', 'gagal']).update(
-                    status_pekerjaan='selesai',
-                    waktu_selesai=timezone.now()
-                )
-            except Exception:
-                pass
+            # Sinkronisasi status job board jika order dibatalkan (batal) atau selesai (selesai)
+            if self.status_global == 'batal':
+                try:
+                    from django.apps import apps
+                    JobBoard = apps.get_model('api', 'JobBoard')
+                    JobBoard.objects.filter(order_item__order=self).exclude(status_pekerjaan__in=['selesai', 'batal']).update(
+                        status_pekerjaan='batal',
+                        waktu_selesai=timezone.now()
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update JobBoard statuses on order cancellation for {self.pk}: {e}")
+            elif self.status_global == 'selesai':
+                try:
+                    from django.apps import apps
+                    JobBoard = apps.get_model('api', 'JobBoard')
+                    JobBoard.objects.filter(order_item__order=self).exclude(status_pekerjaan__in=['selesai', 'batal', 'gagal']).update(
+                        status_pekerjaan='selesai',
+                        waktu_selesai=timezone.now()
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update JobBoard statuses on order completion for {self.pk}: {e}")
 
-        # Auto-create or update Contact in database (Pelanggan)
-        try:
-            sync_contact_for_whatsapp(self.nomor_wa)
-        except Exception:
-            pass
+            # Auto-create or update Contact in database (Pelanggan)
+            try:
+                sync_contact_for_whatsapp(self.nomor_wa)
+            except Exception as e:
+                logger.error(f"Failed to auto-sync contact on order save for {self.pk}: {e}")
 
     def __str__(self):
         return f"{self.id} - {self.nama}"
@@ -237,45 +243,51 @@ class OrderItem(models.Model):
         ]
 
     def save(self, *args, **kwargs):
+        from django.db import transaction
         # Auto kalkulasi luas m2 dari P x L sebelum disimpan ke database
         self.luas = round(self.panjang * self.lebar, 4)
-        super().save(*args, **kwargs)
+        
+        with transaction.atomic():
+            super().save(*args, **kwargs)
 
-        # BUG FIX: Gunakan update_fields agar Order.save() tidak dipanggil penuh
-        # (mencegah infinite loop karena Order.save() tidak memanggil item.save()).
-        # Akses via pk untuk menghindari kalkulasi ulang jika order belum di-load.
-        try:
-            from django.db.models import Sum
-            order = self.order
-            subtotal = order.items.aggregate(total=Sum('harga_jual'))['total'] or 0
-            potongan = int(subtotal * (order.diskon_persen / 100))
-            total_harga = subtotal - potongan
-            sisa_tagihan = max(0, total_harga - order.dp_dibayar)
-            # Pakai queryset update agar tidak trigger Order.save() sama sekali
-            Order.objects.filter(pk=order.pk).update(
-                total_harga=total_harga,
-                sisa_tagihan=sisa_tagihan,
-            )
-            sync_contact_for_whatsapp(order.nomor_wa)
-        except Exception:
-            pass  # Jangan crash OrderItem.save() hanya karena update total gagal
+            # BUG FIX: Gunakan update_fields agar Order.save() tidak dipanggil penuh
+            # (mencegah infinite loop karena Order.save() tidak memanggil item.save()).
+            # Akses via pk untuk menghindari kalkulasi ulang jika order belum di-load.
+            try:
+                from django.db.models import Sum
+                order = self.order
+                subtotal = order.items.aggregate(total=Sum('harga_jual'))['total'] or 0
+                potongan = int(subtotal * (order.diskon_persen / 100))
+                total_harga = subtotal - potongan
+                sisa_tagihan = max(0, total_harga - order.dp_dibayar)
+                # Pakai queryset update agar tidak trigger Order.save() sama sekali
+                Order.objects.filter(pk=order.pk).update(
+                    total_harga=total_harga,
+                    sisa_tagihan=sisa_tagihan,
+                )
+                sync_contact_for_whatsapp(order.nomor_wa)
+            except Exception as e:
+                logger.error(f"Failed to update order totals on OrderItem.save for item {self.pk}: {e}")
 
     def delete(self, *args, **kwargs):
+        from django.db import transaction
         order = self.order
-        super().delete(*args, **kwargs)
-        try:
-            from django.db.models import Sum
-            subtotal = order.items.aggregate(total=Sum('harga_jual'))['total'] or 0
-            potongan = int(subtotal * (order.diskon_persen / 100))
-            total_harga = subtotal - potongan
-            sisa_tagihan = max(0, total_harga - order.dp_dibayar)
-            Order.objects.filter(pk=order.pk).update(
-                total_harga=total_harga,
-                sisa_tagihan=sisa_tagihan,
-            )
-            sync_contact_for_whatsapp(order.nomor_wa)
-        except Exception:
-            pass
+        
+        with transaction.atomic():
+            super().delete(*args, **kwargs)
+            try:
+                from django.db.models import Sum
+                subtotal = order.items.aggregate(total=Sum('harga_jual'))['total'] or 0
+                potongan = int(subtotal * (order.diskon_persen / 100))
+                total_harga = subtotal - potongan
+                sisa_tagihan = max(0, total_harga - order.dp_dibayar)
+                Order.objects.filter(pk=order.pk).update(
+                    total_harga=total_harga,
+                    sisa_tagihan=sisa_tagihan,
+                )
+                sync_contact_for_whatsapp(order.nomor_wa)
+            except Exception as e:
+                logger.error(f"Failed to update order totals on OrderItem.delete for item {self.pk}: {e}")
 
     def __str__(self):
         return f"{self.order.id} | {self.jenis_produk}"
@@ -427,6 +439,17 @@ def sync_contact_for_whatsapp(nomor_wa):
     Sinkronisasi otomatis data Contact berdasarkan nomor_wa.
     Menghitung total_order, total_spent, last_order, dan memperbarui nama terbaru.
     """
+    if not nomor_wa or not isinstance(nomor_wa, str):
+        logger.warning(f"Invalid WhatsApp number (empty or not string): {nomor_wa}")
+        return
+
+    import re
+    # Bersihkan nomor WA dari spasi, tanda hubung, kurung
+    cleaned_wa = re.sub(r'[\s\-()]+', '', nomor_wa)
+    if not re.match(r'^\+?\d{8,15}$', cleaned_wa):
+        logger.warning(f"Invalid WhatsApp number format: '{nomor_wa}'")
+        return
+
     try:
         from django.db.models import Sum
         from .models import Order, Contact
@@ -460,4 +483,4 @@ def sync_contact_for_whatsapp(nomor_wa):
         contact.total_spent = total_spent_val
         contact.save()
     except Exception as e:
-        print(f"Failed to sync contact stats for {nomor_wa}: {e}")
+        logger.error(f"Failed to sync contact stats for {nomor_wa}: {e}")
