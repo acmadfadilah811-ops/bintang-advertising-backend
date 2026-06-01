@@ -228,3 +228,159 @@ WARNING 2026-05-27 19:01:22,165 log 18448 1460 Unauthorized: /api/auth/login/
 WARNING 2026-05-27 19:01:22,171 basehttp 18448 1460 "POST /api/auth/login/ HTTP/1.1" 401 81
 WARNING 2026-05-27 19:02:46,238 log 18448 1460 Bad Request: /api/auth/forgot-password/verify/
 WARNING 2026-05-27 19:02:46,248 basehttp 18448 1460 "POST /api/auth/forgot-password/verify/ HTTP/1.1" 400 59
+WARNING 2026-05-29 21:43:31,952 log 10160 7056 Bad Request: /api/hr/absensi/clock-in/
+WARNING 2026-05-29 21:43:31,981 basehttp 10160 7056 "POST /api/hr/absensi/clock-in/ HTTP/1.1" 400 67
+WARNING 2026-05-29 21:43:39,237 log 10160 7056 Forbidden: /api/jobs/
+WARNING 2026-05-29 21:43:39,275 basehttp 10160 7056 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-29 21:43:39,302 log 10160 12988 Forbidden: /api/jobs/
+WARNING 2026-05-29 21:43:39,304 basehttp 10160 12988 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-29 21:49:26,072 log 10160 11436 Forbidden: /api/jobs/
+WARNING 2026-05-29 21:49:26,085 basehttp 10160 11436 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-29 21:49:26,203 log 10160 11436 Forbidden: /api/jobs/
+WARNING 2026-05-29 21:49:26,214 basehttp 10160 11436 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-29 21:50:41,611 log 10160 11436 Not Found: /api/customers/
+WARNING 2026-05-29 21:50:41,616 basehttp 10160 11436 "GET /api/customers/?limit=1 HTTP/1.1" 404 22668
+WARNING 2026-05-29 21:50:41,685 log 10160 12988 Not Found: /api/customers/
+WARNING 2026-05-29 21:50:41,689 basehttp 10160 12988 "GET /api/customers/?limit=1 HTTP/1.1" 404 22668
+WARNING 2026-05-29 21:54:34,305 log 10160 12988 Not Found: /api/customers/
+WARNING 2026-05-29 21:54:34,315 basehttp 10160 12988 "GET /api/customers/?limit=1 HTTP/1.1" 404 22668
+WARNING 2026-05-29 21:54:34,470 log 10160 12988 Not Found: /api/customers/
+WARNING 2026-05-29 21:54:34,484 basehttp 10160 12988 "GET /api/customers/?limit=1 HTTP/1.1" 404 22668
+WARNING 2026-05-29 21:54:49,852 log 10160 4944 Not Found: /api/customers/
+WARNING 2026-05-29 21:54:49,863 basehttp 10160 4944 "GET /api/customers/?limit=1 HTTP/1.1" 404 22668
+WARNING 2026-05-29 21:54:49,983 log 10160 4944 Not Found: /api/customers/
+WARNING 2026-05-29 21:54:49,985 basehttp 10160 4944 "GET /api/customers/?limit=1 HTTP/1.1" 404 22668
+WARNING 2026-05-29 21:54:56,920 log 10160 11436 Forbidden: /api/jobs/
+WARNING 2026-05-29 21:54:56,979 basehttp 10160 11436 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-29 21:54:57,034 log 10160 4628 Forbidden: /api/jobs/
+WARNING 2026-05-29 21:54:57,070 basehttp 10160 4628 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 13:08:22,049 log 13344 13652 Unauthorized: /api/auth/login/
+WARNING 2026-05-31 13:08:22,059 basehttp 13344 13652 "POST /api/auth/login/ HTTP/1.1" 401 81
+WARNING 2026-05-31 13:09:35,004 log 13344 13652 Unauthorized: /api/auth/login/
+WARNING 2026-05-31 13:09:35,004 basehttp 13344 13652 "POST /api/auth/login/ HTTP/1.1" 401 81
+WARNING 2026-05-31 13:10:18,995 log 13344 13652 Unauthorized: /api/auth/login/
+WARNING 2026-05-31 13:10:19,001 basehttp 13344 13652 "POST /api/auth/login/ HTTP/1.1" 401 81
+WARNING 2026-05-31 13:13:39,043 log 4864 2868 Forbidden: /api/jobs/
+WARNING 2026-05-31 13:13:39,073 basehttp 4864 2868 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 13:13:39,295 log 4864 2868 Forbidden: /api/jobs/
+WARNING 2026-05-31 13:13:39,324 basehttp 4864 2868 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 13:13:45,387 log 4864 9316 Bad Request: /api/hr/absensi/clock-in/
+WARNING 2026-05-31 13:13:45,397 basehttp 4864 9316 "POST /api/hr/absensi/clock-in/ HTTP/1.1" 400 67
+WARNING 2026-05-31 13:56:34,563 log 4864 10760 Not Found: /api/jobs/45/forward//
+WARNING 2026-05-31 13:56:34,573 basehttp 4864 10760 "POST /api/jobs/45/forward// HTTP/1.1" 404 24284
+WARNING 2026-05-31 14:24:50,742 log 4864 14916 Not Found: /api/customers/
+WARNING 2026-05-31 14:24:50,754 basehttp 4864 14916 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:24:50,862 log 4864 15812 Not Found: /api/customers/
+WARNING 2026-05-31 14:24:50,875 basehttp 4864 15812 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:25:05,947 log 4864 15812 Forbidden: /api/jobs/
+WARNING 2026-05-31 14:25:05,972 basehttp 4864 15812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 14:25:06,165 log 4864 6052 Forbidden: /api/jobs/
+WARNING 2026-05-31 14:25:06,192 basehttp 4864 6052 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 14:25:06,267 log 4864 7208 Forbidden: /api/jobs/
+WARNING 2026-05-31 14:25:06,279 basehttp 4864 7208 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 14:25:06,321 log 4864 14916 Forbidden: /api/jobs/
+WARNING 2026-05-31 14:25:06,325 basehttp 4864 14916 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 14:38:07,796 log 10760 18224 Not Found: /api/customers/
+WARNING 2026-05-31 14:38:08,068 basehttp 10760 18224 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:38:09,629 log 10760 11728 Not Found: /api/customers/
+WARNING 2026-05-31 14:38:09,643 basehttp 10760 11728 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:38:40,942 log 10760 1564 Not Found: /api/customers/
+WARNING 2026-05-31 14:38:41,225 basehttp 10760 1564 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:38:41,988 log 10760 1564 Not Found: /api/customers/
+WARNING 2026-05-31 14:38:42,043 basehttp 10760 1564 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:39:54,874 log 10760 1564 Not Found: /api/customers/
+WARNING 2026-05-31 14:39:54,918 basehttp 10760 1564 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:39:55,003 log 10760 18224 Not Found: /api/customers/
+WARNING 2026-05-31 14:39:55,007 basehttp 10760 18224 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:43:23,114 log 10760 11728 Not Found: /api/customers/
+WARNING 2026-05-31 14:43:23,197 basehttp 10760 11728 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:43:23,256 log 10760 18224 Not Found: /api/customers/
+WARNING 2026-05-31 14:43:23,271 basehttp 10760 18224 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:44:30,054 log 10760 1480 Not Found: /api/customers/
+WARNING 2026-05-31 14:44:30,065 basehttp 10760 1480 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:44:30,122 log 10760 1480 Not Found: /api/customers/
+WARNING 2026-05-31 14:44:30,123 basehttp 10760 1480 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:47:45,865 log 10760 11728 Not Found: /api/customers/
+WARNING 2026-05-31 14:47:45,889 basehttp 10760 11728 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 14:47:45,965 log 10760 18224 Not Found: /api/customers/
+WARNING 2026-05-31 14:47:45,968 basehttp 10760 18224 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:01:35,906 log 10760 15736 Not Found: /api/customers/
+WARNING 2026-05-31 15:01:35,936 basehttp 10760 15736 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:01:36,042 log 10760 15736 Not Found: /api/customers/
+WARNING 2026-05-31 15:01:36,056 basehttp 10760 15736 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:01:46,560 log 10760 8932 Not Found: /api/customers/
+WARNING 2026-05-31 15:01:46,598 basehttp 10760 8932 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:01:46,699 log 10760 8932 Not Found: /api/customers/
+WARNING 2026-05-31 15:01:46,703 basehttp 10760 8932 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:02:11,439 log 10760 19276 Not Found: /api/customers/
+WARNING 2026-05-31 15:02:11,461 basehttp 10760 19276 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:02:11,539 log 10760 19276 Not Found: /api/customers/
+WARNING 2026-05-31 15:02:11,546 basehttp 10760 19276 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:06:38,337 log 8724 14016 Not Found: /api/customers/
+WARNING 2026-05-31 15:06:38,357 basehttp 8724 14016 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:06:38,621 log 8724 14016 Not Found: /api/customers/
+WARNING 2026-05-31 15:06:38,638 basehttp 8724 14016 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:08:58,044 log 8724 2064 Not Found: /api/customers/
+WARNING 2026-05-31 15:08:58,080 basehttp 8724 2064 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:08:58,163 log 8724 14016 Not Found: /api/customers/
+WARNING 2026-05-31 15:08:58,170 basehttp 8724 14016 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:11:10,373 log 8724 18080 Not Found: /api/customers/
+WARNING 2026-05-31 15:11:10,388 basehttp 8724 18080 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:11:10,429 log 8724 18080 Not Found: /api/customers/
+WARNING 2026-05-31 15:11:10,430 basehttp 8724 18080 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:12:41,967 log 8724 14016 Not Found: /api/customers/
+WARNING 2026-05-31 15:12:42,002 basehttp 8724 14016 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:12:42,072 log 8724 14016 Not Found: /api/customers/
+WARNING 2026-05-31 15:12:42,073 basehttp 8724 14016 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:23:37,391 log 8724 14216 Not Found: /api/customers/
+WARNING 2026-05-31 15:23:37,476 basehttp 8724 14216 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:23:37,576 log 8724 8132 Not Found: /api/customers/
+WARNING 2026-05-31 15:23:37,578 basehttp 8724 8132 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:39:19,212 log 5936 6184 Unauthorized: /api/auth/login/
+WARNING 2026-05-31 15:39:19,221 basehttp 5936 6184 "POST /api/auth/login/ HTTP/1.1" 401 81
+WARNING 2026-05-31 15:43:23,539 log 5936 5548 Not Found: /api/customers/
+WARNING 2026-05-31 15:43:23,542 basehttp 5936 5548 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:43:23,593 log 5936 16352 Not Found: /api/customers/
+WARNING 2026-05-31 15:43:23,593 basehttp 5936 16352 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:44:14,239 log 5936 6184 Not Found: /api/customers/
+WARNING 2026-05-31 15:44:14,253 basehttp 5936 6184 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:44:14,370 log 5936 6184 Not Found: /api/customers/
+WARNING 2026-05-31 15:44:14,372 basehttp 5936 6184 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:44:32,154 log 5936 14140 Not Found: /api/customers/
+WARNING 2026-05-31 15:44:32,157 basehttp 5936 14140 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 15:44:32,240 log 5936 5548 Not Found: /api/customers/
+WARNING 2026-05-31 15:44:32,248 basehttp 5936 5548 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 18:39:21,300 log 14376 5812 Forbidden: /api/jobs/
+WARNING 2026-05-31 18:39:21,344 basehttp 14376 5812 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 18:43:06,271 log 14376 4440 Forbidden: /api/jobs/
+WARNING 2026-05-31 18:43:06,302 basehttp 14376 4440 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 19:52:00,292 log 18788 11356 Not Found: /favicon.ico
+WARNING 2026-05-31 19:52:00,292 basehttp 18788 11356 "GET /favicon.ico HTTP/1.1" 404 2800
+WARNING 2026-05-31 19:52:20,296 log 18788 15196 Forbidden: /api/jobs/
+WARNING 2026-05-31 19:52:20,342 basehttp 18788 15196 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-05-31 20:28:39,146 log 14712 19528 Not Found: /api/customers/
+WARNING 2026-05-31 20:28:39,156 basehttp 14712 19528 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:28:39,198 log 14712 19528 Not Found: /api/customers/
+WARNING 2026-05-31 20:28:39,209 basehttp 14712 19528 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:47:54,625 log 14712 10380 Not Found: /api/customers/
+WARNING 2026-05-31 20:47:54,650 basehttp 14712 10380 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:47:54,734 log 14712 10380 Not Found: /api/customers/
+WARNING 2026-05-31 20:47:54,734 basehttp 14712 10380 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:50:07,496 log 14712 17936 Not Found: /api/customers/
+WARNING 2026-05-31 20:50:07,532 basehttp 14712 17936 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:50:07,626 log 14712 19884 Not Found: /api/customers/
+WARNING 2026-05-31 20:50:07,633 basehttp 14712 19884 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:50:12,730 log 14712 10380 Not Found: /api/customers/
+WARNING 2026-05-31 20:50:12,746 basehttp 14712 10380 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:50:12,815 log 14712 19536 Not Found: /api/customers/
+WARNING 2026-05-31 20:50:12,829 basehttp 14712 19536 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:50:17,644 log 14712 17936 Not Found: /api/customers/
+WARNING 2026-05-31 20:50:17,727 basehttp 14712 17936 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:50:17,826 log 14712 17428 Not Found: /api/customers/
+WARNING 2026-05-31 20:50:17,830 basehttp 14712 17428 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:51:02,918 log 14712 17936 Not Found: /api/customers/
+WARNING 2026-05-31 20:51:02,942 basehttp 14712 17936 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-05-31 20:51:02,991 log 14712 19528 Not Found: /api/customers/
+WARNING 2026-05-31 20:51:02,992 basehttp 14712 19528 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
+WARNING 2026-06-01 08:05:29,000 log 18236 14340 Unauthorized: /api/auth/create-user/
+WARNING 2026-06-01 08:05:29,035 log 18236 14340 Forbidden: /api/auth/create-user/

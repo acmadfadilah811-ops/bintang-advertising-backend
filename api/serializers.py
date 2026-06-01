@@ -27,7 +27,7 @@ class CustomUserSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'role', 'divisi', 'divisi_nama', 'no_hp', 'kota', 
             'negara', 'alamat', 'bio', 'foto_profil', 'last_login', 'date_joined', 
             'status_karyawan', 'jenis_kontrak', 'kontrak_mulai', 'kontrak_selesai',
-            'no_kpj', 'bpjs_kes', 'file_pkwt'
+            'no_kpj', 'bpjs_kes', 'file_pkwt', 'nip'
         ]
 
     def to_internal_value(self, data):
@@ -61,7 +61,7 @@ class CustomUserSerializer(serializers.ModelSerializer):
 class CreateUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ['username', 'password', 'role', 'divisi', 'no_hp'] 
+        fields = ['username', 'password', 'role', 'divisi', 'no_hp', 'nip'] 
         extra_kwargs = {
             'password': {'write_only': True}
         }
@@ -83,23 +83,45 @@ class CreateUserSerializer(serializers.ModelSerializer):
             username=validated_data['username'],
             role=validated_data.get('role', 'staff'),
             divisi=validated_data.get('divisi'),
-            no_hp=validated_data.get('no_hp', '')
+            no_hp=validated_data.get('no_hp', ''),
+            nip=validated_data.get('nip')
         )
         # Hash password sebelum disimpan
         user.set_password(validated_data['password'])
         user.save()
         return user
 
+# --- 2.5 OrderItemShortSerializer (to avoid circular dependency) ---
+class OrderItemShortSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderItem
+        fields = '__all__'
+
 # --- 3. JobBoard Serializer ---
 class JobBoardSerializer(serializers.ModelSerializer):
     tahap_nama        = serializers.ReadOnlyField(source='tahap.nama')
     tahap_divisi_nama = serializers.ReadOnlyField(source='tahap.divisi.nama')  # Untuk grouping per divisi
     pic_nama          = serializers.ReadOnlyField(source='pic_staff.username')
+    pic_nip           = serializers.ReadOnlyField(source='pic_staff.nip')
     pic_divisi_nama   = serializers.ReadOnlyField(source='pic_staff.divisi.nama') # Fallback grouping
+    order_item_detail = OrderItemShortSerializer(source='order_item', read_only=True)
     
+    # Customer and order details for staff view
+    pelanggan_nama    = serializers.ReadOnlyField(source='order_item.order.nama')
+    pelanggan_wa      = serializers.ReadOnlyField(source='order_item.order.nomor_wa')
+    order_id          = serializers.ReadOnlyField(source='order_item.order.id')
+    nama_produk       = serializers.ReadOnlyField(source='order_item.jenis_produk')
+    ukuran            = serializers.SerializerMethodField()
+
     class Meta:
         model = JobBoard
         fields = '__all__'
+
+    def get_ukuran(self, obj):
+        item = obj.order_item
+        if item and item.panjang > 0 and item.lebar > 0:
+            return f"{item.panjang} x {item.lebar} m"
+        return "-"
 
 # --- 4. Order Item Serializer (Detail Pecahan) ---
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -136,6 +158,8 @@ class ContactSerializer(serializers.ModelSerializer):
         fields = ['nomor_wa', 'nama', 'total_order', 'total_spent', 'last_order', 'keterangan', 'total_piutang']
 
     def get_total_piutang(self, obj):
+        if hasattr(obj, 'annotated_piutang'):
+            return obj.annotated_piutang or 0
         from django.db.models import Sum
         result = Order.objects.filter(
             nomor_wa=obj.nomor_wa

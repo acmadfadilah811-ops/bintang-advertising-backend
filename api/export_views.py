@@ -30,13 +30,20 @@ class ExportContactsView(APIView):
             ws = wb.active
             ws.title = "Data Pelanggan"
 
-            headers = ['Nama', 'No. WhatsApp', 'Total Order', 'Total Belanja (Rp)', 'Terakhir Order', 'Keterangan']
+            headers = ['Nama', 'No. WhatsApp', 'Total Order', 'Total Belanja (Rp)', 'Terakhir Order', 'Produk Dipesan', 'Keterangan']
             ws.append(headers)
 
             contacts = Contact.objects.all().order_by('-total_spent')
             for c in contacts:
-                # FIX: last_order sekarang DateField, format langsung atau kosong jika None
-                # Aman karena DB sudah di-clean oleh migrasi, fallback ke str() jika masih string
+                # Ambil daftar produk yang dipesan beserta tanggalnya
+                ordered_products_with_dates = []
+                customer_orders = Order.objects.filter(nomor_wa=c.nomor_wa).prefetch_related('items').order_by('-waktu')
+                for order in customer_orders:
+                    tgl_str = order.waktu.strftime('%d/%m/%Y')
+                    for item in order.items.all():
+                        ordered_products_with_dates.append(f"{item.jenis_produk} ({tgl_str})")
+                products_str = ", ".join(ordered_products_with_dates) if ordered_products_with_dates else "-"
+
                 last_order_str = c.last_order.strftime('%Y-%m-%d') if hasattr(c.last_order, 'strftime') else str(c.last_order) if c.last_order else ''
                 ws.append([
                     c.nama,
@@ -44,6 +51,7 @@ class ExportContactsView(APIView):
                     c.total_order,
                     c.total_spent,
                     last_order_str,
+                    products_str,
                     c.keterangan or '',
                 ])
 
@@ -69,18 +77,38 @@ class ExportOrdersView(APIView):
             ws = wb.active
             ws.title = "Orders"
 
-            headers = ['ID Pesanan', 'Tanggal', 'Nama Pelanggan', 'No WA', 'Status', 'Total Harga', 'Catatan']
+            headers = [
+                'ID Pesanan', 'Tanggal', 'Nama Pelanggan', 'No WA', 
+                'Produk yang Dipesan', 'Jumlah', 'PIC / Order Service', 
+                'Status', 'Total Harga', 'Catatan'
+            ]
             ws.append(headers)
 
-            # FIX: Tambahkan prefetch_related('items') untuk menghindari N+1 query
-            orders = Order.objects.prefetch_related('items').order_by('-waktu')
+            # Prefetch related items and job boards to optimize queries
+            orders = Order.objects.prefetch_related(
+                'items', 'items__jobs', 'items__jobs__pic_staff'
+            ).order_by('-waktu')
             for order in orders:
-                total_harga = sum(item.harga_jual for item in order.items.all())
+                items = order.items.all()
+                products = ", ".join([it.jenis_produk for it in items])
+                quantities = ", ".join([str(it.qty) for it in items])
+                
+                pics = set()
+                for it in items:
+                    for job in it.jobs.all():
+                        if job.pic_staff:
+                            pics.add(job.pic_staff.username)
+                pic_str = ", ".join(pics) if pics else "-"
+
+                total_harga = sum(item.harga_jual for item in items)
                 ws.append([
                     order.id,
                     order.waktu.strftime('%Y-%m-%d %H:%M'),
                     order.nama,
                     order.nomor_wa,
+                    products,
+                    quantities,
+                    pic_str,
                     order.get_status_global_display(),
                     total_harga,
                     order.catatan_pelanggan or ''
@@ -108,12 +136,23 @@ class ExportInventoryView(APIView):
             ws = wb.active
             ws.title = "Inventory"
 
-            headers = ['ID Item', 'Nama', 'Kategori', 'Stok Saat Ini', 'Satuan', 'Min Stok', 'Harga Beli/Unit', 'Supplier', 'Status']
+            headers = ['ID Item', 'Nama', 'Kategori', 'Stok Saat Ini', 'Satuan', 'Min Stok', 'Harga Beli/Unit', 'Supplier', 'Tanggal Restok Terakhir', 'Tanggal Update/Mutasi', 'Status']
             ws.append(headers)
 
-            items = InventoryItem.objects.all().order_by('nama')
+            items = InventoryItem.objects.prefetch_related('history').order_by('nama')
             for item in items:
                 status = 'Kritis' if item.stok < item.min_stok else 'Aman'
+                
+                # Evaluasi di memory Python agar tidak memicu N+1 query
+                history_list = sorted(list(item.history.all()), key=lambda h: h.waktu, reverse=True)
+                
+                latest_history = history_list[0] if history_list else None
+                tanggal_update_str = latest_history.waktu.strftime('%Y-%m-%d %H:%M') if latest_history else '-'
+                
+                restock_list = [h for h in history_list if h.delta > 0]
+                latest_restock = restock_list[0] if restock_list else None
+                tanggal_restok_str = latest_restock.waktu.strftime('%Y-%m-%d %H:%M') if latest_restock else '-'
+
                 ws.append([
                     item.id,
                     item.nama,
@@ -123,6 +162,8 @@ class ExportInventoryView(APIView):
                     item.min_stok,
                     item.cost_per_unit,
                     item.supplier,
+                    tanggal_restok_str,
+                    tanggal_update_str,
                     status
                 ])
 
@@ -225,8 +266,8 @@ class ExportAbsensiView(APIView):
 
 class ExportStaffPerformanceView(APIView):
     """
-    GET /api/export/staff-performance/?range=bulan_ini
-    Mengekspor laporan kinerja seluruh staff ke dalam format Excel (.xlsx)
+    GET /api/export/staff-performance/?range=bulan_ini&type=global&divisi=...&staff_id=...
+    Mengekspor laporan detail kinerja (global/divisi/staff) ke Excel.
     """
     permission_classes = [IsAuthenticated]
 
@@ -235,82 +276,106 @@ class ExportStaffPerformanceView(APIView):
             return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
 
         time_range = request.query_params.get('range', 'bulan_ini')
+        export_type = request.query_params.get('type', 'global')  # 'global', 'divisi', 'staff'
+        divisi_name = request.query_params.get('divisi', '')
+        staff_id = request.query_params.get('staff_id', '')
+
+        import calendar
+        from api.models import JobBoard, CustomUser
         
+        now = timezone.localtime(timezone.now())
+        start = None
+        end = None
+
+        if time_range == 'hari_ini':
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif time_range == 'tujuh_hari':
+            start = (now - timezone.timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif time_range == 'bulan_ini':
+            start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            _, last_day = calendar.monthrange(now.year, now.month)
+            end = now.replace(day=last_day, hour=23, minute=59, second=59, microsecond=999999)
+        elif time_range == 'bulan_lalu':
+            year = now.year
+            month = now.month - 1
+            if month <= 0:
+                month = 12
+                year -= 1
+            start = now.replace(year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
+            _, last_day = calendar.monthrange(year, month)
+            end = now.replace(year=year, month=month, day=last_day, hour=23, minute=59, second=59, microsecond=999999)
+
+        jobs_qs = JobBoard.objects.select_related(
+            'order_item', 'order_item__order', 'tahap', 'tahap__divisi', 'pic_staff'
+        ).order_by('-waktu_selesai')
+
+        if start and end:
+            jobs_qs = jobs_qs.filter(waktu_selesai__gte=start, waktu_selesai__lte=end)
+        else:
+            jobs_qs = jobs_qs.filter(waktu_selesai__isnull=False)
+
+        title_suffix = "Global"
+        filename_prefix = "laporan_global"
+
+        if export_type == 'divisi' and divisi_name:
+            jobs_qs = jobs_qs.filter(tahap__divisi__nama__iexact=divisi_name)
+            title_suffix = f"Divisi {divisi_name}"
+            filename_prefix = f"laporan_divisi_{divisi_name.lower().replace(' ', '_')}"
+        elif export_type == 'staff' and staff_id:
+            try:
+                staff_user = CustomUser.objects.get(id=staff_id)
+                jobs_qs = jobs_qs.filter(pic_staff=staff_user)
+                title_suffix = f"Staff {staff_user.get_full_name() or staff_user.username}"
+                filename_prefix = f"laporan_staff_{staff_user.username}"
+            except CustomUser.DoesNotExist:
+                return Response({'error': 'Staff tidak ditemukan'}, status=404)
+
         response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response['Content-Disposition'] = f'attachment; filename="kinerja_karyawan_{time_range}_{timezone.now().strftime("%Y%m%d")}.xlsx"'
+        response['Content-Disposition'] = f'attachment; filename="{filename_prefix}_{time_range}_{timezone.now().strftime("%Y%m%d")}.xlsx"'
 
         try:
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = "Kinerja Karyawan"
+            ws.title = "Detail Pekerjaan"
+
+            # Title block
+            ws.append([f"LAPORAN DETAIL PRODUKSI - {title_suffix.upper()}"])
+            periode_str = f"{start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')}" if start else "Semua Waktu"
+            ws.append([f"Periode: {time_range.replace('_', ' ').title()} ({periode_str})"])
+            ws.append([]) # Blank spacer
 
             headers = [
-                'Nama Karyawan', 'Username', 'Divisi', 
-                'Total Tugas', 'Tugas Selesai', 'Sedang Dikerjakan', 
-                'Antrean', 'Gagal/Batal', 'Ada Kendala', 
-                'Total Insentif (Rp)', 'Rata-rata Durasi (Menit)'
+                'No', 'ID Job', 'Tanggal Selesai', 'ID Order', 'Pelanggan', 
+                'Nama Produk', 'Bahan Baku', 'Qty', 'Divisi', 'Tahap Proses', 
+                'ID PIC', 'Nama PIC', 'Durasi (Menit)', 'Status', 'Insentif (Rp)', 'Biaya Desain (Rp)'
             ]
             ws.append(headers)
 
-            import calendar
-            from api.models import CustomUser
-            
-            now = timezone.localtime(timezone.now())
-            start = None
-            end = None
-            
-            if time_range == 'bulan_ini':
-                start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-                _, last_day = calendar.monthrange(now.year, now.month)
-                end = now.replace(day=last_day, hour=23, minute=59, second=59, microsecond=999999)
-            elif time_range == 'bulan_lalu':
-                year = now.year
-                month = now.month - 1
-                if month <= 0:
-                    month = 12
-                    year -= 1
-                start = now.replace(year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
-                _, last_day = calendar.monthrange(year, month)
-                end = now.replace(year=year, month=month, day=last_day, hour=23, minute=59, second=59, microsecond=999999)
-
-            staff_members = CustomUser.objects.filter(role='staff').select_related('divisi').prefetch_related('my_tasks')
-
-            for staff in staff_members:
-                jobs = staff.my_tasks.all()
-                if start and end:
-                    completed_jobs = jobs.filter(status_pekerjaan='selesai', waktu_selesai__gte=start, waktu_selesai__lte=end)
-                    failed_jobs = jobs.filter(status_pekerjaan__in=['gagal', 'batal'], waktu_selesai__gte=start, waktu_selesai__lte=end)
-                else:
-                    completed_jobs = jobs.filter(status_pekerjaan='selesai')
-                    failed_jobs = jobs.filter(status_pekerjaan__in=['gagal', 'batal'])
-                    
-                active_jobs = jobs.filter(status_pekerjaan='dikerjakan')
-                pending_jobs = jobs.filter(status_pekerjaan='antrean')
-                constraint_jobs = jobs.filter(status_pekerjaan='kendala')
-
-                total_jobs = completed_jobs.count() + failed_jobs.count() + active_jobs.count() + pending_jobs.count() + constraint_jobs.count()
-                total_insentif = sum(j.insentif for j in completed_jobs)
-
-                durations = []
-                for j in completed_jobs:
-                    if j.waktu_mulai and j.waktu_selesai:
-                        diff = j.waktu_selesai - j.waktu_mulai
-                        durations.append(diff.total_seconds() / 60.0)
-                
-                avg_duration = round(sum(durations) / len(durations), 1) if durations else 0
+            for idx, job in enumerate(jobs_qs, 1):
+                duration_minutes = 0
+                if job.waktu_mulai and job.waktu_selesai:
+                    diff = job.waktu_selesai - job.waktu_mulai
+                    duration_minutes = round(diff.total_seconds() / 60.0, 1)
 
                 ws.append([
-                    staff.get_full_name() or staff.username,
-                    staff.username,
-                    staff.divisi.nama if staff.divisi else '-',
-                    total_jobs,
-                    completed_jobs.count(),
-                    active_jobs.count(),
-                    pending_jobs.count(),
-                    failed_jobs.count(),
-                    constraint_jobs.count(),
-                    total_insentif,
-                    avg_duration
+                    idx,
+                    job.id,
+                    job.waktu_selesai.strftime('%Y-%m-%d %H:%M') if job.waktu_selesai else '-',
+                    job.order_item.order.id if job.order_item and job.order_item.order else '-',
+                    job.order_item.order.nama if job.order_item and job.order_item.order else '-',
+                    job.order_item.jenis_produk if job.order_item else '-',
+                    job.order_item.bahan if job.order_item else '-',
+                    job.order_item.qty if job.order_item else 1,
+                    job.tahap.divisi.nama if job.tahap and job.tahap.divisi else '-',
+                    job.tahap.nama if job.tahap else '-',
+                    job.pic_staff.username if job.pic_staff else '-',
+                    job.pic_staff.get_full_name() or job.pic_staff.username if job.pic_staff else '-',
+                    duration_minutes,
+                    job.status_pekerjaan,
+                    job.insentif,
+                    job.biaya_desain
                 ])
 
             wb.save(response)

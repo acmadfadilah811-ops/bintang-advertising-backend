@@ -17,3 +17,14 @@ db.sqlite3
 
 # Media / Uploads
 media/
+
+# Caches & Logs
+.ruff_cache/
+.pytest_cache/
+logs/
+*.log
+
+# Coverage
+.coverage
+htmlcov/
+

@@ -421,7 +421,7 @@ class StaffOnlineView(APIView):
     permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        staff_qs = CustomUser.objects.filter(is_active=True).select_related(
+        staff_qs = CustomUser.objects.filter(is_active=True, role="staff").select_related(
             "profile", "divisi"
         )
 

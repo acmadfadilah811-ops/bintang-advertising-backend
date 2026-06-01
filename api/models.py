@@ -60,6 +60,31 @@ class CustomUser(AbstractUser):
     no_kpj = models.CharField(max_length=50, null=True, blank=True, help_text="Nomor Kartu Peserta Jamsostek / BPJS Ketenagakerjaan")
     bpjs_kes = models.CharField(max_length=50, null=True, blank=True, help_text="Nomor BPJS Kesehatan")
     file_pkwt = models.FileField(upload_to='dokumen_hr/pkwt/', null=True, blank=True, help_text="File Kontrak PKWT")
+    nip = models.CharField(
+        max_length=50, 
+        unique=True, 
+        null=True, 
+        blank=True, 
+        help_text="Nomor Induk Pegawai / Staff ID (contoh: STF-2026-001)"
+    )
+
+    def save(self, *args, **kwargs):
+        if self.role == 'staff' and not self.nip:
+            current_year = timezone.now().year
+            last_staff = CustomUser.objects.filter(
+                role='staff',
+                nip__startswith=f"STF-{current_year}-"
+            ).order_by('-nip').first()
+            
+            next_num = 1
+            if last_staff and last_staff.nip:
+                try:
+                    last_num = int(last_staff.nip.split('-')[-1])
+                    next_num = last_num + 1
+                except ValueError:
+                    pass
+            self.nip = f"STF-{current_year}-{next_num:03d}"
+        super().save(*args, **kwargs)
 
     def __str__(self):
         divisi_nama = self.divisi.nama if self.divisi else "Tanpa Divisi"
@@ -254,6 +279,7 @@ class JobBoard(models.Model):
     
     # Nominal insentif ditentukan secara manual oleh Manager
     insentif = models.IntegerField(default=0, help_text="Insentif yang ditentukan oleh Manager untuk tugas ini")
+    biaya_desain = models.IntegerField(default=0, help_text="Biaya tambahan desain untuk tugas ini")
     
     otp_code = models.CharField(max_length=10, blank=True, default="")
     otp_requested = models.BooleanField(default=False)

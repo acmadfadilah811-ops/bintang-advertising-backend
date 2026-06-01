@@ -25,7 +25,7 @@ class IsOwnerOrManager(BasePermission):
         return bool(
             request.user and
             request.user.is_authenticated and
-            getattr(request.user, 'role', '') in ['owner', 'manager']
+            getattr(request.user, 'role', '') in ['owner', 'manager', 'admin']
         )
 
 # ---------------------------------------------------------
@@ -35,8 +35,8 @@ class IsClockedIn(BasePermission):
     def has_permission(self, request, view):
         if not (request.user and request.user.is_authenticated):
             return False
-        # Owner/Manager bebas akses tanpa clock-in
-        if getattr(request.user, 'role', '') in ['owner', 'manager']:
+        # Owner/Manager/Admin bebas akses tanpa clock-in
+        if getattr(request.user, 'role', '') in ['owner', 'manager', 'admin']:
             return True
         
         # Cek absensi staff hari ini: jam_masuk ada, jam_keluar kosong ATAU workspace_unlocked di-enable oleh Owner
@@ -63,6 +63,13 @@ class CustomUserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = CustomUserSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = CustomUser.objects.all()
+        role = self.request.query_params.get('role')
+        if role:
+            queryset = queryset.filter(role=role)
+        return queryset
 
     @action(detail=False, methods=['get', 'patch'], url_path='me')
     def me(self, request):
@@ -124,41 +131,75 @@ class ContactViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Query efisien — tidak ada loop, gunakan agregasi database langsung
-        return Contact.objects.all().order_by('-total_order', '-total_spent')
+        # Query efisien — gunakan Subquery untuk dianotasikan ke queryset kontak
+        from django.db.models import OuterRef, Subquery, Sum
+        from django.db.models.functions import Coalesce
+
+        orders_subquery = Order.objects.filter(
+            nomor_wa=OuterRef('nomor_wa')
+        ).exclude(status_global='batal').values('nomor_wa').annotate(
+            total=Sum('sisa_tagihan')
+        ).values('total')
+
+        return Contact.objects.annotate(
+            annotated_piutang=Coalesce(Subquery(orders_subquery), 0)
+        ).order_by('-total_order', '-total_spent')
 
     @action(detail=False, methods=['post'], url_path='sync')
     def sync(self, request):
         """
         POST /api/contacts/sync/
         Sinkronisasi data Contact dari semua Order yang ada.
-        Dipanggil on-demand, bukan otomatis di setiap request GET.
+        Dipanggil on-demand, menggunakan bulk_create/bulk_update agar sangat cepat.
         """
-        orders = Order.objects.prefetch_related('items').all()
-        updated = 0
+        from django.db.models import Max, Sum, Count
+        from django.db.models.functions import Coalesce
 
-        for order in orders:
-            contact, created = Contact.objects.get_or_create(
-                nomor_wa=order.nomor_wa,
-                defaults={'nama': order.nama}
-            )
+        # 1. Fetch mapping nama terbaru secara efisien
+        name_map = {}
+        for o in Order.objects.values('nomor_wa', 'nama', 'waktu').order_by('waktu'):
+            name_map[o['nomor_wa']] = o['nama']
 
-            # Hitung statistik dengan query yang efisien
-            my_orders = Order.objects.filter(nomor_wa=contact.nomor_wa).prefetch_related('items')
-            contact.total_order = my_orders.count()
-            contact.total_spent = sum(
-                item.harga_jual
-                for o in my_orders
-                for item in o.items.all()
-            )
-            latest = my_orders.order_by('-waktu').first()
-            if latest:
-                contact.last_order = latest.waktu.date()
+        # 2. Ambil agregat data statistik per nomor_wa
+        stats = Order.objects.values('nomor_wa').annotate(
+            order_count=Count('id', distinct=True),
+            latest_order=Max('waktu'),
+            spent_sum=Coalesce(Sum('items__harga_jual'), 0)
+        )
 
-            contact.save()
-            updated += 1
+        contacts_to_update = []
+        contacts_to_create = []
+        existing_contacts = {c.nomor_wa: c for c in Contact.objects.all()}
 
-        return Response({'ok': True, 'synced': updated})
+        for item in stats:
+            wa = item['nomor_wa']
+            name = name_map.get(wa, wa)
+            order_count = item['order_count']
+            last_date = item['latest_order'].date() if item['latest_order'] else None
+            spent = item['spent_sum']
+
+            if wa in existing_contacts:
+                contact = existing_contacts[wa]
+                contact.nama = name
+                contact.total_order = order_count
+                contact.last_order = last_date
+                contact.total_spent = spent
+                contacts_to_update.append(contact)
+            else:
+                contacts_to_create.append(Contact(
+                    nomor_wa=wa,
+                    nama=name,
+                    total_order=order_count,
+                    last_order=last_date,
+                    total_spent=spent
+                ))
+
+        if contacts_to_create:
+            Contact.objects.bulk_create(contacts_to_create)
+        if contacts_to_update:
+            Contact.objects.bulk_update(contacts_to_update, ['nama', 'total_order', 'last_order', 'total_spent'])
+
+        return Response({'ok': True, 'synced': len(stats)})
 
 # ---------------------------------------------------------
 # INVENTORY VIEWSET
@@ -275,6 +316,68 @@ class InventoryRestockView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+def deduct_job_materials_if_needed(job, user):
+    """
+    Mengecek catatan_staff untuk job ini. Jika ada pemakaian inventori (item_id & jumlah/qty > 0)
+    dan belum pernah dipotong (belum ada RestockHistory untuk Job #{job.id}),
+    maka potong stoknya secara otomatis.
+    """
+    from django.db import transaction
+    from .models import InventoryItem, RestockHistory
+    
+    marker = f"Job #{job.id}"
+    if RestockHistory.objects.filter(keterangan__icontains=marker).exists():
+        return
+        
+    materials_list = job.catatan_staff if isinstance(job.catatan_staff, list) else []
+    if not materials_list:
+        return
+        
+    # Cari indeks pembatas terakhir
+    last_sep_idx = -1
+    for i, mat in enumerate(materials_list):
+        if str(mat.get('keterangan', '')).startswith('--- Dari Divisi:'):
+            last_sep_idx = i
+            
+    current_mats = materials_list[last_sep_idx+1:] if last_sep_idx != -1 else materials_list
+    
+    with transaction.atomic():
+        for mat in current_mats:
+            item_id = mat.get('item_id', '')
+            if not item_id:
+                continue
+                
+            qty_val = mat.get('jumlah') or mat.get('qty') or 0
+            try:
+                qty = float(str(qty_val).replace(',', '.'))
+            except (ValueError, TypeError):
+                continue
+                
+            if qty <= 0:
+                continue
+                
+            try:
+                item = InventoryItem.objects.select_for_update().get(pk=item_id)
+            except InventoryItem.DoesNotExist:
+                continue
+                
+            stok_awal = item.stok
+            stok_akhir = max(0.0, round(item.stok - qty, 4))
+            catatan_mat = mat.get('catatan', '')
+            
+            RestockHistory.objects.create(
+                item=item,
+                user=user,
+                delta=-qty,
+                stok_awal=stok_awal,
+                stok_akhir=stok_akhir,
+                keterangan=f"Pemakaian produksi otomatis | Job #{job.id} | {catatan_mat}".strip(' |'),
+            )
+            
+            item.stok = stok_akhir
+            item.save()
+
+
 # ---------------------------------------------------------
 # JOB MATERIAL DEDUCT VIEW — Kurangi stok saat finishing
 # ---------------------------------------------------------
@@ -365,7 +468,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             'items__jobs__pic_staff',
             'items__jobs__pic_staff__divisi'
         ).order_by('-waktu')
-        if user.role in ['owner', 'manager']:
+        if user.role in ['owner', 'manager', 'admin']:
             return base_qs
         my_order_ids = JobBoard.objects.filter(
             pic_staff=user
@@ -414,16 +517,18 @@ class OrderViewSet(viewsets.ModelViewSet):
 
 
 class AssignOrderView(APIView):
-    """POST /api/orders/{order_id}/assign/ — Manager assign staff ke semua item dalam order"""
+    """POST /api/orders/{order_id}/assign/ — Manager/Admin publish/assign staff ke semua item dalam order"""
     permission_classes = [IsOwnerOrManager]
 
     def post(self, request, order_id):
         staff_id = request.data.get('staff_id')
         tahap_id = request.data.get('tahap_id', None)
+        divisi_id = request.data.get('divisi_id', None)
         status_global = request.data.get('status_global', None)
+        biaya_desain = int(request.data.get('biaya_desain', 0))
+        insentif = int(request.data.get('insentif', 0))
 
-        if not staff_id:
-            return Response({'error': 'staff_id wajib diisi.'}, status=status.HTTP_400_BAD_REQUEST)
+        order_item_id = request.data.get('order_item_id', None)
 
         # Validasi order ada
         try:
@@ -431,14 +536,17 @@ class AssignOrderView(APIView):
         except Order.DoesNotExist:
             return Response({'error': 'Order tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Validasi staff ada
-        try:
-            staff = CustomUser.objects.get(pk=staff_id, role='staff')
-        except CustomUser.DoesNotExist:
-            return Response({'error': 'Staff tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+        staff = None
+        tahap = None
+
+        if staff_id:
+            # Validasi staff ada
+            try:
+                staff = CustomUser.objects.get(pk=staff_id, role='staff')
+            except CustomUser.DoesNotExist:
+                return Response({'error': 'Staff tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
 
         # Ambil tahap jika ada
-        tahap = None
         if tahap_id:
             try:
                 from .models import TahapProses as TahapModel
@@ -446,18 +554,33 @@ class AssignOrderView(APIView):
             except Exception:
                 pass
 
-        # JIKA tahap masih None, coba ambil tahap pertama sesuai divisi staff sebagai fallback
-        if not tahap and staff.divisi:
+        # JIKA tahap masih None tapi ada divisi_id, ambil tahap pertama di divisi tersebut
+        if not tahap and divisi_id:
+            try:
+                from .models import TahapProses as TahapModel
+                tahap = TahapModel.objects.filter(divisi_id=divisi_id).order_by('urutan').first()
+            except Exception:
+                pass
+
+        # JIKA tahap masih None tapi staff diisi, ambil tahap pertama divisi staff sebagai fallback
+        if not tahap and staff and staff.divisi:
             try:
                 from .models import TahapProses as TahapModel
                 tahap = TahapModel.objects.filter(divisi=staff.divisi).order_by('urutan').first()
             except Exception:
                 pass
 
+        # Guard: setidaknya harus ada tahap/divisi jika tidak ada staff
+        if not tahap and not staff:
+            return Response({'error': 'staff_id atau divisi/tahap wajib diisi untuk penerbitan SPK.'}, status=status.HTTP_400_BAD_REQUEST)
+
         # Buat atau update JobBoard untuk setiap OrderItem
         items = order.items.all()
+        if order_item_id:
+            items = items.filter(pk=order_item_id)
+            
         if not items.exists():
-            return Response({'error': 'Order ini belum memiliki item produk.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Order ini belum memiliki item produk atau item tidak cocok.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Buat atau update JobBoard — lookup by (order_item, tahap) bukan hanya order_item
         created_jobs = []
@@ -468,12 +591,13 @@ class AssignOrderView(APIView):
                 defaults={
                     'pic_staff': staff,
                     'status_pekerjaan': 'antrean',
+                    'biaya_desain': biaya_desain,
+                    'insentif': insentif,
                     'waktu_mulai': None,
                     'waktu_selesai': None,
                 }
             )
             created_jobs.append({'job_id': job.id, 'item': item.jenis_produk, 'created': created})
-
 
         # Update status order
         if status_global:
@@ -483,7 +607,7 @@ class AssignOrderView(APIView):
             is_desain = False
             if tahap and tahap.divisi and tahap.divisi.nama.lower() == 'desain':
                 is_desain = True
-            elif staff.divisi and staff.divisi.nama.lower() == 'desain':
+            elif staff and staff.divisi and staff.divisi.nama.lower() == 'desain':
                 is_desain = True
                 
             if is_desain:
@@ -492,8 +616,9 @@ class AssignOrderView(APIView):
                 order.status_global = 'proses'
         order.save()
 
+        target_name = staff.username if staff else (tahap.divisi.nama if tahap and tahap.divisi else 'Divisi')
         return Response({
-            'message': f'Order {order_id} berhasil di-assign ke {staff.username}.',
+            'message': f'Order {order_id} berhasil di-publish/assign ke {target_name}.',
             'jobs': created_jobs,
         }, status=status.HTTP_200_OK)
 
@@ -516,11 +641,93 @@ class JobBoardViewSet(viewsets.ModelViewSet):
             'order_item',
             'order_item__order'
         ).order_by('-id')
-        # Owner & Manager bisa lihat semua job
-        if user.role in ['owner', 'manager']:
+        
+        # Owner, Manager & Admin bisa lihat semua job
+        if user.role in ['owner', 'manager', 'admin']:
             return base_qs
-        # Staff hanya lihat job yang di-assign ke mereka
+            
+        # Staff: bisa lihat job miliknya ATAU job unassigned di divisinya
+        if user.divisi:
+            return base_qs.filter(
+                Q(pic_staff=user) | 
+                Q(pic_staff__isnull=True, tahap__divisi=user.divisi)
+            )
         return base_qs.filter(pic_staff=user)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsClockedIn])
+    def claim(self, request, pk=None):
+        """POST /api/jobs/{id}/claim/ — Staff mengklaim job unassigned milik divisinya"""
+        job = self.get_object()
+        user = request.user
+        
+        if job.pic_staff:
+            return Response({'error': f'Job sudah diambil oleh {job.pic_staff.username}.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        if not user.divisi or (job.tahap and job.tahap.divisi != user.divisi):
+            return Response({'error': 'Anda hanya dapat mengklaim pekerjaan dari divisi Anda sendiri.'}, status=status.HTTP_403_FORBIDDEN)
+            
+        job.pic_staff = user
+        job.status_pekerjaan = 'antrean'
+        job.save()
+        
+        return Response({
+            'message': 'Pekerjaan berhasil diklaim.',
+            'job': JobBoardSerializer(job).data
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsClockedIn])
+    def start(self, request, pk=None):
+        """POST /api/jobs/{id}/start/ — Staff memulai pengerjaan job"""
+        job = self.get_object()
+        user = request.user
+        
+        if job.pic_staff != user:
+            return Response({'error': 'Hanya PIC staff yang dapat memulai pekerjaan ini.'}, status=status.HTTP_403_FORBIDDEN)
+            
+        job.status_pekerjaan = 'dikerjakan'
+        job.waktu_mulai = timezone.now()
+        job.save()
+        
+        return Response({
+            'message': 'Pekerjaan dimulai.',
+            'job': JobBoardSerializer(job).data
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsClockedIn])
+    def complete(self, request, pk=None):
+        """POST /api/jobs/{id}/complete/ — Staff menyelesaikan pengerjaan job secara langsung (bebas OTP)"""
+        job = self.get_object()
+        user = request.user
+        
+        if job.pic_staff != user:
+            return Response({'error': 'Hanya PIC staff yang dapat menyelesaikan pekerjaan ini.'}, status=status.HTTP_403_FORBIDDEN)
+            
+        job.status_pekerjaan = 'selesai'
+        job.waktu_selesai = timezone.now()
+        # Reset OTP fields
+        job.otp_code = ''
+        job.otp_requested = False
+        job.otp_sent = False
+        job.save()
+        
+        # Potong bahan otomatis ke inventori
+        deduct_job_materials_if_needed(job, user)
+        
+        # Cek apakah seluruh job dari semua item dalam pesanan ini sudah selesai
+        order = job.order_item.order
+        active_jobs_exist = JobBoard.objects.filter(
+            order_item__order=order,
+            status_pekerjaan__in=['antrean', 'dikerjakan', 'kendala']
+        ).exists()
+
+        if not active_jobs_exist:
+            order.status_global = 'ready'
+            order.save()
+            
+        return Response({
+            'message': 'Pekerjaan berhasil diselesaikan.',
+            'job': JobBoardSerializer(job).data
+        }, status=status.HTTP_200_OK)
 
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
@@ -869,6 +1076,9 @@ class ForwardJobView(APIView):
             job.otp_requested    = False
             job.otp_sent         = False
             job.save()
+
+            # Potong bahan otomatis ke inventori
+            deduct_job_materials_if_needed(job, request.user)
 
             if aksi == 'forward':
                 if not tahap_id:
@@ -1369,7 +1579,45 @@ class StaffPerformanceReportView(APIView):
                 'att_total': len(absensi_list)
             })
             
+        # Detailed Jobs
+        jobs_qs = JobBoard.objects.select_related(
+            'order_item', 'order_item__order', 'tahap', 'tahap__divisi', 'pic_staff'
+        ).order_by('-waktu_selesai')
+        
+        if start and end:
+            jobs_qs = jobs_qs.filter(waktu_selesai__gte=start, waktu_selesai__lte=end)
+        else:
+            jobs_qs = jobs_qs.filter(waktu_selesai__isnull=False)[:500]
+
+        detailed_jobs = []
+        for j in jobs_qs:
+            duration_minutes = 0
+            if j.waktu_mulai and j.waktu_selesai:
+                diff = j.waktu_selesai - j.waktu_mulai
+                duration_minutes = round(diff.total_seconds() / 60.0, 1)
+
+            detailed_jobs.append({
+                'id': j.id,
+                'order_id': j.order_item.order.id if j.order_item and j.order_item.order else '-',
+                'order_nama': j.order_item.order.nama if j.order_item and j.order_item.order else '-',
+                'order_tgl': j.order_item.order.waktu.strftime('%Y-%m-%d %H:%M') if j.order_item and j.order_item.order else '-',
+                'jenis_produk': j.order_item.jenis_produk if j.order_item else '-',
+                'bahan': j.order_item.bahan if j.order_item else '-',
+                'qty': j.order_item.qty if j.order_item else 1,
+                'tahap': j.tahap.nama if j.tahap else '-',
+                'divisi': j.tahap.divisi.nama if j.tahap and j.tahap.divisi else '-',
+                'pic_username': j.pic_staff.username if j.pic_staff else 'Unassigned',
+                'pic_fullname': j.pic_staff.get_full_name() or j.pic_staff.username if j.pic_staff else 'Unassigned',
+                'status': j.status_pekerjaan,
+                'waktu_mulai': j.waktu_mulai.strftime('%Y-%m-%d %H:%M') if j.waktu_mulai else '-',
+                'waktu_selesai': j.waktu_selesai.strftime('%Y-%m-%d %H:%M') if j.waktu_selesai else '-',
+                'durasi_menit': duration_minutes,
+                'insentif': j.insentif,
+                'biaya_desain': j.biaya_desain
+            })
+
         return Response({
             'range': time_range,
-            'data': report_data
+            'data': report_data,
+            'detailed_jobs': detailed_jobs
         })

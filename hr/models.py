@@ -266,6 +266,14 @@ class TransaksiBukuBesar(models.Model):
 
     class Meta:
         ordering = ['tanggal', 'waktu_input']
+        indexes = [
+            # Query: filter transaksi berdasarkan rentang tanggal (sangat penting untuk laporan bulanan/tahunan)
+            models.Index(fields=['tanggal', 'waktu_input'], name='idx_tx_tanggal_waktu'),
+            # Query: filter transaksi per akun tertentu berdasarkan tanggal
+            models.Index(fields=['akun', 'tanggal'], name='idx_tx_akun_tanggal'),
+            # Query: pencarian berdasarkan nomor referensi (misal ID Order)
+            models.Index(fields=['no_referensi'], name='idx_tx_no_referensi'),
+        ]
 
     def __str__(self):
         return f"{self.tanggal} | {self.akun.nama_akun} | D: {self.debit} | K: {self.kredit}"
