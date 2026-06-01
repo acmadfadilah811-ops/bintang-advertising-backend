@@ -35,7 +35,23 @@ def get_ai_client():
 
 # ── State in-memory ───────────────────────────────────────────────────
 memori_percakapan = {}
-menunggu_nama     = set()
+class CacheSet:
+    def __init__(self, cache_prefix="wa_menunggu_nama_"):
+        self.prefix = cache_prefix
+        
+    def __contains__(self, item):
+        from django.core.cache import cache
+        return cache.get(f"{self.prefix}{item}", False)
+        
+    def add(self, item):
+        from django.core.cache import cache
+        cache.set(f"{self.prefix}{item}", True, timeout=3600) # 1 jam timeout
+        
+    def discard(self, item):
+        from django.core.cache import cache
+        cache.delete(f"{self.prefix}{item}")
+
+menunggu_nama = CacheSet()
 
 
 def ekstrak_nama_dari_pesan(pesan):

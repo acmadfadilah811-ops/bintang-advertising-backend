@@ -139,7 +139,7 @@ class ContactViewSet(viewsets.ModelViewSet):
             nomor_wa=OuterRef('nomor_wa')
         ).exclude(status_global='batal').values('nomor_wa').annotate(
             total=Sum('sisa_tagihan')
-        ).values('total')
+        ).values('total')[:1]
 
         return Contact.objects.annotate(
             annotated_piutang=Coalesce(Subquery(orders_subquery), 0)
@@ -227,45 +227,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
         inv_id   = f'INV-{today}-{short_id}'
         serializer.save(id=inv_id)
 
-    @action(detail=True, methods=['post'], url_path='restock')
-    def restock(self, request, pk=None):
-        """
-        POST /api/inventory/{id}/restock/
-        Body: { delta: float, keterangan: str }
-        Mencatat riwayat dan update stok.
-        """
-        item       = self.get_object()
-        delta_raw  = request.data.get('delta')
-        keterangan = request.data.get('keterangan', '')
 
-        if delta_raw is None:
-            return Response(
-                {'error': 'delta wajib diisi (positif = tambah, negatif = kurangi).'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        try:
-            delta = float(delta_raw)
-        except (ValueError, TypeError):
-            return Response({'error': 'delta harus berupa angka.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        stok_awal  = item.stok
-        stok_akhir = max(0.0, item.stok + delta)
-
-        # Simpan history
-        RestockHistory.objects.create(
-            item       = item,
-            user       = request.user,
-            delta      = delta,
-            stok_awal  = stok_awal,
-            stok_akhir = stok_akhir,
-            keterangan = keterangan,
-        )
-
-        # Update stok
-        item.stok = stok_akhir
-        item.save()
-
-        return Response(InventoryItemSerializer(item).data)
 
 
 # ---------------------------------------------------------
@@ -869,6 +831,12 @@ class DashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.core.cache import cache
+        cache_key = "dashboard_data"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+
         import calendar
         from datetime import timedelta
 
@@ -965,7 +933,7 @@ class DashboardView(APIView):
             for item in stok_kritis_qs
         ]
 
-        return Response({
+        data = {
             'total_order_hari_ini': total_order_hari_ini,
             'total_order_bulan_ini': total_order_bulan_ini,
             'omset_bulan_ini': omset_bulan_ini,
@@ -974,7 +942,9 @@ class DashboardView(APIView):
             'job_per_status': job_per_status,
             'top_staff': top_staff,
             'stok_kritis': stok_kritis,
-        })
+        }
+        cache.set(cache_key, data, timeout=300)
+        return Response(data)
 
 
 # ---------------------------------------------------------
@@ -1068,6 +1038,21 @@ class ForwardJobView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Validasi tahap_id dan ambil tahap_baru SEBELUM transaction.atomic()
+        tahap_baru = None
+        if aksi == 'forward':
+            if not tahap_id:
+                return Response(
+                    {'error': 'tahap_id wajib diisi jika aksi=forward.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Ambil tahap tujuan
+            try:
+                tahap_baru = TahapProses.objects.get(pk=tahap_id)
+            except TahapProses.DoesNotExist:
+                return Response({'error': 'Tahap tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+
         with transaction.atomic():
             # Tandai job saat ini sebagai SELESAI
             job.status_pekerjaan = 'selesai'
@@ -1081,17 +1066,6 @@ class ForwardJobView(APIView):
             deduct_job_materials_if_needed(job, request.user)
 
             if aksi == 'forward':
-                if not tahap_id:
-                    return Response(
-                        {'error': 'tahap_id wajib diisi jika aksi=forward.'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                # Ambil tahap tujuan
-                try:
-                    tahap_baru = TahapProses.objects.get(pk=tahap_id)
-                except TahapProses.DoesNotExist:
-                    return Response({'error': 'Tahap tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
 
                 # Siapkan catatan dari divisi sebelumnya
                 catatan_sebelumnya = job.catatan_staff if isinstance(job.catatan_staff, list) else []
@@ -1509,21 +1483,21 @@ class StaffPerformanceReportView(APIView):
 
         report_data = []
         for staff in staff_members:
-            jobs = staff.my_tasks.all()
+            jobs = list(staff.my_tasks.all())
             
             # Saring berdasarkan rentang waktu jika diset
             if start and end:
-                completed_jobs = jobs.filter(status_pekerjaan='selesai', waktu_selesai__gte=start, waktu_selesai__lte=end)
-                failed_jobs = jobs.filter(status_pekerjaan__in=['gagal', 'batal'], waktu_selesai__gte=start, waktu_selesai__lte=end)
+                completed_jobs = [j for j in jobs if j.status_pekerjaan == 'selesai' and j.waktu_selesai and start <= j.waktu_selesai <= end]
+                failed_jobs = [j for j in jobs if j.status_pekerjaan in ['gagal', 'batal'] and j.waktu_selesai and start <= j.waktu_selesai <= end]
             else:
-                completed_jobs = jobs.filter(status_pekerjaan='selesai')
-                failed_jobs = jobs.filter(status_pekerjaan__in=['gagal', 'batal'])
+                completed_jobs = [j for j in jobs if j.status_pekerjaan == 'selesai']
+                failed_jobs = [j for j in jobs if j.status_pekerjaan in ['gagal', 'batal']]
                 
-            active_jobs = jobs.filter(status_pekerjaan='dikerjakan')
-            pending_jobs = jobs.filter(status_pekerjaan='antrean')
-            constraint_jobs = jobs.filter(status_pekerjaan='kendala')
+            active_jobs = [j for j in jobs if j.status_pekerjaan == 'dikerjakan']
+            pending_jobs = [j for j in jobs if j.status_pekerjaan == 'antrean']
+            constraint_jobs = [j for j in jobs if j.status_pekerjaan == 'kendala']
 
-            total_jobs = completed_jobs.count() + failed_jobs.count() + active_jobs.count() + pending_jobs.count() + constraint_jobs.count()
+            total_jobs = len(completed_jobs) + len(failed_jobs) + len(active_jobs) + len(pending_jobs) + len(constraint_jobs)
             total_insentif = sum(j.insentif for j in completed_jobs)
             
             # Rata-rata durasi pengerjaan job selesai (menit)
@@ -1566,11 +1540,11 @@ class StaffPerformanceReportView(APIView):
                 'nama_lengkap': staff.get_full_name() or staff.username,
                 'divisi': staff.divisi.nama if staff.divisi else '-',
                 'jobs_total': total_jobs,
-                'jobs_completed': completed_jobs.count(),
-                'jobs_in_progress': active_jobs.count(),
-                'jobs_pending': pending_jobs.count(),
-                'jobs_failed': failed_jobs.count(),
-                'jobs_constraint': constraint_jobs.count(),
+                'jobs_completed': len(completed_jobs),
+                'jobs_in_progress': len(active_jobs),
+                'jobs_pending': len(pending_jobs),
+                'jobs_failed': len(failed_jobs),
+                'jobs_constraint': len(constraint_jobs),
                 'total_insentif': total_insentif,
                 'avg_duration_minutes': avg_duration,
                 'att_ontime': ontime_count,
@@ -1621,3 +1595,34 @@ class StaffPerformanceReportView(APIView):
             'data': report_data,
             'detailed_jobs': detailed_jobs
         })
+
+
+class HealthCheckView(APIView):
+    """GET /api/health/ — Cek status semua komponen sistem."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from django.db import connection
+        
+        status_db = False
+        try:
+            connection.ensure_connection()
+            status_db = True
+        except Exception:
+            pass
+
+        status_cache = False
+        try:
+            from django.core.cache import cache
+            cache.set('health_check', 'ok', 5)
+            status_cache = cache.get('health_check') == 'ok'
+        except Exception:
+            pass
+
+        overall = status_db and status_cache
+        return Response({
+            'status': 'ok' if overall else 'degraded',
+            'database': 'ok' if status_db else 'error',
+            'cache': 'ok' if status_cache else 'error',
+            'timestamp': timezone.now().isoformat(),
+        }, status=200 if overall else 503)

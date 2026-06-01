@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, BusinessSettingsView, StaffPerformanceReportView
+from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView
 from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView
 
 router = DefaultRouter()
@@ -47,4 +47,7 @@ urlpatterns = [
 
     # Business Settings (mirip OrgSettings di Django CRM)
     path('business-settings/', BusinessSettingsView.as_view(), name='business-settings'),
+    
+    # Health check
+    path('health/', HealthCheckView.as_view(), name='health-check'),
 ]

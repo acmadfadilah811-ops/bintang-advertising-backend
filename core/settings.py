@@ -59,8 +59,10 @@ INSTALLED_APPS = [
     # --- Tambahan Paket Pihak Ketiga ---
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'channels',
+    'drf_spectacular',
     
     # --- Aplikasi Internal Kita ---
     'api',
@@ -204,8 +206,18 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # --- KONFIGURASI TAMBAHAN ---
 
-# Mengizinkan Frontend React (localhost:5173) mengakses API kita
-CORS_ALLOW_ALL_ORIGINS = True # Catatan: Nanti saat produksi ini harus diubah demi keamanan
+# Mengizinkan Frontend React mengakses API kita
+CORS_ALLOW_ALL_ORIGINS = True # Default True untuk dev / backward compatibility, tapi kita batasi jika di production
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://brandy-crm-811.web.app",
+    "https://brandy-crm-811.firebaseapp.com",
+]
+
+# Jika tidak DEBUG (production), matikan CORS_ALLOW_ALL_ORIGINS
+if not DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = False
 
 # Izinkan custom header dari frontend (khususnya untuk bypass ngrok)
 CORS_ALLOW_HEADERS = list(default_headers) + [
@@ -225,22 +237,58 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# --- Konfigurasi DRF Spectacular (OpenAPI 3.0) ---
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Bintang Advertising CRM API',
+    'DESCRIPTION': 'Dokumentasi interaktif API Bintang Advertising CRM & Kasir.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
 }
 
 # --- Konfigurasi Simple JWT ---
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
-# --- Konfigurasi Django Channels ---
-# Pakai InMemoryChannelLayer untuk development.
-# Ganti ke RedisChannelLayer saat production.
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+# --- Konfigurasi Cache & Channels (Redis in Production) ---
+REDIS_URL = os.getenv('REDIS_URL')
+
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            }
+        }
     }
-}
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [REDIS_URL],
+            },
+        },
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "unique-snowflake",
+        }
+    }
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer"
+        }
+    }
 
 # --- KEAMANAN LAYANAN PRODUKSI (AKAN AKTIF JIKA DEBUG = FALSE) ---
 if not DEBUG:

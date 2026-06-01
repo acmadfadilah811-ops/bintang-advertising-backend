@@ -28,3 +28,8 @@ logs/
 .coverage
 htmlcov/
 
+# Backup files (data sensitif, jangan diupload!)
+backups/
+
+# Runtime config files
+hr_attendance_schedule.json

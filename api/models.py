@@ -70,20 +70,22 @@ class CustomUser(AbstractUser):
 
     def save(self, *args, **kwargs):
         if self.role == 'staff' and not self.nip:
-            current_year = timezone.now().year
-            last_staff = CustomUser.objects.filter(
-                role='staff',
-                nip__startswith=f"STF-{current_year}-"
-            ).order_by('-nip').first()
-            
-            next_num = 1
-            if last_staff and last_staff.nip:
-                try:
-                    last_num = int(last_staff.nip.split('-')[-1])
-                    next_num = last_num + 1
-                except ValueError:
-                    pass
-            self.nip = f"STF-{current_year}-{next_num:03d}"
+            from django.db import transaction
+            with transaction.atomic():
+                current_year = timezone.now().year
+                last_staff = CustomUser.objects.select_for_update().filter(
+                    role='staff',
+                    nip__startswith=f"STF-{current_year}-"
+                ).order_by('-nip').first()
+                
+                next_num = 1
+                if last_staff and last_staff.nip:
+                    try:
+                        last_num = int(last_staff.nip.split('-')[-1])
+                        next_num = last_num + 1
+                    except ValueError:
+                        pass
+                self.nip = f"STF-{current_year}-{next_num:03d}"
         super().save(*args, **kwargs)
 
     def __str__(self):

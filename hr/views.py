@@ -54,31 +54,64 @@ def get_or_create_daily_session():
     return sesi
 
 
-def sync_attendance_for_date(target_date):
+def sync_attendance_for_range(start_date, end_date):
     """
-    Memastikan semua staff aktif memiliki record absensi pada tanggal tersebut.
-    Jika belum ada, otomatis dibuat dengan status 'alpha' (Tidak Masuk).
-    Untuk tanggal hari ini, hanya dibuat jika batas_maksimal absensi telah terlewati.
+    Memastikan semua staff aktif memiliki record absensi pada range tanggal tersebut.
+    Jika belum ada, otomatis dibuat dengan status 'alpha' (Tidak Masuk) menggunakan bulk_create.
     """
     from api.models import CustomUser
+    from datetime import date, timedelta
     
     today = timezone.localdate()
-    if target_date > today:
+    
+    # Generate list tanggal dari start_date sampai end_date
+    delta = end_date - start_date
+    target_dates = []
+    for i in range(delta.days + 1):
+        target_date = start_date + timedelta(days=i)
+        if target_date > today:
+            continue
+        if target_date == today:
+            session = get_or_create_daily_session()
+            if not session or timezone.now() <= session.batas_maksimal:
+                # Belum melewati batas waktu absen hari ini, abaikan hari ini
+                continue
+        target_dates.append(target_date)
+        
+    if not target_dates:
         return
         
-    if target_date == today:
-        session = get_or_create_daily_session()
-        if not session or timezone.now() <= session.batas_maksimal:
-            # Belum melewati batas waktu absen hari ini
-            return
-            
-    active_staff = CustomUser.objects.filter(is_active=True, role__in=["staff", "manager"])
-    for member in active_staff:
-        Absensi.objects.get_or_create(
-            staff=member,
-            tanggal=target_date,
-            defaults={"status": "alpha"}
-        )
+    active_staff = list(CustomUser.objects.filter(is_active=True, role__in=["staff", "manager"]))
+    if not active_staff:
+        return
+
+    # Ambil semua data absensi yang sudah ada untuk range tanggal ini & staff aktif
+    existing_absensi = set(
+        Absensi.objects.filter(
+            staff__in=active_staff,
+            tanggal__range=(start_date, end_date)
+        ).values_list('staff_id', 'tanggal')
+    )
+
+    # Siapkan list bulk_create
+    to_create = []
+    for target_date in target_dates:
+        for member in active_staff:
+            if (member.id, target_date) not in existing_absensi:
+                to_create.append(
+                    Absensi(
+                        staff=member,
+                        tanggal=target_date,
+                        status="alpha"
+                    )
+                )
+
+    if to_create:
+        Absensi.objects.bulk_create(to_create, ignore_conflicts=True)
+
+
+def sync_attendance_for_date(target_date):
+    sync_attendance_for_range(target_date, target_date)
 
 
 
@@ -235,8 +268,7 @@ class AbsensiListView(APIView):
             if t_int < today.year or (t_int == today.year and b_int <= today.month):
                 end_day = today.day if (t_int == today.year and b_int == today.month) else last_day
                 from datetime import date
-                for d in range(1, end_day + 1):
-                    sync_attendance_for_date(date(t_int, b_int, d))
+                sync_attendance_for_range(date(t_int, b_int, 1), date(t_int, b_int, end_day))
 
             base_qs = Absensi.objects.filter(tanggal__month=b_int, tanggal__year=t_int)
 
@@ -316,8 +348,7 @@ class TimecardView(APIView):
         if tahun < today.year or (tahun == today.year and bulan <= today.month):
             end_day = today.day if (tahun == today.year and bulan == today.month) else last_day
             from datetime import date
-            for d in range(1, end_day + 1):
-                sync_attendance_for_date(date(tahun, bulan, d))
+            sync_attendance_for_range(date(tahun, bulan, 1), date(tahun, bulan, end_day))
 
         # Tentukan target staff
         if user.role in ("owner", "manager"):

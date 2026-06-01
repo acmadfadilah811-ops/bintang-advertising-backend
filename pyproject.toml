@@ -20,4 +20,7 @@ dependencies = [
     "daphne>=4.1.2",
     "sentry-sdk[django]>=2.0.0",
     "redis>=5.0.0",
+    "django-redis>=6.0.0",
+    "channels-redis>=4.3.0",
+    "drf-spectacular>=0.29.0",
 ]
