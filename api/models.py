@@ -195,6 +195,12 @@ class Order(models.Model):
             except Exception:
                 pass
 
+        # Auto-create or update Contact in database (Pelanggan)
+        try:
+            sync_contact_for_whatsapp(self.nomor_wa)
+        except Exception:
+            pass
+
     def __str__(self):
         return f"{self.id} - {self.nama}"
 
@@ -250,8 +256,26 @@ class OrderItem(models.Model):
                 total_harga=total_harga,
                 sisa_tagihan=sisa_tagihan,
             )
+            sync_contact_for_whatsapp(order.nomor_wa)
         except Exception:
             pass  # Jangan crash OrderItem.save() hanya karena update total gagal
+
+    def delete(self, *args, **kwargs):
+        order = self.order
+        super().delete(*args, **kwargs)
+        try:
+            from django.db.models import Sum
+            subtotal = order.items.aggregate(total=Sum('harga_jual'))['total'] or 0
+            potongan = int(subtotal * (order.diskon_persen / 100))
+            total_harga = subtotal - potongan
+            sisa_tagihan = max(0, total_harga - order.dp_dibayar)
+            Order.objects.filter(pk=order.pk).update(
+                total_harga=total_harga,
+                sisa_tagihan=sisa_tagihan,
+            )
+            sync_contact_for_whatsapp(order.nomor_wa)
+        except Exception:
+            pass
 
     def __str__(self):
         return f"{self.order.id} | {self.jenis_produk}"
@@ -396,3 +420,44 @@ class FAQ(models.Model):
 
     def __str__(self):
         return self.pertanyaan
+
+
+def sync_contact_for_whatsapp(nomor_wa):
+    """
+    Sinkronisasi otomatis data Contact berdasarkan nomor_wa.
+    Menghitung total_order, total_spent, last_order, dan memperbarui nama terbaru.
+    """
+    try:
+        from django.db.models import Sum
+        from .models import Order, Contact
+        
+        # Gunakan latest order untuk nama ter-update
+        latest_order = Order.objects.filter(nomor_wa=nomor_wa).exclude(status_global='batal').order_by('-waktu').first()
+        if not latest_order:
+            latest_order = Order.objects.filter(nomor_wa=nomor_wa).order_by('-waktu').first()
+            
+        if not latest_order:
+            return
+            
+        nama = latest_order.nama
+        contact, created = Contact.objects.get_or_create(
+            nomor_wa=nomor_wa,
+            defaults={'nama': nama}
+        )
+        if contact.nama != nama:
+            contact.nama = nama
+            
+        active_orders = Order.objects.filter(nomor_wa=nomor_wa).exclude(status_global='batal')
+        contact.total_order = active_orders.count()
+        
+        latest_active_time = active_orders.order_by('-waktu').values_list('waktu', flat=True).first()
+        if latest_active_time:
+            contact.last_order = latest_active_time.date()
+        else:
+            contact.last_order = latest_order.waktu.date()
+            
+        total_spent_val = active_orders.aggregate(total=Sum('total_harga'))['total'] or 0
+        contact.total_spent = total_spent_val
+        contact.save()
+    except Exception as e:
+        print(f"Failed to sync contact stats for {nomor_wa}: {e}")
