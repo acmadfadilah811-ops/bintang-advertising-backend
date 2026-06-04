@@ -255,8 +255,8 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-    # --- Pagination Global (agar tidak ada endpoint yang return seluruh data sekaligus) ---
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    # --- Pagination Kustom (Hanya aktif jika menyertakan param ?page= atau ?page_size=) ---
+    'DEFAULT_PAGINATION_CLASS': 'api.pagination.OptionalPageNumberPagination',
     'PAGE_SIZE': 50,
 }
 

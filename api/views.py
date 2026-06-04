@@ -163,16 +163,32 @@ class ContactViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # Query efisien — gunakan Subquery untuk dianotasikan ke queryset kontak
-
         orders_subquery = Order.objects.filter(
             nomor_wa=OuterRef('nomor_wa')
         ).exclude(status_global='batal').values('nomor_wa').annotate(
             total=Sum('sisa_tagihan')
         ).values('total')[:1]
 
-        return Contact.objects.annotate(
+        qs = Contact.objects.annotate(
             annotated_piutang=Coalesce(Subquery(orders_subquery), 0)
-        ).order_by('-total_order', '-total_spent')
+        )
+
+        # ✅ Filter pencarian di level server database
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(nama__icontains=search) |
+                Q(nomor_wa__icontains=search) |
+                Q(keterangan__icontains=search)
+            )
+
+        # ✅ Filter tab berpiutang di level server database
+        tab = self.request.query_params.get('tab')
+        if tab == 'piutang':
+            qs = qs.filter(annotated_piutang__gt=0)
+
+        return qs.order_by('-total_spent', '-total_order')
 
     @action(detail=False, methods=['post'], url_path='sync')
     def sync(self, request):
@@ -229,6 +245,47 @@ class ContactViewSet(viewsets.ModelViewSet):
 
         return Response({'ok': True, 'synced': len(stats)})
 
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        """
+        GET /api/contacts/stats/
+        Mendapatkan data statistik ringkasan pelanggan secara langsung dari database (sangat cepat).
+        """
+        from django.db.models import Sum, Avg, Count
+        
+        # 1. Hitung total piutang dari pesanan yang tidak batal
+        total_piutang = Order.objects.exclude(status_global='batal').aggregate(
+            total=Sum('sisa_tagihan')
+        )['total'] or 0
+        
+        # 2. Hitung total revenue dari contact total_spent
+        total_spent_agg = Contact.objects.aggregate(
+            total_revenue=Sum('total_spent'),
+            total_customers=Count('nomor_wa'),
+            total_orders=Sum('total_order')
+        )
+        
+        total_revenue = total_spent_agg['total_revenue'] or 0
+        total_customers = total_spent_agg['total_customers'] or 0
+        total_orders = total_spent_agg['total_orders'] or 0
+        
+        # 3. Hitung rata-rata nilai order
+        avg_order_value = 0
+        if total_orders > 0:
+            avg_order_value = total_revenue / total_orders
+            
+        # 4. Top 5 Customers
+        top_5 = Contact.objects.order_by('-total_spent')[:5]
+        top_5_data = ContactSerializer(top_5, many=True).data
+        
+        return Response({
+            'total_customers': total_customers,
+            'total_revenue': total_revenue,
+            'total_piutang': total_piutang,
+            'avg_order_value': avg_order_value,
+            'top_customers': top_5_data
+        })
+
 # ---------------------------------------------------------
 # INVENTORY VIEWSET
 # ---------------------------------------------------------
@@ -253,6 +310,25 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
         short_id = uuid.uuid4().hex[:4].upper()
         inv_id   = f'INV-{today}-{short_id}'
         serializer.save(id=inv_id)
+
+    def update(self, request, *args, **kwargs):
+        # Mencegah modifikasi stok manual saat update item
+        if 'stok' in request.data:
+            instance = self.get_object()
+            try:
+                new_stok = float(request.data['stok'])
+                if abs(new_stok - float(instance.stok)) > 0.0001:
+                    return Response(
+                        {"error": "Stok tidak dapat diubah secara manual pada menu edit. Gunakan tombol 'Restock' atau 'Penyesuaian Stok' agar riwayat mutasi tercatat."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError):
+                pass
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
 
 
 
@@ -611,6 +687,30 @@ class OrderViewSet(viewsets.ModelViewSet):
             'items__jobs__pic_staff',
             'items__jobs__pic_staff__divisi'
         ).order_by('-waktu')
+        
+        # ✅ Filter by nomor_wa if provided in query params (optimasi query detail customer)
+        nomor_wa = self.request.query_params.get('nomor_wa')
+        if nomor_wa:
+            base_qs = base_qs.filter(nomor_wa=nomor_wa)
+            
+        # ✅ Filter search di database level
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            base_qs = base_qs.filter(
+                Q(id__icontains=search) |
+                Q(nama__icontains=search) |
+                Q(nomor_wa__icontains=search)
+            )
+            
+        # ✅ Filter tab/status di database level
+        tab = self.request.query_params.get('tab')
+        if tab:
+            if tab == 'piutang':
+                base_qs = base_qs.filter(sisa_tagihan__gt=0).exclude(status_global='batal')
+            elif tab in ['draft', 'quotation', 'review', 'desain', 'proses', 'ready', 'selesai', 'batal']:
+                base_qs = base_qs.filter(status_global=tab)
+            
         if user.role in ['owner', 'manager', 'admin']:
             return base_qs
         my_order_ids = JobBoard.objects.filter(
@@ -669,6 +769,52 @@ class OrderViewSet(viewsets.ModelViewSet):
             berhasil=True,
         )
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        """
+        GET /api/orders/stats/
+        Mendapatkan data statistik ringkasan pesanan untuk dashboard pesanan secara cepat dari database.
+        """
+        user = self.request.user
+        base_qs = Order.objects.all()
+        
+        # Sesuai get_queryset, batasi data jika bukan admin/owner/manager
+        if user.role not in ['owner', 'manager', 'admin']:
+            my_order_ids = JobBoard.objects.filter(
+                pic_staff=user
+            ).values_list('order_item__order_id', flat=True)
+            base_qs = base_qs.filter(id__in=my_order_ids)
+            
+        from django.db.models import Count, Sum, Q
+        stats_agg = base_qs.aggregate(
+            total_count=Count('id'),
+            total_piutang=Sum('sisa_tagihan'),
+            piutang_count=Count('id', filter=Q(sisa_tagihan__gt=0) & ~Q(status_global='batal'))
+        )
+        
+        # Kelompokkan berdasarkan status_global
+        status_counts = base_qs.values('status_global').annotate(count=Count('id'))
+        status_map = {item['status_global']: item['count'] for item in status_counts}
+        
+        # Hitung sisa tagihan khusus yang tidak batal
+        piutang_non_batal = base_qs.exclude(status_global='batal').aggregate(
+            total=Sum('sisa_tagihan')
+        )['total'] or 0
+        
+        return Response({
+            'total_count': stats_agg['total_count'] or 0,
+            'total_piutang': piutang_non_batal,
+            'piutang_count': stats_agg['piutang_count'] or 0,
+            'draft': status_map.get('draft', 0),
+            'quotation': status_map.get('quotation', 0),
+            'review': status_map.get('review', 0),
+            'desain': status_map.get('desain', 0),
+            'proses': status_map.get('proses', 0),
+            'ready': status_map.get('ready', 0),
+            'selesai': status_map.get('selesai', 0),
+            'batal': status_map.get('batal', 0),
+        })
 
     @action(detail=True, methods=['post'], url_path='bayar')
     def bayar(self, request, pk=None):
