@@ -917,6 +917,7 @@ class UnlockRequestManagerView(APIView):
                 "id": r.id,
                 "staff": r.staff.username,
                 "staff_nama": r.staff.get_full_name(),
+                "staff_no_wa": r.staff.no_wa,
                 "alasan": r.alasan,
                 "waktu_request": r.waktu_request,
                 "status": r.status
