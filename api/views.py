@@ -2151,8 +2151,8 @@ class EvolutionWebhookView(APIView):
             
         staff_user = None
         for u in CustomUser.objects.filter(is_active=True, role='staff'):
-            if u.no_wa:
-                u_wa = u.no_wa.replace('+', '').replace(' ', '').replace('-', '').lstrip('0')
+            if u.no_hp:
+                u_wa = u.no_hp.replace('+', '').replace(' ', '').replace('-', '').lstrip('0')
                 if u_wa.startswith('62'):
                     u_wa = u_wa[2:]
                 if u_wa == cleaned_sender:
@@ -2183,8 +2183,8 @@ class EvolutionWebhookView(APIView):
                     # Also notify the Manager / Owner!
                     try:
                         manager_user = sesi.dihidupkan_oleh or CustomUser.objects.filter(role__in=['manager', 'owner'], is_active=True).first()
-                        if manager_user and manager_user.no_wa:
-                            mgr_wa = manager_user.no_wa.replace('+', '').replace(' ', '').replace('-', '')
+                        if manager_user and manager_user.no_hp:
+                            mgr_wa = manager_user.no_hp.replace('+', '').replace(' ', '').replace('-', '')
                             mgr_msg = (
                                 f"🚨 *PEMBERITAHUAN ABSENSI STAFF* 🚨\n\n"
                                 f"Staff *{staff_user.get_full_name() or staff_user.username}* memberikan alasan absensi masuk hari ini:\n"
