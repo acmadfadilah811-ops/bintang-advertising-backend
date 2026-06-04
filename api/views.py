@@ -265,7 +265,6 @@ class InventoryRestockView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
-        item       = get_object_or_404(InventoryItem, pk=pk)
         delta_raw  = request.data.get('delta')
         keterangan = request.data.get('keterangan', '')
 
@@ -282,20 +281,24 @@ class InventoryRestockView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        stok_awal  = item.stok
-        stok_akhir = max(0.0, item.stok + delta)
+        # ✅ FIX: Gunakan select_for_update() + transaction.atomic() untuk
+        # mencegah race condition ketika ada 2+ request bersamaan mengubah stok
+        with transaction.atomic():
+            item = InventoryItem.objects.select_for_update().get(pk=pk)
+            stok_awal  = item.stok
+            stok_akhir = max(0.0, item.stok + delta)
 
-        RestockHistory.objects.create(
-            item       = item,
-            user       = request.user,
-            delta      = delta,
-            stok_awal  = stok_awal,
-            stok_akhir = stok_akhir,
-            keterangan = keterangan,
-        )
+            item.stok = stok_akhir
+            item.save()
 
-        item.stok = stok_akhir
-        item.save()
+            RestockHistory.objects.create(
+                item       = item,
+                user       = request.user,
+                delta      = delta,
+                stok_awal  = stok_awal,
+                stok_akhir = stok_akhir,
+                keterangan = keterangan,
+            )
 
         return Response({
             'ok':       True,
@@ -834,7 +837,9 @@ class AssignOrderView(APIView):
         }, status=status.HTTP_200_OK)
 
 class OrderItemViewSet(viewsets.ModelViewSet):
-    queryset = OrderItem.objects.all()
+    queryset = OrderItem.objects.select_related(
+        'order'
+    ).order_by('-id')
     serializer_class = OrderItemSerializer
     permission_classes = [IsAuthenticated]
 
@@ -857,6 +862,23 @@ class JobBoardViewSet(viewsets.ModelViewSet):
         # Ambil status sebelum update
         old_instance = self.get_object()
         old_status = old_instance.status_pekerjaan
+        new_status = serializer.validated_data.get('status_pekerjaan', old_status)
+
+        # ✅ FIX: Validasi status transition — mencegah status lompat tidak valid
+        VALID_TRANSITIONS = {
+            'antrean':   ['dikerjakan', 'kendala', 'gagal', 'batal', 'antrean'],
+            'dikerjakan':['selesai', 'kendala', 'gagal', 'batal', 'antrean', 'dikerjakan'],
+            'kendala':   ['dikerjakan', 'antrean', 'gagal', 'batal', 'kendala'],
+            'selesai':   [],  # Status final — tidak bisa diubah lagi
+            'gagal':     ['antrean'],  # Bisa di-retry dari gagal
+            'batal':     [],  # Status final
+        }
+        allowed = VALID_TRANSITIONS.get(old_status, [])
+        if new_status != old_status and new_status not in allowed:
+            from rest_framework.exceptions import ValidationError as DRFValidationError
+            raise DRFValidationError(
+                {"status_pekerjaan": f"Transisi status '{old_status}' → '{new_status}' tidak diizinkan."}
+            )
         
         # Simpan pembaruan
         serializer.instance._current_user = self.request.user
@@ -1033,6 +1055,13 @@ class JobBoardViewSet(viewsets.ModelViewSet):
         if job.pic_staff != user:
             return Response({'error': 'Hanya PIC staff yang dapat memulai pekerjaan ini.'}, status=status.HTTP_403_FORBIDDEN)
             
+        # ✅ Enforce transition rule: only antrean/kendala/gagal -> dikerjakan
+        if job.status_pekerjaan not in ('antrean', 'kendala', 'gagal'):
+            return Response(
+                {'error': f"Transisi status '{job.status_pekerjaan}' → 'dikerjakan' tidak diizinkan. Pekerjaan harus dalam Antrean, Kendala, atau Gagal."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         job.status_pekerjaan = 'dikerjakan'
         job.waktu_mulai = timezone.now()
         job.save()
@@ -1060,6 +1089,13 @@ class JobBoardViewSet(viewsets.ModelViewSet):
         if job.pic_staff != user:
             return Response({'error': 'Hanya PIC staff yang dapat menyelesaikan pekerjaan ini.'}, status=status.HTTP_403_FORBIDDEN)
             
+        # ✅ Enforce transition rule: only dikerjakan -> selesai
+        if job.status_pekerjaan != 'dikerjakan':
+            return Response(
+                {'error': f"Transisi status '{job.status_pekerjaan}' → 'selesai' tidak diizinkan. Pekerjaan harus berstatus 'Sedang Dikerjakan' sebelum diselesaikan."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         job.status_pekerjaan = 'selesai'
         job.waktu_selesai = timezone.now()
         # Reset OTP fields

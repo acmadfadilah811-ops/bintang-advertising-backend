@@ -1218,3 +1218,5 @@ WARNING 2026-06-04 18:29:17,630 log 14352 9336 Unauthorized: /api/jobs/
 WARNING 2026-06-04 18:29:17,643 log 14352 9336 Unauthorized: /api/hr/absensi/
 WARNING 2026-06-04 18:29:17,661 log 14352 9336 Unauthorized: /api/inventory/
 WARNING 2026-06-04 18:29:17,676 log 14352 9336 Unauthorized: /api/dashboard/
+WARNING 2026-06-05 00:48:01,875 log 4860 7048 Unauthorized: /api/auth/create-user/
+WARNING 2026-06-05 00:48:01,882 log 4860 7048 Forbidden: /api/auth/create-user/
