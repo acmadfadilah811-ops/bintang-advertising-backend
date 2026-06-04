@@ -14,6 +14,7 @@ from .views import (
     StaffDashboardView,
     TimecardView,
     AttendanceSessionManagerView,
+    NotifyLateStaffView,
     UnlockRequestStaffView,
     UnlockRequestManagerView,
     UnlockRequestActionView,
@@ -26,6 +27,7 @@ urlpatterns = [
 
     # Absensi & Sesi Absensi
     path("attendance-session/", AttendanceSessionManagerView.as_view(), name="attendance_session"),
+    path("attendance-session/notify-late/", NotifyLateStaffView.as_view(), name="attendance_session_notify_late"),
     path("absensi/clock-in/", ClockInView.as_view(), name="clock_in"),
     path("absensi/clock-out/", ClockOutView.as_view(), name="clock_out"),
     path("absensi/", AbsensiListView.as_view(), name="absensi_list"),

@@ -814,6 +814,67 @@ class AttendanceSessionManagerView(APIView):
         })
 
 
+class NotifyLateStaffView(APIView):
+    """
+    POST /api/hr/attendance-session/notify-late/
+    Owner/Manager: Mencari staff yang belum clock-in melewati batas_maksimal
+    dan mengirim notifikasi WA otomatis untuk menanyakan alasan mereka.
+    """
+    permission_classes = [IsOwnerOrManagerPerm]
+
+    def post(self, request):
+        today = timezone.localdate()
+        session = DailyAttendanceSession.objects.filter(tanggal=today).first()
+        if not session or not session.is_active:
+            return Response({"detail": "Tidak ada sesi absensi aktif untuk hari ini."}, status=400)
+            
+        from api.models import CustomUser
+        from hr.models import Absensi, UnlockRequest
+        from api.whatsapp_client import whatsapp_client
+        
+        # Get all active staff
+        active_staff = CustomUser.objects.filter(is_active=True, role='staff')
+        
+        notified_count = 0
+        for staff in active_staff:
+            # Check if they clocked in today
+            absensi = Absensi.objects.filter(staff=staff, tanggal=today).first()
+            has_checked_in = absensi is not None and absensi.status not in ('alpha', 'izin', 'sakit')
+            
+            # If they haven't checked in, they are considered late/absent
+            if not has_checked_in:
+                # Check if we already created an UnlockRequest for them today
+                req, created = UnlockRequest.objects.get_or_create(
+                    staff=staff,
+                    sesi=session,
+                    defaults={
+                        'alasan': 'Belum memberikan alasan (Menunggu balasan WhatsApp)'
+                    }
+                )
+                
+                # Send WhatsApp message
+                if staff.no_wa:
+                    clean_number = staff.no_wa.replace('+', '').replace(' ', '').replace('-', '')
+                    msg = (
+                        f"Halo {staff.get_full_name() or staff.username},\n\n"
+                        f"Anda terdeteksi belum melakukan absensi masuk (Clock-in) untuk hari ini "
+                        f"({today.strftime('%d-%m-%Y')}) hingga batas waktu "
+                        f"{timezone.localtime(session.batas_maksimal).strftime('%H:%M')} WIB.\n\n"
+                        f"Akses akun Anda sementara dikunci. Silakan *balas pesan ini* dengan memberikan "
+                        f"alasan keterlambatan atau ketidakhadiran Anda untuk mengajukan pembukaan akses kepada Manager."
+                    )
+                    try:
+                        whatsapp_client.send_text(clean_number, msg)
+                        notified_count += 1
+                    except Exception as e:
+                        logger.error(f"Gagal mengirim notifikasi absensi ke {staff.username}: {e}")
+                        
+        return Response({
+            "detail": f"Berhasil mengirim notifikasi keterlambatan/absen ke {notified_count} staff.",
+            "notified_count": notified_count
+        })
+
+
 class UnlockRequestStaffView(APIView):
     """
     POST /api/hr/unlock-request/

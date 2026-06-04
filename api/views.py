@@ -1938,6 +1938,61 @@ class EvolutionWebhookView(APIView):
         if not message_text:
             return Response({'status': 'ignored_empty_message'}, status=status.HTTP_200_OK)
 
+        # Check if the sender is a staff member submitting attendance reason
+        from api.models import CustomUser
+        cleaned_sender = sender_number.lstrip('+').lstrip('0')
+        if cleaned_sender.startswith('62'):
+            cleaned_sender = cleaned_sender[2:]
+            
+        staff_user = None
+        for u in CustomUser.objects.filter(is_active=True, role='staff'):
+            if u.no_wa:
+                u_wa = u.no_wa.replace('+', '').replace(' ', '').replace('-', '').lstrip('0')
+                if u_wa.startswith('62'):
+                    u_wa = u_wa[2:]
+                if u_wa == cleaned_sender:
+                    staff_user = u
+                    break
+
+        if staff_user:
+            from hr.models import DailyAttendanceSession, UnlockRequest
+            from django.utils import timezone
+            today = timezone.localdate()
+            sesi = DailyAttendanceSession.objects.filter(tanggal=today).first()
+            if sesi:
+                unlock_req = UnlockRequest.objects.filter(staff=staff_user, sesi=sesi).order_by('-waktu_request').first()
+                if unlock_req:
+                    # Update their reason with this incoming message text!
+                    unlock_req.alasan = message_text
+                    unlock_req.save()
+                    
+                    # Send a confirmation WhatsApp message back to the staff
+                    confirm_msg = (
+                        f"Terima kasih {staff_user.get_full_name() or staff_user.username}.\n\n"
+                        f"Alasan Anda:\n"
+                        f"*\"{message_text}\"*\n\n"
+                        f"Telah berhasil dicatat dan diteruskan ke Manager untuk ditinjau. "
+                        f"Anda akan menerima notifikasi jika akses Anda disetujui."
+                    )
+                    self._kirim_balas_async(sender_number, confirm_msg)
+                    
+                    # Also notify the Manager / Owner!
+                    try:
+                        manager_user = sesi.dihidupkan_oleh or CustomUser.objects.filter(role__in=['manager', 'owner'], is_active=True).first()
+                        if manager_user and manager_user.no_wa:
+                            mgr_wa = manager_user.no_wa.replace('+', '').replace(' ', '').replace('-', '')
+                            mgr_msg = (
+                                f"🚨 *PEMBERITAHUAN ABSENSI STAFF* 🚨\n\n"
+                                f"Staff *{staff_user.get_full_name() or staff_user.username}* memberikan alasan absensi masuk hari ini:\n"
+                                f"💬 *\"{message_text}\"*\n\n"
+                                f"Silakan periksa halaman dashboard HR CRM untuk menyetujui (Approve) atau menolak (Reject) permintaan buka kunci."
+                            )
+                            self._kirim_balas_async(mgr_wa, mgr_msg)
+                    except Exception as e:
+                        logger.error(f"Gagal mengirim notifikasi alasan staff ke manager: {e}")
+                        
+                    return Response({'status': 'staff_attendance_reason_captured'}, status=status.HTTP_200_OK)
+
         # Ambil kontak
         contact_obj = Contact.objects.filter(nomor_wa=sender_number).first()
         nama_pelanggan = contact_obj.nama if contact_obj else ""
