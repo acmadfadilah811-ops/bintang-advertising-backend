@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView
+from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, EvolutionWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView, KomplainViewSet
 from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView
 
 router = DefaultRouter()
@@ -18,6 +18,10 @@ router.register(r'inventory', views.InventoryItemViewSet, basename='inventory')
 router.register(r'product-prices', views.ProductPriceViewSet)
 router.register(r'app-config', views.SystemConfigViewSet)
 router.register(r'faq', views.FAQViewSet)
+router.register(r'komplain', views.KomplainViewSet, basename='komplain')
+router.register(r'customer-activities', views.CustomerActivityViewSet, basename='customer-activity')
+router.register(r'bom', views.BillOfMaterialsViewSet, basename='bom')
+router.register(r'bom-items', views.BoMItemViewSet, basename='bom-item')
 
 
 urlpatterns = [
@@ -44,6 +48,9 @@ urlpatterns = [
     
     # Webhook Bot WA (Fonnte)
     path('webhook/fonnte/', FonnteWebhookView.as_view(), name='webhook-fonnte'),
+
+    # Webhook Bot WA (Evolution API)
+    path('webhook/evolution/', EvolutionWebhookView.as_view(), name='webhook-evolution'),
 
     # Business Settings (mirip OrgSettings di Django CRM)
     path('business-settings/', BusinessSettingsView.as_view(), name='business-settings'),

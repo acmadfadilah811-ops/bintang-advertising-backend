@@ -17,7 +17,7 @@ if not CustomUser.objects.filter(username=username).exists():
         password=password,
         role='owner'
     )
-    print(f"✅ Superuser '{username}' dengan password '{password}' berhasil dibuat!")
+    print(f"[SUCCESS] Superuser '{username}' dengan password '{password}' berhasil dibuat!")
 else:
     user = CustomUser.objects.get(username=username)
     user.set_password(password)
@@ -25,4 +25,4 @@ else:
     user.is_staff = True
     user.role = 'owner'
     user.save()
-    print(f"🔄 Password untuk superuser '{username}' telah diperbarui ke '{password}'!")
+    print(f"[INFO] Password untuk superuser '{username}' telah diperbarui ke '{password}'!")

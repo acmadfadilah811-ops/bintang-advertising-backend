@@ -27,7 +27,7 @@ class Command(BaseCommand):
             
             backup_file = os.path.join(backup_dir, f'backup_sqlite_{timestamp}.db')
             shutil.copy2(db_path, backup_file)
-            self.stdout.write(self.style.SUCCESS(f'✅ Berhasil membackup database SQLite ke: {backup_file}'))
+            self.stdout.write(self.style.SUCCESS(f'[SUCCESS] Berhasil membackup database SQLite ke: {backup_file}'))
             
         elif 'mysql' in engine:
             db_name = db_config['NAME']
@@ -62,25 +62,25 @@ class Command(BaseCommand):
                             shutil.copyfileobj(f_in, f_out)
                     os.remove(backup_file)
                     backup_file = compressed_file
-                    self.stdout.write(self.style.SUCCESS(f'✅ Berhasil membackup database MySQL (Gzipped) ke: {backup_file}'))
+                    self.stdout.write(self.style.SUCCESS(f'[SUCCESS] Berhasil membackup database MySQL (Gzipped) ke: {backup_file}'))
                 except Exception:
-                    self.stdout.write(self.style.SUCCESS(f'✅ Berhasil membackup database MySQL ke: {backup_file}'))
+                    self.stdout.write(self.style.SUCCESS(f'[SUCCESS] Berhasil membackup database MySQL ke: {backup_file}'))
                     
             except FileNotFoundError:
                 self.stdout.write(self.style.ERROR(
-                    '❌ Gagal melakukan backup: Command `mysqldump` tidak ditemukan di system PATH.\n'
-                    '👉 Pastikan MySQL Client / mysqldump sudah terinstal dan terdaftar di Environment Variables Anda.'
+                    '[ERROR] Gagal melakukan backup: Command `mysqldump` tidak ditemukan di system PATH.\n'
+                    'Pastikan MySQL Client / mysqldump sudah terinstal dan terdaftar di Environment Variables Anda.'
                 ))
                 if os.path.exists(backup_file):
                     os.remove(backup_file)
                 return
             except subprocess.CalledProcessError as e:
-                self.stdout.write(self.style.ERROR(f'❌ Gagal melakukan mysqldump: {e.stderr.decode().strip()}'))
+                self.stdout.write(self.style.ERROR(f'[ERROR] Gagal melakukan mysqldump: {e.stderr.decode().strip()}'))
                 if os.path.exists(backup_file):
                     os.remove(backup_file)
                 return
             except Exception as e:
-                self.stdout.write(self.style.ERROR(f'❌ Terjadi kesalahan saat membackup MySQL: {str(e)}'))
+                self.stdout.write(self.style.ERROR(f'[ERROR] Terjadi kesalahan saat membackup MySQL: {str(e)}'))
                 if os.path.exists(backup_file):
                     os.remove(backup_file)
                 return
@@ -98,4 +98,4 @@ class Command(BaseCommand):
                     deleted_count += 1
                     
         if deleted_count > 0:
-            self.stdout.write(self.style.WARNING(f'🧹 Retensi 30 Hari: Berhasil menghapus {deleted_count} file backup usang.'))
+            self.stdout.write(self.style.WARNING(f'[INFO] Retensi 30 Hari: Berhasil menghapus {deleted_count} file backup usang.'))

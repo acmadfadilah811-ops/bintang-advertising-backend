@@ -8,7 +8,7 @@ cursor = db.cursor()
 cursor.execute("DROP DATABASE IF EXISTS bintang_adv_db;")
 cursor.execute("CREATE DATABASE bintang_adv_db;")
 
-print("✅ Database bintang_adv_db berhasil direset menjadi kosong!")
+print("[SUCCESS] Database bintang_adv_db berhasil direset menjadi kosong!")
 
 cursor.close()
 db.close()

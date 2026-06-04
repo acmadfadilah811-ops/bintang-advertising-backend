@@ -174,9 +174,9 @@ def migrate_others(cursor):
         FAQ.objects.get_or_create(pertanyaan=r[0], defaults={'jawaban': r[1]})
 
 def run():
-    print("⏳ Memulai Proses Migrasi Data...")
+    print("Memulai Proses Migrasi Data...")
     if not os.path.exists(OLD_DB_PATH):
-        print(f"❌ File database lama tidak ditemukan di {OLD_DB_PATH}")
+        print(f"[ERROR] File database lama tidak ditemukan di {OLD_DB_PATH}")
         return
 
     conn = sqlite3.connect(OLD_DB_PATH)
@@ -189,9 +189,9 @@ def run():
         migrate_inventory(cursor)
         migrate_contacts(cursor)
         migrate_others(cursor)
-        print("\n✅ SEMUA DATA BERHASIL DIMIGRASI KE MYSQL!")
+        print("\n[SUCCESS] SEMUA DATA BERHASIL DIMIGRASI KE MYSQL!")
     except Exception as e:
-        print(f"\n❌ Terjadi kesalahan: {str(e)}")
+        print(f"\n[ERROR] Terjadi kesalahan: {str(e)}")
     finally:
         conn.close()
 

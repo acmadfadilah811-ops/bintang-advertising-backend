@@ -1,15 +1,20 @@
 from django.db.models import Q, Sum
 from django.utils import timezone
+from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.decorators import action
 
 from api.models import JobBoard
 from api.views import IsOwnerOrManager
 
-from .models import Absensi, Kontrak, StaffAnnouncement, DailyAttendanceSession, UnlockRequest, Akun, TransaksiBukuBesar
-from .serializers import AbsensiSerializer, AnnouncementSerializer, KontrakSerializer, AkunSerializer, TransaksiBukuBesarSerializer
+from .models import Absensi, Kontrak, StaffAnnouncement, DailyAttendanceSession, UnlockRequest, Akun, TransaksiBukuBesar, SlipGaji
+from .serializers import AbsensiSerializer, AnnouncementSerializer, KontrakSerializer, AkunSerializer, TransaksiBukuBesarSerializer, SlipGajiSerializer
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -25,11 +30,33 @@ def get_or_create_daily_session():
     import os
     import json
     from django.conf import settings
-    from datetime import datetime
+    from datetime import datetime, timedelta
+    from api.models import SystemConfig
     
     today = timezone.localdate()
     sesi = DailyAttendanceSession.objects.filter(tanggal=today).first()
     if not sesi:
+        # Coba baca dari SystemConfig terlebih dahulu
+        try:
+            jam_masuk_str = SystemConfig.objects.get(key="payroll_jam_masuk").value
+            toleransi_str = SystemConfig.objects.get(key="payroll_toleransi_menit").value
+            toleransi_menit = int(toleransi_str)
+            
+            mulai_time_obj = datetime.strptime(jam_masuk_str, "%H:%M").time()
+            waktu_mulai = timezone.make_aware(datetime.combine(today, mulai_time_obj))
+            batas_maksimal = waktu_mulai + timedelta(minutes=toleransi_menit)
+            
+            sesi = DailyAttendanceSession.objects.create(
+                tanggal=today,
+                waktu_mulai=waktu_mulai,
+                batas_maksimal=batas_maksimal,
+                is_active=True
+            )
+            return sesi
+        except Exception:
+            pass
+
+        # Fallback ke file JSON schedule lama jika SystemConfig belum terkonfigurasi/error
         config_path = os.path.join(settings.BASE_DIR, "hr_attendance_schedule.json")
         if os.path.exists(config_path):
             try:
@@ -50,7 +77,7 @@ def get_or_create_daily_session():
                         is_active=True
                     )
             except Exception as e:
-                print("Error auto-creating session from schedule:", e)
+                logger.error(f"Error auto-creating session from schedule: {e}", exc_info=True)
     return sesi
 
 
@@ -760,7 +787,7 @@ class AttendanceSessionManagerView(APIView):
                     "repeat_daily": repeat_daily
                 }, f)
         except Exception as e:
-            print("Error writing attendance schedule json:", e)
+            logger.error(f"Error writing attendance schedule json: {e}", exc_info=True)
 
         sesi = DailyAttendanceSession.objects.filter(tanggal=today).first()
         if sesi:
@@ -947,4 +974,188 @@ class BukuBesarView(APIView):
             "saldo_awal": saldo_awal,
             "transaksi": TransaksiBukuBesarSerializer(transaksi, many=True).data
         })
+
+
+# ---------------------------------------------------------------------------
+# 9. SLIP GAJI VIEWSET — Penggajian Bulanan Otomatis & Jurnal
+# ---------------------------------------------------------------------------
+class SlipGajiViewSet(viewsets.ModelViewSet):
+    queryset = SlipGaji.objects.select_related("staff", "dibayar_oleh").order_by("-tahun", "-bulan", "staff__username")
+    serializer_class = SlipGajiSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = self.queryset
+        # Staff biasa hanya bisa lihat slip miliknya sendiri
+        if self.request.user.role not in ("owner", "manager"):
+            qs = qs.filter(staff=self.request.user)
+        else:
+            staff_id = self.request.query_params.get("staff_id")
+            if staff_id:
+                qs = qs.filter(staff_id=staff_id)
+        
+        bulan = self.request.query_params.get("bulan")
+        tahun = self.request.query_params.get("tahun")
+        if bulan:
+            qs = qs.filter(bulan=int(bulan))
+        if tahun:
+            qs = qs.filter(tahun=int(tahun))
+        return qs
+
+    @action(detail=False, methods=["post"], url_path="generate")
+    def generate_monthly_payroll(self, request):
+        """
+        POST /api/hr/slip-gaji/generate/
+        Mengambil semua staff aktif, menghitung gaji pokok, insentif job, biaya desain,
+        dan potongan terlambat absen pada bulan/tahun terkait.
+        Format payload: {"bulan": 6, "tahun": 2026}
+        """
+        if request.user.role not in ("owner", "manager"):
+            return Response({"detail": "Akses ditolak."}, status=status.HTTP_403_FORBIDDEN)
+
+        bulan = request.data.get("bulan")
+        tahun = request.data.get("tahun")
+        if not bulan or not tahun:
+            return Response({"detail": "bulan dan tahun wajib diisi."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            bulan = int(bulan)
+            tahun = int(tahun)
+        except ValueError:
+            return Response({"detail": "Format bulan/tahun tidak valid."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from api.models import CustomUser, JobBoard, SystemConfig
+        
+        # Get late penalty setting
+        try:
+            penalty_config = SystemConfig.objects.get(key="biaya_potongan_terlambat").value
+            biaya_potongan_terlambat = int(penalty_config)
+        except Exception:
+            biaya_potongan_terlambat = 20000  # Default 20rb per terlambat
+
+        active_staff = CustomUser.objects.filter(is_active=True).exclude(role="owner")
+        generated_count = 0
+        
+        for member in active_staff:
+            # 1. Gaji Pokok dari Kontrak Aktif
+            kontrak = Kontrak.objects.filter(staff=member, status="aktif").first()
+            gaji_pokok = kontrak.gaji_pokok if kontrak else 0
+
+            # 2. Total Insentif & Biaya Desain dari JobBoard
+            jobs_done = JobBoard.objects.filter(
+                pic_staff=member,
+                status_pekerjaan="selesai",
+                waktu_selesai__month=bulan,
+                waktu_selesai__year=tahun
+            )
+            agg_jobs = jobs_done.aggregate(
+                tot_insentif=Sum("insentif"),
+                tot_desain=Sum("biaya_desain")
+            )
+            total_insentif = agg_jobs["tot_insentif"] or 0
+            total_biaya_desain = agg_jobs["tot_desain"] or 0
+
+            # 3. Potongan Terlambat
+            absensi_qs = Absensi.objects.filter(
+                staff=member,
+                tanggal__month=bulan,
+                tanggal__year=tahun,
+                jam_masuk__isnull=False
+            )
+            
+            late_count = 0
+            for absensi in absensi_qs:
+                sesi = DailyAttendanceSession.objects.filter(tanggal=absensi.tanggal).first()
+                if sesi and absensi.jam_masuk > sesi.batas_maksimal:
+                    late_count += 1
+            
+            potongan_terlambat = late_count * biaya_potongan_terlambat
+
+            # Gaji bersih
+            total_gaji_bersih = max(0, gaji_pokok + total_insentif + total_biaya_desain - potongan_terlambat)
+
+            # Simpan atau update jika status masih draft
+            slip, created = SlipGaji.objects.get_or_create(
+                staff=member,
+                bulan=bulan,
+                tahun=tahun,
+                defaults={
+                    "gaji_pokok": gaji_pokok,
+                    "total_insentif": total_insentif,
+                    "total_biaya_desain": total_biaya_desain,
+                    "potongan_terlambat": potongan_terlambat,
+                    "total_gaji_bersih": total_gaji_bersih,
+                    "status": "draft",
+                }
+            )
+
+            if not created and slip.status == "draft":
+                slip.gaji_pokok = gaji_pokok
+                slip.total_insentif = total_insentif
+                slip.total_biaya_desain = total_biaya_desain
+                slip.potongan_terlambat = potongan_terlambat
+                slip.total_gaji_bersih = total_gaji_bersih
+                slip.save()
+
+            generated_count += 1
+
+        return Response({"detail": f"Berhasil menghitung & memperbarui payroll untuk {generated_count} staff."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="pay")
+    def pay_payroll(self, request, pk=None):
+        """
+        POST /api/hr/slip-gaji/{id}/pay/
+        Membayar slip gaji, menandai status paid, dan memposting jurnal otomatis ke Buku Besar.
+        """
+        if request.user.role not in ("owner", "manager"):
+            return Response({"detail": "Hanya Owner/Manager yang dapat menyetujui pembayaran gaji."}, status=status.HTTP_403_FORBIDDEN)
+
+        slip = self.get_object()
+        if slip.status == "paid":
+            return Response({"detail": "Slip gaji ini sudah dibayar sebelumnya."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update status slip
+        with transaction.atomic():
+            slip.status = "paid"
+            slip.waktu_dibayar = timezone.now()
+            slip.dibayar_oleh = request.user
+            slip.save()
+
+            # Posting Buku Besar otomatis
+            try:
+                akun_beban_gaji, _ = Akun.objects.get_or_create(
+                    kode_akun='5-2000',
+                    defaults={'nama_akun': 'Beban Gaji Karyawan', 'kategori': 'Beban'}
+                )
+                akun_kas_bank, _ = Akun.objects.get_or_create(
+                    kode_akun='1-1001',
+                    defaults={'nama_akun': 'Kas di Bank (Pembayaran Gaji)', 'kategori': 'Aset'}
+                )
+                
+                ref_no = f"SG-{slip.id}"
+                ket_tx = f"Pembayaran Gaji {slip.staff.username} Periode {slip.bulan}/{slip.tahun}"
+                
+                # DEBIT Beban Gaji
+                TransaksiBukuBesar.objects.create(
+                    akun=akun_beban_gaji,
+                    tanggal=timezone.localdate(),
+                    no_referensi=ref_no,
+                    keterangan=ket_tx,
+                    debit=slip.total_gaji_bersih,
+                    kredit=0
+                )
+                
+                # KREDIT Kas/Bank
+                TransaksiBukuBesar.objects.create(
+                    akun=akun_kas_bank,
+                    tanggal=timezone.localdate(),
+                    no_referensi=ref_no,
+                    keterangan=ket_tx,
+                    debit=0,
+                    kredit=slip.total_gaji_bersih
+                )
+            except Exception as e:
+                print(f"Gagal memposting jurnal gaji otomatis: {e}")
+
+        return Response(SlipGajiSerializer(slip).data, status=status.HTTP_200_OK)
 

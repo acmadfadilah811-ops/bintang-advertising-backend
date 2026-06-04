@@ -35,6 +35,9 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 # Baca dari .env: ALLOWED_HOSTS=bintang-adv.duckdns.org,127.0.0.1,localhost
 _allowed = os.getenv('ALLOWED_HOSTS', '*')
 ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',')] if _allowed != '*' else ['*']
+if 'testserver' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('testserver')
+
 
 # Trusted origins untuk CSRF (wajib untuk HTTPS + DRF)
 CSRF_TRUSTED_ORIGINS = [
@@ -110,6 +113,18 @@ if DB_ENGINE == 'sqlite':
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+elif DB_ENGINE in ('postgresql', 'postgres'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'bintang_adv_db'),
+            'USER': os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('DB_PASSWORD', ''),
+            'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
         }
     }
 else:
@@ -371,9 +386,9 @@ if SENTRY_DSN:
             traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.2')),
             send_default_pii=True
         )
-        print("✅ Sentry error monitoring initialized.")
+        print("[INFO] Sentry error monitoring initialized.")
     except ImportError:
-        print("⚠️ Sentry SDK not installed. Skipping initialization.")
+        print("[WARNING] Sentry SDK not installed. Skipping initialization.")
 
 
 

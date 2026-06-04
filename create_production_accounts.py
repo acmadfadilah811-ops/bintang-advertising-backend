@@ -13,7 +13,7 @@ for name in divisi_names:
     obj, created = Divisi.objects.get_or_create(nama=name)
     divisi_objs[name] = obj
     if created:
-        print(f"✅ Divisi '{name}' berhasil dibuat!")
+        print(f"[SUCCESS] Divisi '{name}' berhasil dibuat!")
 
 # 2. Definisikan 8 Akun
 # Username, Email, Role, Divisi (Nama), Password
@@ -55,7 +55,7 @@ for username, email, role, div_name, password in accounts:
             user.is_staff = True
             user.save()
             
-        print(f"✅ Akun [{role.upper()}] '{username}' ({email}) berhasil dibuat!")
+        print(f"[SUCCESS] Akun [{role.upper()}] '{username}' ({email}) berhasil dibuat!")
     else:
         # Jika sudah ada, update password dan pastikan aktif
         user = CustomUser.objects.get(username=username)
@@ -68,6 +68,6 @@ for username, email, role, div_name, password in accounts:
             user.is_superuser = True
             user.is_staff = True
         user.save()
-        print(f"🔄 Akun [{role.upper()}] '{username}' sudah ada. Info & password diperbarui!")
+        print(f"[INFO] Akun [{role.upper()}] '{username}' sudah ada. Info & password diperbarui!")
 
-print("\n🎉 Proses inisialisasi 8 akun produksi berhasil selesai dengan sukses!")
+print("\nProses inisialisasi 8 akun produksi berhasil selesai dengan sukses!")

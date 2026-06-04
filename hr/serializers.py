@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Absensi, Kontrak, StaffAnnouncement, Akun, TransaksiBukuBesar
+from .models import Absensi, Kontrak, StaffAnnouncement, Akun, TransaksiBukuBesar, SlipGaji
 
 
 class AbsensiSerializer(serializers.ModelSerializer):
@@ -106,3 +106,13 @@ class TransaksiBukuBesarSerializer(serializers.ModelSerializer):
             "waktu_input",
         ]
         read_only_fields = ["id", "waktu_input"]
+
+
+class SlipGajiSerializer(serializers.ModelSerializer):
+    staff_nama = serializers.ReadOnlyField(source="staff.username")
+    dibayar_oleh_nama = serializers.ReadOnlyField(source="dibayar_oleh.username")
+
+    class Meta:
+        model = SlipGaji
+        fields = "__all__"
+        read_only_fields = ["id", "waktu_dibuat", "waktu_dibayar", "dibayar_oleh"]

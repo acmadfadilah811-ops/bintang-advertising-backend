@@ -30,11 +30,14 @@ def get_ai_client():
     from openai import OpenAI
     return OpenAI(
         api_key=os.getenv("KOBOI_API_KEY"),
-        base_url="https://api.koboillm.com/v1"
+        base_url="https://api.koboillm.com/v1",
+        timeout=15.0  # Prevent hanging connection indefinitely
     )
 
-# ── State in-memory ───────────────────────────────────────────────────
-memori_percakapan = {}
+import logging
+logger = logging.getLogger(__name__)
+
+# ── State in cache (production-ready & shared across processes) ───────
 class CacheSet:
     def __init__(self, cache_prefix="wa_menunggu_nama_"):
         self.prefix = cache_prefix
@@ -162,14 +165,25 @@ def get_system_prompt(nama_pelanggan=""):
     return f"{template_ai}\n\nData harga produk:\n{string_harga}\n"
 
 
-def simpan_ke_memori(nomor, role, konten, nama_pelanggan=""):
-    if nomor not in memori_percakapan:
-        memori_percakapan[nomor] = [{"role": "system", "content": get_system_prompt(nama_pelanggan)}]
+def get_memori_percakapan(nomor, nama_pelanggan=""):
+    from django.core.cache import cache
+    cache_key = f"wa_memori_{nomor}"
+    history = cache.get(cache_key)
+    if not history:
+        history = [{"role": "system", "content": get_system_prompt(nama_pelanggan)}]
     else:
-        memori_percakapan[nomor][0]['content'] = get_system_prompt(nama_pelanggan)
-    memori_percakapan[nomor].append({"role": role, "content": konten})
-    if len(memori_percakapan[nomor]) > 11:
-        memori_percakapan[nomor] = [memori_percakapan[nomor][0]] + memori_percakapan[nomor][-10:]
+        history[0]['content'] = get_system_prompt(nama_pelanggan)
+    return history
+
+
+def simpan_ke_memori(nomor, role, konten, nama_pelanggan=""):
+    from django.core.cache import cache
+    cache_key = f"wa_memori_{nomor}"
+    history = get_memori_percakapan(nomor, nama_pelanggan)
+    history.append({"role": role, "content": konten})
+    if len(history) > 11:
+        history = [history[0]] + history[-10:]
+    cache.set(cache_key, history, timeout=86400) # Simpan 24 jam
 
 
 # ════════════════════════════════════════════════════════════════
@@ -537,16 +551,17 @@ def cek_database_faq(pesan, nama_pelanggan):
 
 def tanya_ai_finishing(nomor):
     try:
+        history = get_memori_percakapan(nomor)
         client = get_ai_client()
         response = client.chat.completions.create(
             model="gemini-2.5-flash",
-            messages=memori_percakapan.get(nomor, []),
+            messages=history,
             max_tokens=350,
             temperature=0.3,
         )
         return response.choices[0].message.content
     except Exception as e:
-        print(f"❌ Error AI: {e}")
+        logger.error(f"[ERROR AI Webhook] Failed to fetch completion: {e}", exc_info=True)
         return (
             "Halo Kak! Mohon maaf sistem kami sedang sedikit sibuk. "
             "Boleh diulangi dalam 1-2 menit? 🙏😊"

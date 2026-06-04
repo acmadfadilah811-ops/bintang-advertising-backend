@@ -11,6 +11,11 @@ wheels/
 
 # Environment variables (JANGAN diupload ke GitHub!)
 .env
+.env.production
+.env.*
+
+# VPS setup script (berisi data sensitif seperti domain dan path)
+setup_vps.sh
 
 # Database (jangan upload sqlite lokal jika ada)
 db.sqlite3

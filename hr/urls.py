@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 
 from .views import (
     AbsensiListView,
@@ -16,6 +17,7 @@ from .views import (
     UnlockRequestStaffView,
     UnlockRequestManagerView,
     UnlockRequestActionView,
+    SlipGajiViewSet,
 )
 
 urlpatterns = [
@@ -45,4 +47,11 @@ urlpatterns = [
     # Info / Pengumuman
     path("info/", AnnouncementView.as_view(), name="announcement"),
     path("info/<int:pk>/", AnnouncementDetailView.as_view(), name="announcement_detail"),
+]
+
+router = DefaultRouter()
+router.register(r"slip-gaji", SlipGajiViewSet, basename="slip-gaji")
+
+urlpatterns += [
+    path("", include(router.urls)),
 ]

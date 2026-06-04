@@ -384,3 +384,837 @@ WARNING 2026-05-31 20:51:02,991 log 14712 19528 Not Found: /api/customers/
 WARNING 2026-05-31 20:51:02,992 basehttp 14712 19528 "GET /api/customers/?limit=1 HTTP/1.1" 404 24270
 WARNING 2026-06-01 08:05:29,000 log 18236 14340 Unauthorized: /api/auth/create-user/
 WARNING 2026-06-01 08:05:29,035 log 18236 14340 Forbidden: /api/auth/create-user/
+WARNING 2026-06-01 10:08:59,201 log 21452 680 Unauthorized: /api/auth/login/
+WARNING 2026-06-01 10:11:45,269 log 21452 19920 Unauthorized: /api/auth/login/
+WARNING 2026-06-01 13:33:44,573 log 22208 7816 Unauthorized: /api/auth/create-user/
+WARNING 2026-06-01 13:33:44,580 log 22208 7816 Forbidden: /api/auth/create-user/
+WARNING 2026-06-01 13:41:06,073 log 21776 17684 Unauthorized: /api/auth/create-user/
+WARNING 2026-06-01 13:41:06,081 log 21776 17684 Forbidden: /api/auth/create-user/
+WARNING 2026-06-01 13:44:03,490 log 19024 10016 Unauthorized: /api/auth/create-user/
+WARNING 2026-06-01 13:44:03,494 log 19024 10016 Forbidden: /api/auth/create-user/
+WARNING 2026-06-01 13:50:38,545 log 19232 18780 Unauthorized: /api/auth/create-user/
+WARNING 2026-06-01 13:50:38,552 log 19232 18780 Forbidden: /api/auth/create-user/
+WARNING 2026-06-01 15:12:39,013 log 6236 20144 Not Found: /
+WARNING 2026-06-01 15:12:39,019 basehttp 6236 20144 "GET / HTTP/1.1" 404 3147
+WARNING 2026-06-01 15:13:14,532 log 6236 20144 Forbidden (CSRF token from POST incorrect.): /admin/login/
+WARNING 2026-06-01 15:13:14,547 basehttp 6236 20144 "POST /admin/login/?next=/admin/ HTTP/1.1" 403 2520
+WARNING 2026-06-01 15:23:27,961 log 6236 16884 Not Found: /api/contacts/asisten bintangHalo/
+WARNING 2026-06-01 15:23:27,978 basehttp 6236 16884 "DELETE /api/contacts/asisten%20bintangHalo/ HTTP/1.1" 404 48
+WARNING 2026-06-01 15:23:35,555 log 6236 16884 Not Found: /api/contacts/asisten bintangHalo/
+WARNING 2026-06-01 15:23:35,565 basehttp 6236 16884 "DELETE /api/contacts/asisten%20bintangHalo/ HTTP/1.1" 404 48
+WARNING 2026-06-01 15:27:42,961 log 6236 16884 Not Found: /api/contacts/asisten bintangHalo/
+WARNING 2026-06-01 15:27:42,965 basehttp 6236 16884 "DELETE /api/contacts/asisten%20bintangHalo/ HTTP/1.1" 404 48
+WARNING 2026-06-01 15:30:48,918 log 6236 3952 Forbidden (Permission denied): /admin/api/customuser/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 716, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\cache.py", line 80, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\sites.py", line 240, in inner
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1984, in changelist_view
+    raise PermissionDenied
+django.core.exceptions.PermissionDenied
+WARNING 2026-06-01 15:30:49,106 basehttp 6236 3952 "GET /admin/api/customuser/ HTTP/1.1" 403 135
+WARNING 2026-06-01 15:33:09,087 log 6236 3952 Forbidden (Permission denied): /admin/api/customuser/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 716, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\cache.py", line 80, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\sites.py", line 240, in inner
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1984, in changelist_view
+    raise PermissionDenied
+django.core.exceptions.PermissionDenied
+WARNING 2026-06-01 15:33:09,099 basehttp 6236 3952 "GET /admin/api/customuser/ HTTP/1.1" 403 135
+WARNING 2026-06-01 15:33:10,980 log 6236 3952 Forbidden (Permission denied): /admin/api/customuser/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 716, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\cache.py", line 80, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\sites.py", line 240, in inner
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1984, in changelist_view
+    raise PermissionDenied
+django.core.exceptions.PermissionDenied
+WARNING 2026-06-01 15:33:10,989 basehttp 6236 3952 "GET /admin/api/customuser/ HTTP/1.1" 403 135
+WARNING 2026-06-01 15:33:12,205 log 6236 3952 Forbidden (Permission denied): /admin/api/customuser/8/change/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 716, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\cache.py", line 80, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\sites.py", line 240, in inner
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1950, in change_view
+    return self.changeform_view(request, object_id, form_url, extra_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1806, in changeform_view
+    return self._changeform_view(request, object_id, form_url, extra_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1833, in _changeform_view
+    raise PermissionDenied
+django.core.exceptions.PermissionDenied
+WARNING 2026-06-01 15:33:12,215 basehttp 6236 3952 "GET /admin/api/customuser/8/change/ HTTP/1.1" 403 135
+WARNING 2026-06-01 15:33:15,277 log 6236 3952 Forbidden (Permission denied): /admin/api/customuser/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 716, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\cache.py", line 80, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\sites.py", line 240, in inner
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1984, in changelist_view
+    raise PermissionDenied
+django.core.exceptions.PermissionDenied
+WARNING 2026-06-01 15:33:15,294 basehttp 6236 3952 "GET /admin/api/customuser/ HTTP/1.1" 403 135
+WARNING 2026-06-01 15:33:16,849 log 6236 3952 Forbidden (Permission denied): /admin/token_blacklist/outstandingtoken/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 716, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\cache.py", line 80, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\sites.py", line 240, in inner
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1984, in changelist_view
+    raise PermissionDenied
+django.core.exceptions.PermissionDenied
+WARNING 2026-06-01 15:33:16,856 basehttp 6236 3952 "GET /admin/token_blacklist/outstandingtoken/ HTTP/1.1" 403 135
+WARNING 2026-06-01 15:33:18,551 log 6236 3952 Forbidden (Permission denied): /admin/token_blacklist/outstandingtoken/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 716, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\cache.py", line 80, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\sites.py", line 240, in inner
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1984, in changelist_view
+    raise PermissionDenied
+django.core.exceptions.PermissionDenied
+WARNING 2026-06-01 15:33:18,562 basehttp 6236 3952 "GET /admin/token_blacklist/outstandingtoken/ HTTP/1.1" 403 135
+WARNING 2026-06-01 15:33:21,839 log 6236 3952 Forbidden (Permission denied): /admin/token_blacklist/blacklistedtoken/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 716, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\cache.py", line 80, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\sites.py", line 240, in inner
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1984, in changelist_view
+    raise PermissionDenied
+django.core.exceptions.PermissionDenied
+WARNING 2026-06-01 15:33:21,852 basehttp 6236 3952 "GET /admin/token_blacklist/blacklistedtoken/ HTTP/1.1" 403 135
+WARNING 2026-06-01 15:33:27,857 log 6236 3952 Forbidden (Permission denied): /admin/api/contact/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 716, in wrapper
+    return self.admin_site.admin_view(view)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\cache.py", line 80, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\sites.py", line 240, in inner
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 188, in _view_wrapper
+    result = _process_exception(request, e)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\decorators.py", line 186, in _view_wrapper
+    response = view_func(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\contrib\admin\options.py", line 1984, in changelist_view
+    raise PermissionDenied
+django.core.exceptions.PermissionDenied
+WARNING 2026-06-01 15:33:27,864 basehttp 6236 3952 "POST /admin/api/contact/ HTTP/1.1" 403 135
+WARNING 2026-06-01 15:35:07,035 log 6236 7760 Not Found: /api/customers/
+WARNING 2026-06-01 15:35:07,045 basehttp 6236 7760 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:35:07,115 log 6236 5344 Not Found: /api/customers/
+WARNING 2026-06-01 15:35:07,119 basehttp 6236 5344 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:35:36,483 log 6236 7760 Not Found: /api/customers/
+WARNING 2026-06-01 15:35:36,497 basehttp 6236 7760 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:35:36,573 log 6236 13528 Not Found: /api/customers/
+WARNING 2026-06-01 15:35:36,578 basehttp 6236 13528 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:35:47,804 log 6236 7760 Not Found: /api/customers/
+WARNING 2026-06-01 15:35:47,809 basehttp 6236 7760 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:35:47,914 log 6236 13528 Not Found: /api/customers/
+WARNING 2026-06-01 15:35:47,918 basehttp 6236 13528 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:35:53,672 log 6236 8172 Not Found: /api/customers/
+WARNING 2026-06-01 15:35:53,685 basehttp 6236 8172 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:35:53,789 log 6236 8172 Not Found: /api/customers/
+WARNING 2026-06-01 15:35:53,792 basehttp 6236 8172 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:40:30,062 log 6236 5344 Not Found: /api/customers/
+WARNING 2026-06-01 15:40:30,085 basehttp 6236 5344 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:40:30,149 log 6236 5344 Not Found: /api/customers/
+WARNING 2026-06-01 15:40:30,157 basehttp 6236 5344 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:40:34,696 log 6236 5344 Not Found: /api/customers/
+WARNING 2026-06-01 15:40:34,720 basehttp 6236 5344 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:40:34,823 log 6236 5344 Not Found: /api/customers/
+WARNING 2026-06-01 15:40:34,830 basehttp 6236 5344 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:40:36,652 log 6236 13528 Bad Request: /api/hr/absensi/clock-in/
+WARNING 2026-06-01 15:40:36,654 basehttp 6236 13528 "POST /api/hr/absensi/clock-in/ HTTP/1.1" 400 67
+WARNING 2026-06-01 15:42:43,744 log 6236 7760 Not Found: /api/customers/
+WARNING 2026-06-01 15:42:43,749 basehttp 6236 7760 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 15:42:43,801 log 6236 7760 Not Found: /api/customers/
+WARNING 2026-06-01 15:42:43,813 basehttp 6236 7760 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-01 21:04:28,317 log 18344 20492 Unauthorized: /api/business-settings/
+WARNING 2026-06-01 21:04:28,319 log 18344 9000 Unauthorized: /api/users/me/
+WARNING 2026-06-01 21:04:28,364 basehttp 18344 20492 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-01 21:04:28,365 basehttp 18344 9000 "GET /api/users/me/ HTTP/1.1" 401 188
+WARNING 2026-06-01 21:04:28,427 log 18344 9000 Unauthorized: /api/users/me/
+WARNING 2026-06-01 21:04:28,437 log 18344 20492 Unauthorized: /api/business-settings/
+WARNING 2026-06-01 21:04:28,465 basehttp 18344 9000 "GET /api/users/me/ HTTP/1.1" 401 188
+WARNING 2026-06-01 21:04:28,470 basehttp 18344 20492 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-02 22:35:12,173 log 7668 11680 Unauthorized: /api/users/me/
+WARNING 2026-06-02 22:35:12,173 log 7668 17324 Unauthorized: /api/business-settings/
+WARNING 2026-06-02 22:35:12,185 basehttp 7668 11680 "GET /api/users/me/ HTTP/1.1" 401 188
+WARNING 2026-06-02 22:35:12,196 log 7668 20644 Unauthorized: /api/users/me/
+WARNING 2026-06-02 22:35:12,221 log 7668 11680 Unauthorized: /api/business-settings/
+WARNING 2026-06-02 22:35:12,223 basehttp 7668 17324 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-02 22:35:12,230 basehttp 7668 20644 "GET /api/users/me/ HTTP/1.1" 401 188
+WARNING 2026-06-02 22:35:12,235 basehttp 7668 11680 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-02 22:35:12,262 log 7668 18300 Unauthorized: /api/auth/refresh/
+WARNING 2026-06-02 22:35:12,272 basehttp 7668 18300 "POST /api/auth/refresh/ HTTP/1.1" 401 62
+WARNING 2026-06-02 22:35:40,625 log 7668 11048 Not Found: /api/customers/
+WARNING 2026-06-02 22:35:40,638 basehttp 7668 11048 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-02 22:35:40,718 log 7668 11048 Not Found: /api/customers/
+WARNING 2026-06-02 22:35:40,722 basehttp 7668 11048 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+ERROR 2026-06-02 22:36:20,695 log 7668 17324 Internal Server Error: /api/orders/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\serializers.py", line 1011, in create
+    instance = ModelClass._default_manager.create(**validated_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\query.py", line 677, in create
+    obj = self.model(**kwargs)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\base.py", line 567, in __init__
+    raise TypeError(
+TypeError: Order() got unexpected keyword arguments: '_current_user'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\viewsets.py", line 125, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\mixins.py", line 19, in create
+    self.perform_create(serializer)
+  File "D:\buku zis\bintang_django_backend\api\views.py", line 445, in perform_create
+    instance = serializer.save(id=order_id, _current_user=self.request.user)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\serializers.py", line 210, in save
+    self.instance = self.create(validated_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\serializers.py", line 1030, in create
+    raise TypeError(msg)
+TypeError: Got a `TypeError` when calling `Order.objects.create()`. This may be because you have a writable field on the serializer class that is not a valid argument to `Order.objects.create()`. You may need to make the field read-only, or override the OrderSerializer.create() method to handle this correctly.
+Original exception was:
+ Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\serializers.py", line 1011, in create
+    instance = ModelClass._default_manager.create(**validated_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\query.py", line 677, in create
+    obj = self.model(**kwargs)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\base.py", line 567, in __init__
+    raise TypeError(
+TypeError: Order() got unexpected keyword arguments: '_current_user'
+
+ERROR 2026-06-02 22:36:20,752 basehttp 7668 17324 "POST /api/orders/ HTTP/1.1" 500 189371
+WARNING 2026-06-02 22:36:39,708 log 7668 18300 Not Found: /api/customers/
+WARNING 2026-06-02 22:36:40,112 basehttp 7668 18300 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-02 22:36:43,346 log 7668 18300 Forbidden: /api/hr/absensi/clock-in/
+WARNING 2026-06-02 22:36:43,861 basehttp 7668 18300 "POST /api/hr/absensi/clock-in/ HTTP/1.1" 403 79
+WARNING 2026-06-02 22:36:44,611 log 7668 11048 Not Found: /api/customers/
+WARNING 2026-06-02 22:36:44,779 basehttp 7668 11048 "GET /api/customers/?limit=1 HTTP/1.1" 404 24287
+WARNING 2026-06-02 22:37:07,860 log 7668 9836 Unauthorized: /api/auth/login/
+WARNING 2026-06-02 22:37:07,982 basehttp 7668 9836 "POST /api/auth/login/ HTTP/1.1" 401 81
+WARNING 2026-06-02 22:38:03,681 log 7668 21056 Not Found: /favicon.ico
+WARNING 2026-06-02 22:38:03,683 basehttp 7668 21056 "GET /favicon.ico HTTP/1.1" 404 3198
+ERROR 2026-06-02 22:40:05,817 log 7668 2376 Internal Server Error: /api/orders/
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\serializers.py", line 1011, in create
+    instance = ModelClass._default_manager.create(**validated_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\query.py", line 677, in create
+    obj = self.model(**kwargs)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\base.py", line 567, in __init__
+    raise TypeError(
+TypeError: Order() got unexpected keyword arguments: '_current_user'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\views.py", line 87, in sentry_wrapped_callback
+    return callback(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\viewsets.py", line 125, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\mixins.py", line 19, in create
+    self.perform_create(serializer)
+  File "D:\buku zis\bintang_django_backend\api\views.py", line 445, in perform_create
+    instance = serializer.save(id=order_id, _current_user=self.request.user)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\serializers.py", line 210, in save
+    self.instance = self.create(validated_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\serializers.py", line 1030, in create
+    raise TypeError(msg)
+TypeError: Got a `TypeError` when calling `Order.objects.create()`. This may be because you have a writable field on the serializer class that is not a valid argument to `Order.objects.create()`. You may need to make the field read-only, or override the OrderSerializer.create() method to handle this correctly.
+Original exception was:
+ Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\rest_framework\serializers.py", line 1011, in create
+    instance = ModelClass._default_manager.create(**validated_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\query.py", line 677, in create
+    obj = self.model(**kwargs)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\db\models\base.py", line 567, in __init__
+    raise TypeError(
+TypeError: Order() got unexpected keyword arguments: '_current_user'
+
+ERROR 2026-06-02 22:40:05,846 basehttp 7668 2376 "POST /api/orders/ HTTP/1.1" 500 189535
+WARNING 2026-06-02 22:47:04,859 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:47:04,922 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:47:09,607 log 21984 17184 Forbidden: /api/hr/absensi/clock-in/
+WARNING 2026-06-02 22:47:09,619 basehttp 21984 17184 "POST /api/hr/absensi/clock-in/ HTTP/1.1" 403 79
+WARNING 2026-06-02 22:48:55,344 log 21984 17184 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:48:55,424 basehttp 21984 17184 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:49:00,308 log 21984 6196 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:49:00,330 basehttp 21984 6196 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:51:50,238 log 21984 22484 Bad Request: /api/hr/absensi/clock-out/
+WARNING 2026-06-02 22:51:50,243 basehttp 21984 22484 "POST /api/hr/absensi/clock-out/ HTTP/1.1" 400 63
+WARNING 2026-06-02 22:51:59,170 log 21984 22484 Bad Request: /api/hr/absensi/clock-out/
+WARNING 2026-06-02 22:51:59,174 basehttp 21984 22484 "POST /api/hr/absensi/clock-out/ HTTP/1.1" 400 63
+WARNING 2026-06-02 22:52:07,572 log 21984 19976 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:52:07,642 basehttp 21984 19976 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:54:55,459 log 21984 22484 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:54:55,550 basehttp 21984 22484 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:00,442 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:00,458 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:05,433 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:05,443 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:10,436 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:10,443 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:15,445 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:15,449 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:20,445 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:20,462 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:25,449 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:25,454 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:31,003 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:31,012 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:35,992 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:35,995 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:40,995 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:41,001 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:46,008 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:46,015 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:51,003 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:51,008 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:55:56,008 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:55:56,015 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:56:12,796 log 21984 21904 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:56:12,814 basehttp 21984 21904 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:59:51,732 log 21984 18448 Forbidden: /api/jobs/
+WARNING 2026-06-02 22:59:51,745 basehttp 21984 18448 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 22:59:59,159 log 21984 18448 Bad Request: /api/hr/absensi/clock-out/
+WARNING 2026-06-02 22:59:59,179 basehttp 21984 18448 "POST /api/hr/absensi/clock-out/ HTTP/1.1" 400 63
+WARNING 2026-06-02 23:03:02,322 log 21984 17184 Forbidden: /api/jobs/
+WARNING 2026-06-02 23:03:02,354 basehttp 21984 17184 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 23:03:07,578 log 21984 18448 Forbidden: /api/jobs/
+WARNING 2026-06-02 23:03:07,627 basehttp 21984 18448 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 23:03:10,423 log 21984 18448 Forbidden: /api/jobs/
+WARNING 2026-06-02 23:03:10,505 basehttp 21984 18448 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-02 23:03:35,275 log 21984 9632 Forbidden: /api/jobs/
+WARNING 2026-06-02 23:03:35,311 basehttp 21984 9632 "GET /api/jobs/ HTTP/1.1" 403 67
+WARNING 2026-06-03 00:59:43,532 log 22000 18964 Unauthorized: /api/reports/staff-performance/
+WARNING 2026-06-03 00:59:44,008 basehttp 22000 18964 "GET /api/reports/staff-performance/?range=bulan_ini HTTP/1.1" 401 188
+WARNING 2026-06-03 00:59:45,250 log 22000 18964 Unauthorized: /api/reports/staff-performance/
+WARNING 2026-06-03 00:59:45,775 basehttp 22000 18964 "GET /api/reports/staff-performance/?range=bulan_ini HTTP/1.1" 401 188
+WARNING 2026-06-03 01:42:09,675 log 22000 4052 Forbidden: /api/users/online/
+WARNING 2026-06-03 01:42:10,167 basehttp 22000 4052 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-06-03 01:42:10,705 log 22000 13288 Forbidden: /api/users/online/
+WARNING 2026-06-03 01:42:11,052 basehttp 22000 13288 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-06-03 16:49:28,474 log 22068 19140 Unauthorized: /api/users/me/
+WARNING 2026-06-03 16:49:28,487 log 22068 9656 Unauthorized: /api/users/online/
+WARNING 2026-06-03 16:49:28,489 log 22068 2732 Unauthorized: /api/dashboard/
+WARNING 2026-06-03 16:49:28,498 log 22068 6036 Unauthorized: /api/hr/unlock-requests/
+WARNING 2026-06-03 16:49:28,506 log 22068 9848 Unauthorized: /api/business-settings/
+WARNING 2026-06-03 16:49:28,515 log 22068 6340 Unauthorized: /api/hr/attendance-session/
+WARNING 2026-06-03 16:49:28,660 basehttp 22068 9656 "GET /api/users/online/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:28,665 basehttp 22068 2732 "GET /api/dashboard/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:28,700 basehttp 22068 19140 "GET /api/users/me/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:28,750 basehttp 22068 6036 "GET /api/hr/unlock-requests/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:28,755 basehttp 22068 9848 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:28,777 basehttp 22068 6340 "GET /api/hr/attendance-session/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:28,802 log 22068 9656 Unauthorized: /api/users/online/
+WARNING 2026-06-03 16:49:28,851 log 22068 19140 Unauthorized: /api/users/me/
+WARNING 2026-06-03 16:49:28,854 log 22068 6036 Unauthorized: /api/dashboard/
+WARNING 2026-06-03 16:49:28,889 log 22068 2732 Unauthorized: /api/hr/unlock-requests/
+WARNING 2026-06-03 16:49:28,966 log 22068 6340 Unauthorized: /api/business-settings/
+WARNING 2026-06-03 16:49:29,038 basehttp 22068 9656 "GET /api/users/online/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:29,072 basehttp 22068 6036 "GET /api/dashboard/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:29,174 log 22068 9656 Unauthorized: /api/hr/attendance-session/
+WARNING 2026-06-03 16:49:29,227 basehttp 22068 19140 "GET /api/users/me/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:29,275 basehttp 22068 6340 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:29,277 basehttp 22068 2732 "GET /api/hr/unlock-requests/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:49:29,322 basehttp 22068 9656 "GET /api/hr/attendance-session/ HTTP/1.1" 401 188
+WARNING 2026-06-03 16:54:55,969 log 22068 15824 Bad Request: /api/customer-activities/
+WARNING 2026-06-03 16:54:55,982 basehttp 22068 15824 "POST /api/customer-activities/ HTTP/1.1" 400 35
+WARNING 2026-06-03 16:55:05,051 log 22068 15824 Bad Request: /api/customer-activities/
+WARNING 2026-06-03 16:55:05,087 basehttp 22068 15824 "POST /api/customer-activities/ HTTP/1.1" 400 35
+WARNING 2026-06-03 17:03:36,837 log 22068 2156 Bad Request: /api/customer-activities/
+WARNING 2026-06-03 17:03:36,910 basehttp 22068 2156 "POST /api/customer-activities/ HTTP/1.1" 400 35
+WARNING 2026-06-03 17:24:58,126 log 13624 1436 Unauthorized: /api/auth/create-user/
+WARNING 2026-06-03 17:24:58,134 log 13624 1436 Forbidden: /api/auth/create-user/
+WARNING 2026-06-03 17:50:21,142 log 16524 5748 Unauthorized: /api/orders/
+WARNING 2026-06-03 17:50:21,142 log 16524 15416 Unauthorized: /api/inventory/
+WARNING 2026-06-03 17:50:21,149 log 16524 3692 Unauthorized: /api/jobs/
+WARNING 2026-06-03 17:50:21,166 basehttp 16524 3692 "GET /api/jobs/ HTTP/1.1" 401 188
+WARNING 2026-06-03 17:50:21,168 basehttp 16524 5748 "GET /api/orders/ HTTP/1.1" 401 188
+WARNING 2026-06-03 17:50:21,171 basehttp 16524 15416 "GET /api/inventory/ HTTP/1.1" 401 188
+WARNING 2026-06-03 17:50:21,236 log 16524 15416 Unauthorized: /api/auth/refresh/
+WARNING 2026-06-03 17:50:21,239 basehttp 16524 15416 "POST /api/auth/refresh/ HTTP/1.1" 401 62
+WARNING 2026-06-03 20:02:28,759 log 11412 15488 Forbidden: /api/users/online/
+WARNING 2026-06-03 20:02:28,778 basehttp 11412 15488 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-06-03 20:02:28,863 log 11412 8468 Forbidden: /api/users/online/
+WARNING 2026-06-03 20:02:28,879 basehttp 11412 8468 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-06-03 21:33:19,394 log 20852 16612 Unauthorized: /api/inventory/
+WARNING 2026-06-03 21:33:19,397 log 20852 17772 Unauthorized: /api/tahap-proses/
+WARNING 2026-06-03 21:33:19,401 log 20852 1068 Unauthorized: /api/users/
+WARNING 2026-06-03 21:33:19,405 log 20852 19780 Unauthorized: /api/jobs/
+WARNING 2026-06-03 21:33:19,455 basehttp 20852 16612 "GET /api/inventory/ HTTP/1.1" 401 188
+WARNING 2026-06-03 21:33:19,455 basehttp 20852 17772 "GET /api/tahap-proses/ HTTP/1.1" 401 188
+WARNING 2026-06-03 21:33:19,479 basehttp 20852 19780 "GET /api/jobs/ HTTP/1.1" 401 188
+WARNING 2026-06-03 21:33:19,488 basehttp 20852 1068 "GET /api/users/?role=staff HTTP/1.1" 401 188
+WARNING 2026-06-03 21:45:09,698 log 20852 11564 Not Found: /api/customers/
+WARNING 2026-06-03 21:45:09,709 basehttp 20852 11564 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 21:45:09,776 log 20852 1068 Not Found: /api/customers/
+WARNING 2026-06-03 21:45:09,792 basehttp 20852 1068 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 21:48:21,624 log 20852 16616 Not Found: /api/customers/
+WARNING 2026-06-03 21:48:21,808 basehttp 20852 16616 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 21:48:23,760 log 20852 16616 Not Found: /api/customers/
+WARNING 2026-06-03 21:48:24,185 basehttp 20852 16616 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+ERROR 2026-06-03 21:49:47,690 exception 7476 3148 Invalid HTTP_HOST header: 'testserver'. You may need to add 'testserver' to ALLOWED_HOSTS.
+Traceback (most recent call last):
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\sentry_sdk\integrations\django\middleware.py", line 169, in __call__
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\utils\deprecation.py", line 133, in __call__
+    response = self.process_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\middleware\common.py", line 48, in process_request
+    host = request.get_host()
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\buku zis\bintang_django_backend\.venv\Lib\site-packages\django\http\request.py", line 151, in get_host
+    raise DisallowedHost(msg)
+django.core.exceptions.DisallowedHost: Invalid HTTP_HOST header: 'testserver'. You may need to add 'testserver' to ALLOWED_HOSTS.
+WARNING 2026-06-03 21:49:48,173 log 7476 3148 Bad Request: /api/jobs/
+WARNING 2026-06-03 22:04:38,505 log 20852 3160 Not Found: /api/customers/
+WARNING 2026-06-03 22:04:38,527 basehttp 20852 3160 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 22:04:38,683 log 20852 3160 Not Found: /api/customers/
+WARNING 2026-06-03 22:04:38,691 basehttp 20852 3160 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 22:04:49,231 log 20852 9648 Not Found: /api/customers/
+WARNING 2026-06-03 22:04:49,274 basehttp 20852 9648 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 22:04:49,421 log 20852 9648 Not Found: /api/customers/
+WARNING 2026-06-03 22:04:49,426 basehttp 20852 9648 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 22:06:05,363 log 20852 3160 Not Found: /api/customers/
+WARNING 2026-06-03 22:06:05,372 basehttp 20852 3160 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 22:17:47,733 log 20852 12104 Not Found: /api/customers/
+WARNING 2026-06-03 22:17:47,745 basehttp 20852 12104 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 22:17:47,990 log 20852 12104 Not Found: /api/customers/
+WARNING 2026-06-03 22:17:48,008 basehttp 20852 12104 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 22:21:25,607 log 20852 8832 Not Found: /api/customers/
+WARNING 2026-06-03 22:21:25,674 basehttp 20852 8832 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 22:21:25,818 log 20852 21428 Not Found: /api/customers/
+WARNING 2026-06-03 22:21:25,823 basehttp 20852 21428 "GET /api/customers/?limit=1 HTTP/1.1" 404 30187
+WARNING 2026-06-03 23:29:48,641 log 20852 4808 Unauthorized: /api/orders/
+WARNING 2026-06-03 23:29:48,643 log 20852 17992 Unauthorized: /api/users/
+WARNING 2026-06-03 23:29:48,669 basehttp 20852 4808 "GET /api/orders/ HTTP/1.1" 401 188
+WARNING 2026-06-03 23:29:48,677 basehttp 20852 17992 "GET /api/users/ HTTP/1.1" 401 188
+WARNING 2026-06-03 23:29:48,693 log 20852 17992 Unauthorized: /api/users/
+WARNING 2026-06-03 23:29:48,697 log 20852 4808 Unauthorized: /api/orders/
+WARNING 2026-06-03 23:29:48,708 basehttp 20852 17992 "GET /api/users/ HTTP/1.1" 401 188
+WARNING 2026-06-03 23:29:48,708 basehttp 20852 4808 "GET /api/orders/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:29:52,513 log 8636 19180 Unauthorized: /api/hr/attendance-session/
+WARNING 2026-06-04 00:29:52,572 log 8636 10528 Unauthorized: /api/dashboard/
+WARNING 2026-06-04 00:29:52,606 log 8636 19056 Unauthorized: /api/business-settings/
+WARNING 2026-06-04 00:29:52,650 log 8636 19780 Unauthorized: /api/hr/unlock-requests/
+WARNING 2026-06-04 00:29:56,357 basehttp 8636 19056 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:29:57,131 basehttp 8636 10528 "GET /api/dashboard/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:29:58,281 basehttp 8636 19180 "GET /api/hr/attendance-session/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:29:58,282 log 8636 19056 Unauthorized: /api/business-settings/
+WARNING 2026-06-04 00:29:58,005 basehttp 8636 19780 "GET /api/hr/unlock-requests/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:29:59,031 log 8636 19180 Unauthorized: /api/users/me/
+WARNING 2026-06-04 00:29:59,440 log 8636 19780 Unauthorized: /api/dashboard/
+WARNING 2026-06-04 00:29:59,482 basehttp 8636 19056 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:29:59,814 log 8636 10528 Unauthorized: /api/hr/attendance-session/
+WARNING 2026-06-04 00:30:00,018 basehttp 8636 10528 "GET /api/hr/attendance-session/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:30:00,022 basehttp 8636 19780 "GET /api/dashboard/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:30:00,387 log 8636 19056 Unauthorized: /api/hr/unlock-requests/
+WARNING 2026-06-04 00:30:00,391 basehttp 8636 19180 "GET /api/users/me/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:30:01,082 basehttp 8636 19056 "GET /api/hr/unlock-requests/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:30:02,267 log 8636 19056 Unauthorized: /api/users/online/
+WARNING 2026-06-04 00:30:02,388 basehttp 8636 19056 "GET /api/users/online/ HTTP/1.1" 401 188
+WARNING 2026-06-04 00:30:02,505 log 8636 19780 Unauthorized: /api/auth/refresh/
+WARNING 2026-06-04 00:30:02,619 basehttp 8636 19780 "POST /api/auth/refresh/ HTTP/1.1" 401 62
+WARNING 2026-06-04 01:31:30,207 log 8636 15788 Unauthorized: /api/dashboard/
+WARNING 2026-06-04 01:31:30,220 log 8636 1664 Unauthorized: /api/users/online/
+WARNING 2026-06-04 01:31:30,227 log 8636 21500 Unauthorized: /api/hr/attendance-session/
+WARNING 2026-06-04 01:31:30,235 log 8636 18120 Unauthorized: /api/hr/unlock-requests/
+WARNING 2026-06-04 01:31:30,238 basehttp 8636 15788 "GET /api/dashboard/ HTTP/1.1" 401 188
+WARNING 2026-06-04 01:31:30,241 basehttp 8636 21500 "GET /api/hr/attendance-session/ HTTP/1.1" 401 188
+WARNING 2026-06-04 01:31:30,242 basehttp 8636 1664 "GET /api/users/online/ HTTP/1.1" 401 188
+WARNING 2026-06-04 01:31:30,246 basehttp 8636 18120 "GET /api/hr/unlock-requests/ HTTP/1.1" 401 188
+WARNING 2026-06-04 01:31:30,246 log 8636 6412 Unauthorized: /api/komplain/
+WARNING 2026-06-04 01:31:30,253 basehttp 8636 6412 "GET /api/komplain/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:52,255 log 15468 12796 Unauthorized: /api/users/online/
+WARNING 2026-06-04 17:47:52,322 log 15468 20464 Unauthorized: /api/business-settings/
+WARNING 2026-06-04 17:47:52,438 log 15468 14724 Unauthorized: /api/users/me/
+WARNING 2026-06-04 17:47:52,455 log 15468 2736 Unauthorized: /api/dashboard/
+WARNING 2026-06-04 17:47:52,457 log 15468 5756 Unauthorized: /api/hr/attendance-session/
+WARNING 2026-06-04 17:47:52,487 log 15468 10900 Unauthorized: /api/komplain/
+WARNING 2026-06-04 17:47:52,801 basehttp 15468 20464 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:52,972 basehttp 15468 12796 "GET /api/users/online/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:53,335 basehttp 15468 14724 "GET /api/users/me/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:53,706 basehttp 15468 2736 "GET /api/dashboard/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:53,691 basehttp 15468 5756 "GET /api/hr/attendance-session/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:53,805 log 15468 20464 Unauthorized: /api/hr/unlock-requests/
+WARNING 2026-06-04 17:47:53,837 log 15468 12796 Unauthorized: /api/business-settings/
+WARNING 2026-06-04 17:47:54,072 basehttp 15468 10900 "GET /api/komplain/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:54,535 log 15468 5756 Unauthorized: /api/users/online/
+WARNING 2026-06-04 17:47:54,691 log 15468 2736 Unauthorized: /api/users/me/
+WARNING 2026-06-04 17:47:54,768 log 15468 14724 Unauthorized: /api/hr/attendance-session/
+WARNING 2026-06-04 17:47:55,041 basehttp 15468 20464 "GET /api/hr/unlock-requests/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:55,238 basehttp 15468 12796 "GET /api/business-settings/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:55,490 basehttp 15468 2736 "GET /api/users/me/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:55,689 log 15468 10900 Unauthorized: /api/dashboard/
+WARNING 2026-06-04 17:47:55,840 log 15468 2736 Unauthorized: /api/hr/unlock-requests/
+WARNING 2026-06-04 17:47:55,905 basehttp 15468 5756 "GET /api/users/online/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:56,306 log 15468 12796 Unauthorized: /api/komplain/
+WARNING 2026-06-04 17:47:56,317 basehttp 15468 14724 "GET /api/hr/attendance-session/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:56,389 basehttp 15468 10900 "GET /api/dashboard/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:56,368 basehttp 15468 2736 "GET /api/hr/unlock-requests/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:57,009 basehttp 15468 12796 "GET /api/komplain/ HTTP/1.1" 401 188
+WARNING 2026-06-04 17:47:59,142 log 15468 12796 Forbidden: /api/users/online/
+WARNING 2026-06-04 17:47:59,789 basehttp 15468 12796 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-06-04 17:48:01,138 log 15468 12796 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-06-04 17:48:01,352 basehttp 15468 12796 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-06-04 17:48:02,471 log 15468 12796 Forbidden: /api/users/online/
+WARNING 2026-06-04 17:48:02,756 log 15468 5756 Forbidden: /api/hr/unlock-requests/
+WARNING 2026-06-04 17:48:03,251 basehttp 15468 12796 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-06-04 17:48:03,258 basehttp 15468 5756 "GET /api/hr/unlock-requests/ HTTP/1.1" 403 67
+WARNING 2026-06-04 17:48:07,291 log 15468 20464 Forbidden: /api/users/online/
+WARNING 2026-06-04 17:48:07,833 basehttp 15468 20464 "GET /api/users/online/ HTTP/1.1" 403 67
+WARNING 2026-06-04 17:49:04,755 log 15468 14724 Unauthorized: /api/auth/login/
+WARNING 2026-06-04 17:49:04,800 basehttp 15468 14724 "POST /api/auth/login/ HTTP/1.1" 401 81
+WARNING 2026-06-04 17:49:25,076 log 15468 14724 Unauthorized: /api/auth/login/
+WARNING 2026-06-04 17:49:25,078 basehttp 15468 14724 "POST /api/auth/login/ HTTP/1.1" 401 81
+WARNING 2026-06-04 17:52:50,468 log 15468 11596 Not Found: /favicon.ico
+WARNING 2026-06-04 17:52:50,476 basehttp 15468 11596 "GET /favicon.ico HTTP/1.1" 404 3198
+WARNING 2026-06-04 18:28:15,588 log 20108 8068 Not Found: /api/token/
+WARNING 2026-06-04 18:28:15,592 log 20108 8068 Unauthorized: /api/orders/
+WARNING 2026-06-04 18:28:15,593 log 20108 8068 Unauthorized: /api/jobs/
+WARNING 2026-06-04 18:28:15,595 log 20108 8068 Unauthorized: /api/hr/absensi/
+WARNING 2026-06-04 18:28:15,599 log 20108 8068 Unauthorized: /api/inventory/
+WARNING 2026-06-04 18:28:15,601 log 20108 8068 Unauthorized: /api/dashboard/
+WARNING 2026-06-04 18:29:17,593 log 14352 9336 Method Not Allowed: /api/auth/login/
+WARNING 2026-06-04 18:29:17,603 log 14352 9336 Method Not Allowed: /api/auth/refresh/
+WARNING 2026-06-04 18:29:17,615 log 14352 9336 Unauthorized: /api/orders/
+WARNING 2026-06-04 18:29:17,630 log 14352 9336 Unauthorized: /api/jobs/
+WARNING 2026-06-04 18:29:17,643 log 14352 9336 Unauthorized: /api/hr/absensi/
+WARNING 2026-06-04 18:29:17,661 log 14352 9336 Unauthorized: /api/inventory/
+WARNING 2026-06-04 18:29:17,676 log 14352 9336 Unauthorized: /api/dashboard/

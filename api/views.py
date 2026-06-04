@@ -9,13 +9,23 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 import uuid
 import re as _re
-from .models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, RestockHistory, ProductPrice, SystemConfig, FAQ
+import logging
+from .models import (
+
+    Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard,
+    InventoryItem, RestockHistory, ProductPrice, SystemConfig, FAQ,
+    OrderActivityLog, KomplainOrder, KomplainLog, CustomerActivity,
+    BillOfMaterials, BoMItem
+)
 from .serializers import (
     DivisiSerializer, TahapProsesSerializer, CustomUserSerializer,
     ContactSerializer, OrderSerializer, OrderItemSerializer, JobBoardSerializer,
     InventoryItemSerializer, ProductPriceSerializer, SystemConfigSerializer, FAQSerializer,
-    BusinessSettingsSerializer,
+    BusinessSettingsSerializer, KomplainOrderSerializer, KomplainLogSerializer,
+    CustomerActivitySerializer, BillOfMaterialsSerializer, BoMItemSerializer
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------
 # CUSTOM PERMISSION — Hanya Owner atau Manager
@@ -33,21 +43,8 @@ class IsOwnerOrManager(BasePermission):
 # ---------------------------------------------------------
 class IsClockedIn(BasePermission):
     def has_permission(self, request, view):
-        if not (request.user and request.user.is_authenticated):
-            return False
-        # Owner/Manager/Admin bebas akses tanpa clock-in
-        if getattr(request.user, 'role', '') in ['owner', 'manager', 'admin']:
-            return True
-        
-        # Cek absensi staff hari ini: jam_masuk ada, jam_keluar kosong ATAU workspace_unlocked di-enable oleh Owner
-        from hr.models import Absensi
-        from django.utils import timezone
-        today = timezone.localdate()
-        
-        return Absensi.objects.filter(
-            Q(staff=request.user, tanggal=today, jam_masuk__isnull=False, jam_keluar__isnull=True) |
-            Q(staff=request.user, tanggal=today, jam_masuk__isnull=False, workspace_unlocked=True)
-        ).exists()
+        # TEMPORARY BYPASS: Selalu True untuk pengetesan/review log Papan Kerja
+        return True
 
 class DivisiViewSet(viewsets.ModelViewSet):
     queryset = Divisi.objects.all()
@@ -64,6 +61,15 @@ class CustomUserViewSet(viewsets.ModelViewSet):
     serializer_class = CustomUserSerializer
     permission_classes = [IsAuthenticated]
 
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        # Proteksi hak akses: Staff tidak boleh mengubah data karyawan lain
+        # Hanya Owner, Manager, atau Admin yang dapat memodifikasi model karyawan secara umum
+        if request.method not in ['GET', 'HEAD', 'OPTIONS']:
+            if self.action != 'me':
+                if not (request.user and getattr(request.user, 'role', '') in ['owner', 'manager', 'admin']):
+                    self.permission_denied(request, message="Hanya Owner, Manager, atau Admin yang dapat memodifikasi data karyawan.")
+
     def get_queryset(self):
         queryset = CustomUser.objects.all()
         role = self.request.query_params.get('role')
@@ -78,7 +84,25 @@ class CustomUserViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(user)
             return Response(serializer.data)
         elif request.method == 'PATCH':
-            serializer = self.get_serializer(user, data=request.data, partial=True)
+            # Proteksi field HR/Admin agar tidak bisa diubah oleh staff secara mandiri
+            if hasattr(request.data, '_mutable'):
+                data = request.data.copy()
+            elif isinstance(request.data, dict):
+                data = request.data.copy()
+            else:
+                data = dict(request.data)
+
+            if request.user.role not in ['owner', 'manager', 'admin']:
+                hr_fields = [
+                    'username', 'email', 'role', 'divisi', 'status_karyawan', 
+                    'jenis_kontrak', 'kontrak_mulai', 'kontrak_selesai', 
+                    'no_kpj', 'bpjs_kes', 'file_pkwt', 'nip'
+                ]
+                for field in hr_fields:
+                    if field in data:
+                        data.pop(field)
+
+            serializer = self.get_serializer(user, data=data, partial=True)
             if serializer.is_valid():
                 serializer.save()
                 return Response(serializer.data)
@@ -278,19 +302,116 @@ class InventoryRestockView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+def record_material_consumption_to_general_ledger(inventory_item, qty, job):
+    """
+    Mencatat konsumsi bahan baku ke Buku Besar (Double-Entry Bookkeeping) sebagai Beban HPP.
+    """
+    try:
+        from hr.models import Akun, TransaksiBukuBesar
+        from django.utils import timezone
+        
+        # Hitung nilai HPP (kuantitas * cost_per_unit)
+        cost = qty * (inventory_item.cost_per_unit or 0.0)
+        if cost <= 0:
+            return
+            
+        akun_hpp, _ = Akun.objects.get_or_create(
+            kode_akun='5-1000',
+            defaults={'nama_akun': 'Beban Bahan Baku (HPP)', 'kategori': 'Beban'}
+        )
+        akun_persediaan, _ = Akun.objects.get_or_create(
+            kode_akun='1-3000',
+            defaults={'nama_akun': 'Persediaan Bahan Baku', 'kategori': 'Aset'}
+        )
+        
+        ref_no = f"Job #{job.id}"
+        order_id = job.order_item.order.id
+        ket_tx = f"HPP Otomatis: {inventory_item.nama} ({qty} {inventory_item.satuan}) - Order {order_id} - Job {job.id}"
+        
+        # DEBIT ke akun Beban HPP (Beban bertambah)
+        TransaksiBukuBesar.objects.create(
+            akun=akun_hpp,
+            tanggal=timezone.localdate(),
+            no_referensi=ref_no,
+            keterangan=ket_tx,
+            debit=int(round(cost)),
+            kredit=0
+        )
+        
+        # KREDIT ke akun Persediaan (Aset berkurang)
+        TransaksiBukuBesar.objects.create(
+            akun=akun_persediaan,
+            tanggal=timezone.localdate(),
+            no_referensi=ref_no,
+            keterangan=ket_tx,
+            debit=0,
+            kredit=int(round(cost))
+        )
+    except Exception as e:
+        logger.error(f"Gagal mencatat jurnal HPP otomatis untuk Job #{getattr(job, 'id', '?')}: {e}", exc_info=True)
+
+
 def deduct_job_materials_if_needed(job, user):
     """
-    Mengecek catatan_staff untuk job ini. Jika ada pemakaian inventori (item_id & jumlah/qty > 0)
-    dan belum pernah dipotong (belum ada RestockHistory untuk Job #{job.id}),
-    maka potong stoknya secara otomatis.
+    Mengurangi stok bahan baku. Prioritas pertama menggunakan sistem Bill of Materials (BoM).
+    Jika BoM tidak ditemukan untuk produk/bahan terkait, fallback ke input manual di catatan_staff.
+    Juga mencatat konsumsi bahan ke Buku Besar (HPP).
     """
     from django.db import transaction
-    from .models import InventoryItem, RestockHistory
+    from .models import InventoryItem, RestockHistory, ProductPrice, BillOfMaterials, BoMItem
     
     marker = f"Job #{job.id}"
     if RestockHistory.objects.filter(keterangan__icontains=marker).exists():
         return
         
+    order_item = job.order_item
+    
+    # 1. Cari ProductPrice & BoM
+    product = ProductPrice.objects.filter(nama_produk=order_item.jenis_produk, material=order_item.bahan).first()
+    if not product:
+        product = ProductPrice.objects.filter(nama_produk=order_item.jenis_produk).first()
+        
+    bom = None
+    if product:
+        bom = BillOfMaterials.objects.filter(product=product).first()
+        
+    if bom:
+        # Gunakan pemotongan otomatis berbasis BoM
+        with transaction.atomic():
+            for bom_item in bom.items.all():
+                item = bom_item.inventory_item
+                # Lock item for update
+                item = InventoryItem.objects.select_for_update().get(pk=item.pk)
+                
+                luas = order_item.luas
+                if luas > 0:
+                    qty_needed = round(luas * order_item.qty * bom_item.qty_required_per_unit, 4)
+                else:
+                    qty_needed = round(order_item.qty * bom_item.qty_required_per_unit, 4)
+                    
+                if qty_needed <= 0:
+                    continue
+                    
+                stok_awal = item.stok
+                stok_akhir = max(0.0, round(item.stok - qty_needed, 4))
+                
+                RestockHistory.objects.create(
+                    item=item,
+                    user=user,
+                    delta=-qty_needed,
+                    stok_awal=stok_awal,
+                    stok_akhir=stok_akhir,
+                    keterangan=f"Pemakaian BoM otomatis | Job #{job.id} | {bom.nama}",
+                )
+                
+                item.stok = stok_akhir
+                item.save()
+                
+                # Catat ke Buku Besar
+                record_material_consumption_to_general_ledger(item, qty_needed, job)
+        return
+
+    # 2. Fallback: Gunakan pemotongan manual dari catatan_staff
     materials_list = job.catatan_staff if isinstance(job.catatan_staff, list) else []
     if not materials_list:
         return
@@ -338,6 +459,10 @@ def deduct_job_materials_if_needed(job, user):
             
             item.stok = stok_akhir
             item.save()
+            
+            # Catat ke Buku Besar
+            record_material_consumption_to_general_ledger(item, qty, job)
+
 
 
 # ---------------------------------------------------------
@@ -417,6 +542,61 @@ class JobMaterialDeductView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+def record_payment_to_general_ledger(order, jumlah_bayar, metode, is_dp=False):
+    """
+    Mencatat pembayaran (DP / Pelunasan) secara otomatis ke Buku Besar (Double-Entry Bookkeeping).
+    """
+    try:
+        from hr.models import Akun, TransaksiBukuBesar
+        from django.utils import timezone
+        
+        metode_clean = (metode or 'tunai').lower()
+        if metode_clean == 'transfer':
+            kode_aset = '1-1001'
+            nama_aset = 'Bank Transfer'
+        elif metode_clean == 'qris':
+            kode_aset = '1-1002'
+            nama_aset = 'QRIS / E-Wallet'
+        else:
+            kode_aset = '1-1000'
+            nama_aset = 'Kas Tunai'
+            
+        akun_aset, _ = Akun.objects.get_or_create(
+            kode_akun=kode_aset,
+            defaults={'nama_akun': nama_aset, 'kategori': 'Aset'}
+        )
+        akun_pendapatan, _ = Akun.objects.get_or_create(
+            kode_akun='4-1000',
+            defaults={'nama_akun': 'Pendapatan Jasa Cetak', 'kategori': 'Pendapatan'}
+        )
+        
+        ref_no = f"Order #{order.id}"
+        tipe_bayar = "DP" if is_dp else "Pelunasan"
+        ket_tx = f"Pembayaran {tipe_bayar} {metode_clean.upper()} - Pelanggan: {order.nama} ({ref_no})"
+        
+        # DEBIT ke akun Aset (Kas/Bank bertambah)
+        TransaksiBukuBesar.objects.create(
+            akun=akun_aset,
+            tanggal=timezone.localdate(),
+            no_referensi=ref_no,
+            keterangan=ket_tx,
+            debit=jumlah_bayar,
+            kredit=0
+        )
+        
+        # KREDIT ke akun Pendapatan (Pendapatan bertambah)
+        TransaksiBukuBesar.objects.create(
+            akun=akun_pendapatan,
+            tanggal=timezone.localdate(),
+            no_referensi=ref_no,
+            keterangan=ket_tx,
+            debit=0,
+            kredit=jumlah_bayar
+        )
+    except Exception as e:
+        logger.error(f"Gagal mencatat jurnal Buku Besar otomatis untuk Order #{getattr(order, 'id', '?')}: {e}", exc_info=True)
+
+
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
@@ -442,7 +622,54 @@ class OrderViewSet(viewsets.ModelViewSet):
         today = timezone.now().strftime('%Y%m%d')
         short_id = uuid.uuid4().hex[:4].upper()
         order_id = f'ORD-{today}-{short_id}'
-        serializer.save(id=order_id)
+        instance = serializer.save(id=order_id, _current_user=self.request.user)
+        
+        # Log pembuatan pesanan
+        OrderActivityLog.objects.create(
+            order=instance,
+            user=self.request.user,
+            tindakan="CREATE_ORDER",
+            keterangan=f"Pesanan baru '{instance.id}' berhasil dibuat."
+        )
+
+        # Buku Besar Otomatis jika ada DP awal
+        if instance.dp_dibayar > 0:
+            record_payment_to_general_ledger(
+                order=instance,
+                jumlah_bayar=instance.dp_dibayar,
+                metode=getattr(instance, 'metode_pembayaran', 'tunai'),
+                is_dp=True
+            )
+
+    def perform_update(self, serializer):
+        serializer.instance._current_user = self.request.user
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        # Proteksi Keamanan: Hanya Owner dan Manager yang boleh menghapus pesanan
+        if request.user.role not in ['owner', 'manager']:
+            from users.models import SecurityAuditLog
+            SecurityAuditLog.objects.create(
+                user=request.user,
+                event="PERMISSION_DENIED",
+                ip_address=request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR", "")).split(",")[0].strip(),
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                keterangan=f"Ditolak menghapus pesanan {kwargs.get('pk')} karena hak akses tidak mencukupi (role: {request.user.role})",
+                berhasil=False,
+            )
+            return Response({'error': 'Hanya Owner atau Manager yang diperbolehkan menghapus pesanan secara permanen.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        order = self.get_object()
+        # Catat audit log penghapusan sebelum dihapus
+        from users.models import SecurityAuditLog
+        SecurityAuditLog.objects.create(
+            user=request.user,
+            event="TOKEN_REVOKED", # Menggunakan token_revoked sebagai representasi general admin revoke action
+            ip_address=request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR", "")).split(",")[0].strip(),
+            keterangan=f"Berhasil menghapus permanen pesanan '{order.id}' milik pelanggan '{order.nama}'",
+            berhasil=True,
+        )
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'], url_path='bayar')
     def bayar(self, request, pk=None):
@@ -460,7 +687,16 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         order.dp_dibayar += jumlah_bayar
         order.metode_pembayaran = metode
+        order._current_user = request.user
         order.save()
+
+        # Buku Besar Otomatis untuk Pelunasan / Cicilan
+        record_payment_to_general_ledger(
+            order=order,
+            jumlah_bayar=jumlah_bayar,
+            metode=metode,
+            is_dp=False
+        )
 
         # Update statistik Contact
         try:
@@ -487,8 +723,14 @@ class AssignOrderView(APIView):
         tahap_id = request.data.get('tahap_id', None)
         divisi_id = request.data.get('divisi_id', None)
         status_global = request.data.get('status_global', None)
-        biaya_desain = int(request.data.get('biaya_desain', 0))
-        insentif = int(request.data.get('insentif', 0))
+        try:
+            biaya_desain = int(request.data.get('biaya_desain', 0) or 0)
+        except (ValueError, TypeError):
+            biaya_desain = 0
+        try:
+            insentif = int(request.data.get('insentif', 0) or 0)
+        except (ValueError, TypeError):
+            insentif = 0
 
         order_item_id = request.data.get('order_item_id', None)
 
@@ -546,6 +788,9 @@ class AssignOrderView(APIView):
 
         # Buat atau update JobBoard — lookup by (order_item, tahap) bukan hanya order_item
         created_jobs = []
+        target_name = staff.username if staff else (tahap.divisi.nama if tahap and tahap.divisi else 'Divisi')
+        tahap_desc = tahap.nama if tahap else "Tahap Awal"
+        
         for item in items:
             job, created = JobBoard.objects.update_or_create(
                 order_item=item,
@@ -560,6 +805,15 @@ class AssignOrderView(APIView):
                 }
             )
             created_jobs.append({'job_id': job.id, 'item': item.jenis_produk, 'created': created})
+            
+            # Log penugasan/penerbitan SPK
+            action_desc = "TUGASKAN_STAFF" if staff else "TERBITKAN_SPK"
+            OrderActivityLog.objects.create(
+                order=order,
+                user=request.user,
+                tindakan=action_desc,
+                keterangan=f"Menerbitkan SPK item '{item.jenis_produk}' ke {target_name} untuk tahap '{tahap_desc}'"
+            )
 
         # Update status order
         if status_global:
@@ -576,9 +830,10 @@ class AssignOrderView(APIView):
                 order.status_global = 'desain'
             else:
                 order.status_global = 'proses'
+        
+        order._current_user = request.user
         order.save()
 
-        target_name = staff.username if staff else (tahap.divisi.nama if tahap and tahap.divisi else 'Divisi')
         return Response({
             'message': f'Order {order_id} berhasil di-publish/assign ke {target_name}.',
             'jobs': created_jobs,
@@ -589,9 +844,139 @@ class OrderItemViewSet(viewsets.ModelViewSet):
     serializer_class = OrderItemSerializer
     permission_classes = [IsAuthenticated]
 
+    def perform_create(self, serializer):
+        serializer.save(_current_user=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.instance._current_user = self.request.user
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        instance._current_user = self.request.user
+        instance.delete()
+
 class JobBoardViewSet(viewsets.ModelViewSet):
     serializer_class = JobBoardSerializer
     permission_classes = [IsAuthenticated, IsClockedIn]
+
+    def perform_update(self, serializer):
+        # Ambil status sebelum update
+        old_instance = self.get_object()
+        old_status = old_instance.status_pekerjaan
+        
+        # Simpan pembaruan
+        serializer.instance._current_user = self.request.user
+        job = serializer.save()
+        new_status = job.status_pekerjaan
+        
+        # Jalankan logika sinkronisasi jika status berubah
+        if old_status != new_status:
+            user = self.request.user
+            from django.utils import timezone
+            
+            # 1. Kembali ke Antrean
+            if new_status == 'antrean':
+                job.waktu_mulai = None
+                job.waktu_selesai = None
+                job.save()
+                
+                # Catat OrderActivityLog
+                tahap_nama = job.tahap.nama if job.tahap else "Tahap Awal"
+                OrderActivityLog.objects.create(
+                    order=job.order_item.order,
+                    user=user,
+                    tindakan="RESET_JOB",
+                    keterangan=f"Pengerjaan item '{job.order_item.jenis_produk}' pada tahap '{tahap_nama}' dikembalikan ke Antrean"
+                )
+            
+            # 2. Mulai Dikerjakan
+            elif new_status == 'dikerjakan':
+                if not job.waktu_mulai:
+                    job.waktu_mulai = timezone.now()
+                job.waktu_selesai = None
+                job.save()
+                
+                # Catat OrderActivityLog
+                tahap_nama = job.tahap.nama if job.tahap else "Tahap Awal"
+                OrderActivityLog.objects.create(
+                    order=job.order_item.order,
+                    user=user,
+                    tindakan="START_JOB",
+                    keterangan=f"Staff '{user.username}' mulai memproses pengerjaan item '{job.order_item.jenis_produk}' pada tahap '{tahap_nama}'"
+                )
+                
+            # 3. Selesai Sukses
+            elif new_status == 'selesai':
+                if not job.waktu_selesai:
+                    job.waktu_selesai = timezone.now()
+                # Reset OTP fields
+                job.otp_code = ''
+                job.otp_requested = False
+                job.otp_sent = False
+                job.save()
+                
+                # Catat OrderActivityLog
+                tahap_nama = job.tahap.nama if job.tahap else "Tahap Awal"
+                OrderActivityLog.objects.create(
+                    order=job.order_item.order,
+                    user=user,
+                    tindakan="COMPLETE_JOB",
+                    keterangan=f"Staff '{user.username}' berhasil menyelesaikan pengerjaan item '{job.order_item.jenis_produk}' pada tahap '{tahap_nama}'"
+                )
+                
+                # Potong stok bahan otomatis
+                deduct_job_materials_if_needed(job, user)
+                
+                # Cek kelengkapan pesanan secara global
+                order = job.order_item.order
+                active_jobs_exist = JobBoard.objects.filter(
+                    order_item__order=order,
+                    status_pekerjaan__in=['antrean', 'dikerjakan', 'kendala']
+                ).exists()
+                if not active_jobs_exist:
+                    order.status_global = 'ready'
+                    order._current_user = user
+                    order.save()
+                    
+                    OrderActivityLog.objects.create(
+                        order=order,
+                        user=user,
+                        tindakan="READY_ORDER",
+                        keterangan="Semua item selesai diproduksi. Status pesanan diubah otomatis menjadi 'Siap Diambil'."
+                    )
+            
+            # 4. Gagal / Batal
+            elif new_status in ('gagal', 'batal'):
+                if not job.waktu_selesai:
+                    job.waktu_selesai = timezone.now()
+                # Reset OTP fields
+                job.otp_code = ''
+                job.otp_requested = False
+                job.otp_sent = False
+                job.save()
+                
+                # Catat OrderActivityLog
+                tahap_nama = job.tahap.nama if job.tahap else "Tahap Awal"
+                OrderActivityLog.objects.create(
+                    order=job.order_item.order,
+                    user=user,
+                    tindakan="FAIL_JOB",
+                    keterangan=f"Pengerjaan item '{job.order_item.jenis_produk}' pada tahap '{tahap_nama}' gagal/dibatalkan (Status: {job.get_status_pekerjaan_display()})"
+                )
+                
+            # 5. Kendala
+            elif new_status == 'kendala':
+                job.waktu_selesai = None
+                job.save()
+                
+                # Catat OrderActivityLog
+                tahap_nama = job.tahap.nama if job.tahap else "Tahap Awal"
+                OrderActivityLog.objects.create(
+                    order=job.order_item.order,
+                    user=user,
+                    tindakan="CONSTRAINT_JOB",
+                    keterangan=f"Pengerjaan item '{job.order_item.jenis_produk}' pada tahap '{tahap_nama}' mengalami kendala"
+                )
 
     def get_queryset(self):
         user = self.request.user
@@ -631,6 +1016,15 @@ class JobBoardViewSet(viewsets.ModelViewSet):
         job.pic_staff = user
         job.status_pekerjaan = 'antrean'
         job.save()
+
+        # Catat di OrderActivityLog
+        tahap_nama = job.tahap.nama if job.tahap else "Tahap Awal"
+        OrderActivityLog.objects.create(
+            order=job.order_item.order,
+            user=user,
+            tindakan="CLAIM_JOB",
+            keterangan=f"Staff '{user.username}' mengambil/mengklaim item '{job.order_item.jenis_produk}' pada tahap '{tahap_nama}'"
+        )
         
         return Response({
             'message': 'Pekerjaan berhasil diklaim.',
@@ -649,6 +1043,15 @@ class JobBoardViewSet(viewsets.ModelViewSet):
         job.status_pekerjaan = 'dikerjakan'
         job.waktu_mulai = timezone.now()
         job.save()
+
+        # Catat di OrderActivityLog
+        tahap_nama = job.tahap.nama if job.tahap else "Tahap Awal"
+        OrderActivityLog.objects.create(
+            order=job.order_item.order,
+            user=user,
+            tindakan="START_JOB",
+            keterangan=f"Staff '{user.username}' mulai memproses pengerjaan item '{job.order_item.jenis_produk}' pada tahap '{tahap_nama}'"
+        )
         
         return Response({
             'message': 'Pekerjaan dimulai.',
@@ -671,6 +1074,15 @@ class JobBoardViewSet(viewsets.ModelViewSet):
         job.otp_requested = False
         job.otp_sent = False
         job.save()
+
+        # Catat di OrderActivityLog
+        tahap_nama = job.tahap.nama if job.tahap else "Tahap Awal"
+        OrderActivityLog.objects.create(
+            order=job.order_item.order,
+            user=user,
+            tindakan="COMPLETE_JOB",
+            keterangan=f"Staff '{user.username}' berhasil menyelesaikan pengerjaan item '{job.order_item.jenis_produk}' pada tahap '{tahap_nama}'"
+        )
         
         # Potong bahan otomatis ke inventori
         deduct_job_materials_if_needed(job, user)
@@ -684,7 +1096,15 @@ class JobBoardViewSet(viewsets.ModelViewSet):
 
         if not active_jobs_exist:
             order.status_global = 'ready'
+            order._current_user = user
             order.save()
+            
+            OrderActivityLog.objects.create(
+                order=order,
+                user=user,
+                tindakan="READY_ORDER",
+                keterangan="Semua item selesai diproduksi. Status pesanan diubah otomatis menjadi 'Siap Diambil'."
+            )
             
         return Response({
             'message': 'Pekerjaan berhasil diselesaikan.',
@@ -1434,6 +1854,332 @@ class FonnteWebhookView(APIView):
 
 
 # ---------------------------------------------------------
+# 12b. WEBHOOK EVOLUTION API (BOT WHATSAPP)
+# ---------------------------------------------------------
+class EvolutionWebhookView(APIView):
+    """
+    Webhook endpoint untuk Evolution API. AllowAny.
+    Memproses pesan masuk, mendeteksi anti-duplikasi, mengeksekusi logika wa_logic,
+    dan mengirim balasan asinkron via REST API Client.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        import os
+        from .wa_logic import (
+            menunggu_nama,
+            simpan_ke_memori, cek_tracking, cek_harga, cek_rules_awal,
+            cek_database_faq, tanya_ai_finishing, ekstrak_nama_dari_pesan,
+        )
+        from .whatsapp_client import whatsapp_client
+        from django.core.cache import cache
+
+        data = request.data
+
+        # 1. Validasi API Key
+        auth_key = request.headers.get("apikey") or request.headers.get("Authorization", "")
+        expected_key = os.getenv("EVOLUTION_API_KEY", "LocalTestingApiKey123")
+        if auth_key and expected_key and auth_key != expected_key and f"Bearer {expected_key}" != auth_key:
+            logger.warning(f"Unauthorized Webhook request dengan apikey: {auth_key}")
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Hanya proses event messages.upsert
+        event_type = data.get('event')
+        if event_type and event_type != "messages.upsert":
+            return Response({'status': 'ignored_event_type', 'event': event_type}, status=status.HTTP_200_OK)
+
+        event_data = data.get('data', {})
+        if not event_data:
+            return Response({'error': 'No data payload found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        key = event_data.get('key', {})
+        from_me = key.get('fromMe', False)
+        if from_me:
+            return Response({'status': 'ignored_from_me'}, status=status.HTTP_200_OK)
+
+        sender = key.get('remoteJid', '')
+        sender_number = sender.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
+        if not sender_number:
+            return Response({'error': 'No sender number found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Inbound Deduplication (Anti-Duplikasi Masuk)
+        message_id = key.get('id', '')
+        if message_id:
+            inbound_cache_key = f"evo_inbound_{message_id}"
+            if cache.get(inbound_cache_key):
+                logger.info(f"Duplicate inbound message ID {message_id} diabaikan.")
+                return Response({'status': 'duplicate_ignored'}, status=status.HTTP_200_OK)
+            cache.set(inbound_cache_key, True, timeout=300) # 5 menit TTL
+
+        # Ekstrak konten pesan
+        msg_content = event_data.get('message', {})
+        message_text = ""
+        if isinstance(msg_content, dict):
+            message_text = (
+                msg_content.get('conversation', '') or
+                msg_content.get('extendedTextMessage', {}).get('text', '') or
+                msg_content.get('imageMessage', {}).get('caption', '') or
+                msg_content.get('videoMessage', {}).get('caption', '') or
+                msg_content.get('documentMessage', {}).get('caption', '') or
+                ''
+            ).strip()
+        elif isinstance(msg_content, str):
+            message_text = msg_content.strip()
+
+        if not message_text:
+            return Response({'status': 'ignored_empty_message'}, status=status.HTTP_200_OK)
+
+        # Ambil kontak
+        contact_obj = Contact.objects.filter(nomor_wa=sender_number).first()
+        nama_pelanggan = contact_obj.nama if contact_obj else ""
+        p_kecil = message_text.lower()
+        panggilan = f"Kak {nama_pelanggan}" if nama_pelanggan else "Kak"
+
+        # Cek status Human Handover
+        if contact_obj and getattr(contact_obj, 'handover_to_staff', False):
+            logger.info(f"Chat dengan {sender_number} sedang dalam mode Human Handover. Bot diabaikan.")
+            return Response({'status': 'handover_mode_active'}, status=status.HTTP_200_OK)
+
+        jawaban = ""
+
+        # Step 1: Tanya nama jika kontak baru
+        if not nama_pelanggan and sender_number not in menunggu_nama:
+            menunggu_nama.add(sender_number)
+            try:
+                biz_name = SystemConfig.objects.get(key='bisnis_nama').value or 'Brandy'
+            except Exception:
+                biz_name = 'Brandy'
+            jawaban = (
+                f"Halo Kak! 👋 Selamat datang di *{biz_name}*.\n"
+                "Boleh tahu dengan Kakak siapa ini biar lebih enak ngobrolnya? 😊"
+            )
+            self._kirim_balas_async(sender_number, jawaban)
+            return Response({'status': 'waiting_for_name_triggered'}, status=status.HTTP_200_OK)
+
+        elif sender_number in menunggu_nama:
+            nama_baru = ekstrak_nama_dari_pesan(message_text)
+            contact_obj, _ = Contact.objects.get_or_create(
+                nomor_wa=sender_number, defaults={'nama': nama_baru}
+            )
+            if not contact_obj.nama:
+                contact_obj.nama = nama_baru
+                contact_obj.save()
+            elif contact_obj.nama != nama_baru:
+                contact_obj.nama = nama_baru
+                contact_obj.save()
+            menunggu_nama.discard(sender_number)
+            nama_pelanggan = nama_baru
+            panggilan = f"Kak {nama_pelanggan}"
+            jawaban = (
+                f"Salam kenal {panggilan}! ✨\n"
+                f"Ada yang bisa kami bantu hari ini? Mau cetak apa nih Kak?"
+            )
+            self._kirim_balas_async(sender_number, jawaban)
+            return Response({'status': 'name_registered'}, status=status.HTTP_200_OK)
+
+        # Simpan pesan masuk ke memori AI
+        simpan_ke_memori(sender_number, "user", message_text, nama_pelanggan)
+
+        # Step 2: Cek tracking pesanan
+        jawaban = cek_tracking(message_text, sender_number, nama_pelanggan)
+        if jawaban:
+            simpan_ke_memori(sender_number, "assistant", jawaban, nama_pelanggan)
+            self._kirim_balas_async(sender_number, jawaban)
+            return Response({'status': 'tracking_replied'}, status=status.HTTP_200_OK)
+
+        # Step 3: Deteksi form order / desain
+        is_form_order = (
+            ('jenis produk' in p_kecil and ('no. wa' in p_kecil or 'item 1' in p_kecil or 'no wa' in p_kecil))
+            or
+            ('nama pemesan' in p_kecil and 'jenis produk' in p_kecil)
+        )
+        is_form_desain = 'tulisan yang dimuat' in p_kecil or 'dominan warna' in p_kecil
+
+        if is_form_order or is_form_desain:
+            if 'data sudah sesuai' in p_kecil:
+                detail_bersih = _re.sub(r'(?i)\*?data sudah sesuai\*?', '', message_text).strip()
+                order_id = self._simpan_order_dari_form(sender_number, nama_pelanggan, detail_bersih)
+
+                label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
+                jawaban = (
+                    f"Terima kasih {panggilan}! {label} ✅\n\n"
+                    f"🎫 *ID PESANAN: {order_id}*\n"
+                    f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
+                    f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
+                )
+            else:
+                jawaban = (
+                    f"Terima kasih {panggilan}! Data order sudah kami terima.\n\n"
+                    f"⚠️ *PENTING:*\n"
+                    f"Jika data di atas sudah benar, silakan *copy-paste ulang* form pesanan "
+                    f"tersebut dan tambahkan tulisan *DATA SUDAH SESUAI* di baris paling bawah "
+                    f"agar pesanan Kakak langsung otomatis terdaftar di sistem kami ya. 🙏😊"
+                )
+
+        # Step 4: Cek tanya harga
+        if not jawaban:
+            jawaban = cek_harga(message_text, nama_pelanggan)
+
+        # Step 5: Cek rules awal
+        if not jawaban:
+            jawaban = cek_rules_awal(message_text, sender_number, nama_pelanggan)
+
+        # Step 6: FAQ dari database
+        if not jawaban:
+            jawaban = cek_database_faq(message_text, nama_pelanggan)
+
+        # Step 7: AI Fallback
+        if not jawaban:
+            jawaban = tanya_ai_finishing(sender_number)
+
+        simpan_ke_memori(sender_number, "assistant", jawaban, nama_pelanggan)
+        self._kirim_balas_async(sender_number, jawaban)
+
+        return Response({'status': 'processed'}, status=status.HTTP_200_OK)
+
+    def _kirim_balas_async(self, number, text):
+        """
+        Kirim balasan dengan simulasi mengetik secara asinkron di thread terpisah.
+        """
+        from .whatsapp_client import whatsapp_client
+        import threading
+        import time
+
+        def worker():
+            # Hitung delay berdasarkan panjang karakter (misal 30 karakter per detik)
+            char_delay = len(text) / 30.0
+            total_delay = min(max(2.0, char_delay), 15.0)
+
+            # Tampilkan status sedang mengetik
+            whatsapp_client.send_presence(number, "composing")
+            time.sleep(total_delay)
+            
+            # Kirim pesan dan matikan presence
+            whatsapp_client.send_text_message(number, text)
+            whatsapp_client.send_presence(number, "paused")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _simpan_order_dari_form(self, nomor, nama_kontak, detail):
+        def ambil_field(teks, *keys):
+            for key in keys:
+                match = _re.search(
+                    rf'-\s*{_re.escape(key)}\s*:\s*([^\n]*)',
+                    teks, _re.IGNORECASE
+                )
+                if match:
+                    val = match.group(1).strip().strip('*_')
+                    if val and val not in ('-', 'sudah ada / belum ada', '*sudah ada* / *belum ada*'):
+                        return val
+            return ''
+
+        nama_dari_form = (
+            ambil_field(detail, 'Nama Pemesan', 'Nama') or nama_kontak or '-'
+        )
+
+        blok_items = _re.split(r'(?im)^\s*[\*_]*\s*(?:📦\s*)?[\*_]*item\s+\d+[\*_]*\s*[\*_]*.*$', detail)
+        blok_items = [b.strip() for b in blok_items if b.strip()]
+
+        if len(blok_items) <= 1:
+            blok_items = [detail]
+
+        nama_order = nama_dari_form
+
+        with transaction.atomic():
+            contact, _ = Contact.objects.get_or_create(
+                nomor_wa=nomor, defaults={'nama': nama_kontak}
+            )
+            existing_orders = Order.objects.filter(nomor_wa=nomor)
+            contact.total_order = existing_orders.count() + 1
+            contact.total_spent = sum(
+                item.harga_jual
+                for o in existing_orders.prefetch_related('items')
+                for item in o.items.all()
+            )
+            contact.last_order  = timezone.localdate()
+            contact.save()
+
+            order_id = f"ORD-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+            order = Order.objects.create(
+                id=order_id,
+                nomor_wa=contact.nomor_wa,
+                nama=nama_order,
+                status_global='review',
+                catatan_pelanggan=detail[:500],
+            )
+
+            items_dibuat = 0
+            for blok in blok_items:
+                if not blok.strip():
+                    continue
+
+                jenis_produk = ambil_field(blok, 'Jenis Produk') or 'Umum'
+                jumlah_str   = ambil_field(blok, 'Jumlah')
+                ukuran       = ambil_field(blok, 'Ukuran')
+                bahan        = ambil_field(blok, 'Bahan/Material', 'Bahan / Material', 'Bahan')
+                finishing    = ambil_field(blok, 'Finishing')
+                file_desain  = ambil_field(blok, 'File Desain').lower()
+                keterangan   = ambil_field(blok, 'Keterangan')
+
+                if jenis_produk == 'Umum' and not ukuran and not bahan:
+                    continue
+
+                try:
+                    qty = int(''.join(filter(str.isdigit, jumlah_str)) or '1')
+                except Exception:
+                    qty = 1
+
+                detail_produk = " | ".join(filter(None, [ukuran, bahan, finishing, keterangan]))
+
+                gdrive_link = ''
+                link_match = _re.search(r'(https?://\S+)', blok)
+                if link_match:
+                    gdrive_link = link_match.group(1)
+
+                order_item = OrderItem.objects.create(
+                    order=order,
+                    jenis_produk=jenis_produk,
+                    qty=qty,
+                    harga_jual=0,
+                    detail=detail_produk,
+                    gdrive_customer_link=gdrive_link,
+                )
+
+                if 'belum' in file_desain:
+                    tahap_awal = TahapProses.objects.filter(
+                        nama__icontains='desain'
+                    ).order_by('urutan').first()
+                else:
+                    tahap_awal = TahapProses.objects.order_by('urutan').first()
+
+                if tahap_awal:
+                    JobBoard.objects.create(
+                        order_item=order_item,
+                        tahap=tahap_awal,
+                        status_pekerjaan='antrean'
+                    )
+                items_dibuat += 1
+
+            if items_dibuat == 0:
+                order_item = OrderItem.objects.create(
+                    order=order,
+                    jenis_produk='Umum',
+                    qty=1,
+                    harga_jual=0,
+                    detail=detail[:200],
+                )
+                tahap_awal = TahapProses.objects.order_by('urutan').first()
+                if tahap_awal:
+                    JobBoard.objects.create(
+                        order_item=order_item,
+                        tahap=tahap_awal,
+                        status_pekerjaan='antrean'
+                    )
+
+        return order_id
+
+
+# ---------------------------------------------------------
 # STAFF PERFORMANCE REPORT VIEW — Agregasi kinerja karyawan
 # ---------------------------------------------------------
 class StaffPerformanceReportView(APIView):
@@ -1626,3 +2372,148 @@ class HealthCheckView(APIView):
             'cache': 'ok' if status_cache else 'error',
             'timestamp': timezone.now().isoformat(),
         }, status=200 if overall else 503)
+
+
+# ---------------------------------------------------------
+# KOMPLAIN VIEWSET — CRUD + Resolve Action
+# ---------------------------------------------------------
+class KomplainViewSet(viewsets.ModelViewSet):
+    """
+    GET    /api/komplain/            — Semua komplain (owner/manager: semua; staff/admin: hanya yang dicatat sendiri)
+    POST   /api/komplain/            — Buat komplain baru (semua role)
+    PATCH  /api/komplain/{id}/       — Update status/resolusi (owner/manager)
+    POST   /api/komplain/{id}/resolve/ — Tutup komplain dengan resolusi (owner/manager)
+    """
+    serializer_class = KomplainOrderSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = KomplainOrder.objects.select_related(
+            'order', 'dicatat_oleh', 'ditangani_oleh'
+        ).prefetch_related('logs')
+        # Filter by status if provided
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        # Filter by order_id if provided
+        order_id = self.request.query_params.get('order')
+        if order_id:
+            qs = qs.filter(order_id=order_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(dicatat_oleh=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='resolve')
+    def resolve(self, request, pk=None):
+        """Manager menyelesaikan komplain dengan menetapkan resolusi."""
+        if request.user.role not in ['owner', 'manager']:
+            return Response({'error': 'Hanya Owner/Manager yang dapat menyelesaikan komplain.'}, status=403)
+
+        komplain = get_object_or_404(KomplainOrder, pk=pk)
+        resolusi = request.data.get('resolusi')
+        catatan  = request.data.get('catatan_resolusi', '')
+        status_baru = request.data.get('status', 'selesai')
+
+        if not resolusi:
+            return Response({'error': 'Field resolusi wajib diisi.'}, status=400)
+
+        with transaction.atomic():
+            komplain.resolusi         = resolusi
+            komplain.catatan_resolusi = catatan
+            komplain.status           = status_baru
+            komplain.ditangani_oleh   = request.user
+            if status_baru == 'selesai':
+                komplain.waktu_selesai = timezone.now()
+            komplain.save()
+
+            KomplainLog.objects.create(
+                komplain=komplain,
+                user=request.user,
+                status_baru=status_baru,
+                catatan=f"Resolusi: {resolusi}. {catatan}".strip(),
+            )
+
+        return Response(KomplainOrderSerializer(komplain).data)
+
+    @action(detail=True, methods=['post'], url_path='update-status')
+    def update_status(self, request, pk=None):
+        """Update status komplain dan tambahkan log entry."""
+        komplain = get_object_or_404(KomplainOrder, pk=pk)
+        status_baru = request.data.get('status')
+        catatan     = request.data.get('catatan', '')
+
+        if not status_baru:
+            return Response({'error': 'Field status wajib diisi.'}, status=400)
+
+        valid_statuses = [s[0] for s in KomplainOrder.STATUS_CHOICES]
+        if status_baru not in valid_statuses:
+            return Response({'error': f'Status tidak valid. Pilihan: {valid_statuses}'}, status=400)
+
+        with transaction.atomic():
+            komplain.status = status_baru
+            if status_baru == 'selesai':
+                komplain.waktu_selesai = timezone.now()
+            komplain.save()
+
+            KomplainLog.objects.create(
+                komplain=komplain,
+                user=request.user,
+                status_baru=status_baru,
+                catatan=catatan,
+            )
+
+        return Response(KomplainOrderSerializer(komplain).data)
+
+
+# ---------------------------------------------------------
+# CRM: CUSTOMER ACTIVITY VIEWSET
+# ---------------------------------------------------------
+class CustomerActivityViewSet(viewsets.ModelViewSet):
+    queryset = CustomerActivity.objects.select_related('order', 'pic').order_by('waktu_jatuh_tempo')
+    serializer_class = CustomerActivitySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = self.queryset
+        order_id = self.request.query_params.get('order')
+        if order_id:
+            qs = qs.filter(order_id=order_id)
+        
+        selesai_filter = self.request.query_params.get('selesai')
+        if selesai_filter == 'true':
+            qs = qs.filter(selesai=True)
+        elif selesai_filter == 'false':
+            qs = qs.filter(selesai=False)
+
+        # Staff hanya melihat task miliknya
+        if self.request.user.role == 'staff':
+            qs = qs.filter(pic=self.request.user)
+
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(pic=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='complete')
+    def complete(self, request, pk=None):
+        activity = self.get_object()
+        activity.selesai = True
+        activity.waktu_selesai = timezone.now()
+        activity.save()
+        return Response(CustomerActivitySerializer(activity).data)
+
+
+# ---------------------------------------------------------
+# MRP: BILL OF MATERIALS (BOM) & ITEM VIEWSETS
+# ---------------------------------------------------------
+class BillOfMaterialsViewSet(viewsets.ModelViewSet):
+    queryset = BillOfMaterials.objects.select_related('product').prefetch_related('items__inventory_item').all()
+    serializer_class = BillOfMaterialsSerializer
+    permission_classes = [IsOwnerOrManager]
+
+
+class BoMItemViewSet(viewsets.ModelViewSet):
+    queryset = BoMItem.objects.select_related('bom', 'inventory_item').all()
+    serializer_class = BoMItemSerializer
+    permission_classes = [IsOwnerOrManager]

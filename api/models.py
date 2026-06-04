@@ -130,6 +130,8 @@ def _generate_order_id():
 
 class Order(models.Model):
     STATUS_GLOBAL_CHOICES = (
+        ('draft', 'Draft Penawaran'),
+        ('quotation', 'Kirim Penawaran'),
         ('review', 'Menunggu Review Manager'),
         ('desain', 'Proses Desain'),
         ('proses', 'Dalam Proses Produksi'),
@@ -177,6 +179,45 @@ class Order(models.Model):
 
             # Auto kalkulasi sisa tagihan setiap kali nota disimpan
             self.sisa_tagihan = max(0, self.total_harga - self.dp_dibayar)
+
+            # --- PENINGKATAN KEAMANAN: AUDIT LOG ---
+            user = getattr(self, '_current_user', None)
+            if self.pk:
+                try:
+                    old_self = Order.objects.get(pk=self.pk)
+                    changes = []
+                    fields_to_track = [
+                        ('status_global', 'Status Global'),
+                        ('dp_dibayar', 'DP Dibayar'),
+                        ('diskon_persen', 'Diskon'),
+                        ('metode_pembayaran', 'Metode Pembayaran'),
+                        ('nama', 'Nama Pelanggan'),
+                        ('nomor_wa', 'Nomor WA'),
+                        ('catatan_pelanggan', 'Catatan Pelanggan'),
+                        ('total_harga', 'Total Harga'),
+                    ]
+                    for field_name, field_label in fields_to_track:
+                        old_val = getattr(old_self, field_name)
+                        new_val = getattr(self, field_name)
+                        if old_val != new_val:
+                            if field_name == 'status_global':
+                                old_display = dict(self.STATUS_GLOBAL_CHOICES).get(old_val, old_val)
+                                new_display = dict(self.STATUS_GLOBAL_CHOICES).get(new_val, new_val)
+                                changes.append(f"{field_label}: '{old_display}' → '{new_display}'")
+                            else:
+                                changes.append(f"{field_label}: '{old_val}' → '{new_val}'")
+                    
+                    if changes:
+                        OrderActivityLog.objects.create(
+                            order=self,
+                            user=user,
+                            tindakan="UPDATE_ORDER",
+                            keterangan="Mengubah data pesanan: " + "; ".join(changes)
+                        )
+                except Order.DoesNotExist:
+                    pass
+            # ----------------------------------------
+
             super().save(*args, **kwargs)
 
             # Sinkronisasi status job board jika order dibatalkan (batal) atau selesai (selesai)
@@ -209,6 +250,26 @@ class Order(models.Model):
 
     def __str__(self):
         return f"{self.id} - {self.nama}"
+
+# ---------------------------------------------------------
+# 5.5 LOG AKTIVITAS PESANAN (AUDIT TRAIL)
+# ---------------------------------------------------------
+class OrderActivityLog(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='activity_logs')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    tindakan = models.CharField(max_length=100, help_text="Jenis tindakan, misal: CREATE_ORDER, UPDATE_ORDER, dll.")
+    keterangan = models.TextField(help_text="Deskripsi lengkap mengenai riwayat perubahan.")
+    waktu = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['-waktu']
+        indexes = [
+            models.Index(fields=['order', '-waktu'], name='idx_order_log_waktu'),
+        ]
+
+    def __str__(self):
+        username = self.user.username if self.user else "System"
+        return f"[{self.tindakan}] {username} - {self.order.id} ({self.waktu:%Y-%m-%d %H:%M})"
 
 # ---------------------------------------------------------
 # 6. DETAIL ITEM PESANAN (MENDUKUNG 1 ID NOTA BANYAK ITEM)
@@ -246,9 +307,59 @@ class OrderItem(models.Model):
         from django.db import transaction
         # Auto kalkulasi luas m2 dari P x L sebelum disimpan ke database
         self.luas = round(self.panjang * self.lebar, 4)
+        is_new = not self.pk
+        user = getattr(self, '_current_user', None)
+        
+        # --- PENINGKATAN KEAMANAN: AUDIT LOG UNTUK UPDATE ---
+        if not is_new:
+            try:
+                old_self = OrderItem.objects.get(pk=self.pk)
+                changes = []
+                fields_to_track = [
+                    ('jenis_produk', 'Jenis Produk'),
+                    ('panjang', 'Panjang (m)'),
+                    ('lebar', 'Lebar (m)'),
+                    ('bahan', 'Bahan'),
+                    ('harga_per_m2', 'Harga/m²'),
+                    ('qty', 'Jumlah (Qty)'),
+                    ('harga_jual', 'Harga Jual'),
+                    ('biaya_bahan', 'Biaya Bahan'),
+                    ('estimasi', 'Estimasi'),
+                    ('gdrive_customer_link', 'Link Google Drive'),
+                    ('keterangan_detail', 'Keterangan Item'),
+                ]
+                for field_name, field_label in fields_to_track:
+                    old_val = getattr(old_self, field_name)
+                    new_val = getattr(self, field_name)
+                    if old_val != new_val:
+                        changes.append(f"{field_label}: '{old_val}' → '{new_val}'")
+                
+                if changes:
+                    OrderActivityLog.objects.create(
+                        order=self.order,
+                        user=user,
+                        tindakan="UPDATE_ITEM",
+                        keterangan=f"Mengubah item '{self.jenis_produk}': " + "; ".join(changes)
+                    )
+            except OrderItem.DoesNotExist:
+                pass
+        # ----------------------------------------
         
         with transaction.atomic():
             super().save(*args, **kwargs)
+
+            # --- PENINGKATAN KEAMANAN: AUDIT LOG UNTUK CREATE ---
+            if is_new:
+                try:
+                    OrderActivityLog.objects.create(
+                        order=self.order,
+                        user=user,
+                        tindakan="ADD_ITEM",
+                        keterangan=f"Menambahkan item baru: '{self.jenis_produk}' (Bahan: {self.bahan or '-'}, Qty: {self.qty}, Harga: Rp{self.harga_jual})"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to log item creation: {e}")
+            # ----------------------------------------
 
             # BUG FIX: Gunakan update_fields agar Order.save() tidak dipanggil penuh
             # (mencegah infinite loop karena Order.save() tidak memanggil item.save()).
@@ -272,6 +383,19 @@ class OrderItem(models.Model):
     def delete(self, *args, **kwargs):
         from django.db import transaction
         order = self.order
+        user = getattr(self, '_current_user', None)
+        
+        # --- PENINGKATAN KEAMANAN: AUDIT LOG UNTUK DELETE ---
+        try:
+            OrderActivityLog.objects.create(
+                order=order,
+                user=user,
+                tindakan="DELETE_ITEM",
+                keterangan=f"Menghapus item: '{self.jenis_produk}' (Qty: {self.qty}, Harga: Rp{self.harga_jual})"
+            )
+        except Exception as e:
+            logger.error(f"Failed to log item deletion: {e}")
+        # ----------------------------------------
         
         with transaction.atomic():
             super().delete(*args, **kwargs)
@@ -484,3 +608,124 @@ def sync_contact_for_whatsapp(nomor_wa):
         contact.save()
     except Exception as e:
         logger.error(f"Failed to sync contact stats for {nomor_wa}: {e}")
+
+
+# ---------------------------------------------------------
+# 11. SISTEM KOMPLAIN & GARANSI CETAK ULANG
+# ---------------------------------------------------------
+class KomplainOrder(models.Model):
+    JENIS_CHOICES = [
+        ('salah_ukuran', 'Salah Ukuran'),
+        ('warna_pudar', 'Warna Pudar / Buram'),
+        ('salah_desain', 'Salah Desain / File'),
+        ('sobek_rusak', 'Sobek / Rusak Saat Produksi'),
+        ('pemasangan', 'Masalah Pemasangan'),
+        ('lainnya', 'Lainnya'),
+    ]
+    STATUS_CHOICES = [
+        ('masuk', 'Komplain Masuk'),
+        ('diproses', 'Sedang Diproses'),
+        ('cetak_ulang', 'Dijadwalkan Cetak Ulang'),
+        ('selesai', 'Selesai / Resolved'),
+        ('ditolak', 'Ditolak / Tidak Valid'),
+    ]
+    RESOLUSI_CHOICES = [
+        ('cetak_ulang_gratis', 'Cetak Ulang Gratis (Garansi)'),
+        ('cetak_ulang_bayar', 'Cetak Ulang Biaya Customer'),
+        ('diskon_kompensasi', 'Diskon / Kompensasi'),
+        ('ditolak', 'Ditolak'),
+    ]
+
+    order = models.ForeignKey(
+        Order, on_delete=models.CASCADE, related_name='komplain',
+        help_text="Order yang dikomplain oleh pelanggan"
+    )
+    dicatat_oleh = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='komplain_dicatat', help_text="Staff/Kasir yang menerima komplain"
+    )
+    ditangani_oleh = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='komplain_ditangani', help_text="Manager yang menangani resolusi"
+    )
+    jenis_komplain = models.CharField(max_length=30, choices=JENIS_CHOICES, default='lainnya')
+    deskripsi = models.TextField(help_text="Penjelasan detail komplain dari pelanggan")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='masuk', db_index=True)
+    resolusi = models.CharField(max_length=30, choices=RESOLUSI_CHOICES, null=True, blank=True)
+    catatan_resolusi = models.TextField(null=True, blank=True, help_text="Catatan penyelesaian dari manager")
+    perlu_cetak_ulang = models.BooleanField(default=False)
+    foto_bukti = models.URLField(max_length=500, null=True, blank=True, help_text="Link foto/bukti komplain (Google Drive/URL)")
+    waktu_masuk = models.DateTimeField(default=timezone.now, db_index=True)
+    waktu_selesai = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-waktu_masuk']
+        indexes = [
+            models.Index(fields=['status', '-waktu_masuk'], name='idx_komplain_status_waktu'),
+            models.Index(fields=['order'], name='idx_komplain_order'),
+        ]
+
+    def __str__(self):
+        return f"Komplain #{self.id} — {self.order.id} [{self.get_status_display()}]"
+
+
+class KomplainLog(models.Model):
+    """Riwayat update status penanganan komplain."""
+    komplain = models.ForeignKey(KomplainOrder, on_delete=models.CASCADE, related_name='logs')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    status_baru = models.CharField(max_length=20)
+    catatan = models.TextField(blank=True, default='')
+    waktu = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-waktu']
+
+    def __str__(self):
+        return f"Log Komplain #{self.komplain.id} → {self.status_baru}"
+
+
+# ---------------------------------------------------------
+# 12. CRM: CUSTOMER ACTIVITY & PENJADWALAN
+# ---------------------------------------------------------
+class CustomerActivity(models.Model):
+    TIPE_CHOICES = [
+        ('call', 'Telepon'),
+        ('whatsapp', 'Kirim WhatsApp'),
+        ('design_check', 'Konfirmasi Desain'),
+        ('payment_followup', 'Follow-up Pembayaran'),
+        ('other', 'Lainnya'),
+    ]
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='activities', null=True, blank=True)
+    pic = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='customer_activities')
+    tipe = models.CharField(max_length=25, choices=TIPE_CHOICES, default='other')
+    keterangan = models.TextField(help_text="Detail aktivitas/follow-up")
+    waktu_jatuh_tempo = models.DateField(db_index=True)
+    selesai = models.BooleanField(default=False, db_index=True)
+    waktu_selesai = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['waktu_jatuh_tempo']
+
+    def __str__(self):
+        return f"{self.get_tipe_display()} - {self.waktu_jatuh_tempo}"
+
+
+# ---------------------------------------------------------
+# 13. MRP: BILL OF MATERIALS (BOM)
+# ---------------------------------------------------------
+class BillOfMaterials(models.Model):
+    product = models.OneToOneField(ProductPrice, on_delete=models.CASCADE, related_name='bom', help_text="Produk yang dirujuk")
+    nama = models.CharField(max_length=100)
+    keterangan = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"BoM: {self.product.nama_produk} ({self.product.material or ''})"
+
+
+class BoMItem(models.Model):
+    bom = models.ForeignKey(BillOfMaterials, on_delete=models.CASCADE, related_name='items')
+    inventory_item = models.ForeignKey(InventoryItem, on_delete=models.CASCADE)
+    qty_required_per_unit = models.FloatField(default=1.0, help_text="Jumlah bahan baku per unit / m2 produk jadi")
+
+    def __str__(self):
+        return f"{self.bom.product.nama_produk} <- {self.inventory_item.nama} ({self.qty_required_per_unit} {self.inventory_item.satuan})"
