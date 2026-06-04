@@ -59,6 +59,7 @@ urlpatterns = [
     path('whatsapp/chats/', views.WhatsAppChatsView.as_view(), name='whatsapp-chats'),
     path('whatsapp/messages/', views.WhatsAppMessagesView.as_view(), name='whatsapp-messages'),
     path('whatsapp/send/', views.WhatsAppSendMessageView.as_view(), name='whatsapp-send'),
+    path('whatsapp/send-media/', views.WhatsAppSendMediaView.as_view(), name='whatsapp-send-media'),
 
     # Health check
     path('health/', HealthCheckView.as_view(), name='health-check'),

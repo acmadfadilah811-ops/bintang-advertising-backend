@@ -2609,3 +2609,80 @@ class WhatsAppSendMessageView(APIView):
         if result:
             return Response(result)
         return Response({"error": "Failed to send message via WhatsApp Gateway"}, status=500)
+
+
+class WhatsAppSendMediaView(APIView):
+    """
+    POST /api/whatsapp/send-media/
+    Uploads a file to Cloudflare R2 / Django storage, then sends it via WhatsApp.
+    Accepts:
+      - file: multipart file
+      - number: string
+      - caption: string (optional)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        import mimetypes
+        from django.core.files.storage import default_storage
+        from django.utils.text import get_valid_filename
+        from .whatsapp_client import whatsapp_client
+
+        number = request.data.get('number')
+        caption = request.data.get('caption', '')
+        file_obj = request.FILES.get('file')
+
+        if not number or not file_obj:
+            return Response({"error": "Fields 'number' and 'file' are required"}, status=400)
+
+        # 1. Clean file name
+        cleaned_filename = get_valid_filename(file_obj.name)
+        
+        # Save to storage (R2 in production, local in dev)
+        unique_name = f"whatsapp_media/{uuid.uuid4().hex}_{cleaned_filename}"
+        
+        try:
+            saved_path = default_storage.save(unique_name, file_obj)
+            relative_url = default_storage.url(saved_path)
+            
+            # Make sure we have an absolute URL
+            if relative_url.startswith('/'):
+                media_url = request.build_absolute_uri(relative_url)
+            else:
+                media_url = relative_url
+
+            # 2. Detect mime type & media type
+            mime_type, _ = mimetypes.guess_type(cleaned_filename)
+            if not mime_type:
+                mime_type = "application/octet-stream"
+
+            media_type = "document"
+            if mime_type.startswith("image/"):
+                media_type = "image"
+            elif mime_type.startswith("video/"):
+                media_type = "video"
+            elif mime_type.startswith("audio/"):
+                media_type = "audio"
+
+            # 3. Send via Evolution API
+            result = whatsapp_client.send_media_message(
+                number=number,
+                media_url=media_url,
+                media_type=media_type,
+                mime_type=mime_type,
+                file_name=cleaned_filename,
+                caption=caption
+            )
+
+            if result:
+                return Response({
+                    "status": "success",
+                    "media_url": media_url,
+                    "result": result
+                })
+            
+            return Response({"error": "Failed to send media via WhatsApp Gateway"}, status=500)
+
+        except Exception as e:
+            logger.error(f"Error handling WhatsApp send media upload: {e}", exc_info=True)
+            return Response({"error": str(e)}, status=500)

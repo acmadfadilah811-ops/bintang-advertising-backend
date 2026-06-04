@@ -119,5 +119,30 @@ class EvolutionAPIClient:
             logger.error(f"Error fetching WhatsApp messages for {clean_number}: {e}", exc_info=True)
             return []
 
+    def send_media_message(self, number, media_url, media_type, mime_type, file_name, caption=""):
+        """
+        Sends a media message (image, video, document, audio) to a WhatsApp number.
+        """
+        clean_number = number.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
+        url = f"{self.base_url}/message/sendMedia/{self.instance_name}"
+        
+        payload = {
+            "number": clean_number,
+            "mediatype": media_type, # 'image', 'video', 'document', 'audio'
+            "mimetype": mime_type,
+            "fileName": file_name,
+            "media": media_url,
+            "caption": caption
+        }
+        
+        try:
+            logger.info(f"Sending WA media ({media_type}) to {clean_number} via Evolution API...")
+            response = requests.post(url, json=payload, headers=self.headers, timeout=20)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error sending WhatsApp media message: {e}", exc_info=True)
+            return None
+
 # Singleton client instance for general use
 whatsapp_client = EvolutionAPIClient()
