@@ -52,7 +52,9 @@ class EvolutionAPIClient:
             logger.info(f"Sending WA text to {clean_number} via Evolution API...")
             response = requests.post(url, json=payload, headers=self.headers, timeout=10)
             response.raise_for_status()
-            return response.json()
+            res_json = response.json()
+            logger.info(f"Evolution API Send Response: {res_json}")
+            return res_json
         except Exception as e:
             logger.error(f"Error sending WhatsApp message: {e}", exc_info=True)
             return None
@@ -66,8 +68,9 @@ class EvolutionAPIClient:
         url = f"{self.base_url}/chat/sendPresence/{self.instance_name}"
         
         payload = {
+            "number": clean_number,
             "presence": status,
-            "id": f"{clean_number}@s.whatsapp.net"
+            "delay": 1200
         }
         
         try:
