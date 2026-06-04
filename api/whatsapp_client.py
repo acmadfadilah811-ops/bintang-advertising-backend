@@ -78,5 +78,46 @@ class EvolutionAPIClient:
             logger.warning(f"Failed to set WhatsApp presence: {e}")
             return None
 
+    def get_chats(self):
+        """
+        Retrieves all chats/conversations for the WhatsApp instance.
+        """
+        url = f"{self.base_url}/chat/findChats/{self.instance_name}"
+        try:
+            logger.info("Fetching chats from Evolution API...")
+            response = requests.get(url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error fetching WhatsApp chats: {e}", exc_info=True)
+            return []
+
+    def get_messages(self, number, limit=50):
+        """
+        Retrieves message history for a specific WhatsApp contact.
+        """
+        clean_number = number.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
+        url = f"{self.base_url}/chat/findMessages/{self.instance_name}"
+        payload = {
+            "where": {
+                "key": {
+                    "remoteJid": f"{clean_number}@s.whatsapp.net"
+                }
+            },
+            "page": 1,
+            "limit": limit
+        }
+        try:
+            logger.info(f"Fetching messages for {clean_number} from Evolution API...")
+            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            res_data = response.json()
+            if isinstance(res_data, dict):
+                return res_data.get("messages", []) or res_data.get("records", []) or res_data
+            return res_data
+        except Exception as e:
+            logger.error(f"Error fetching WhatsApp messages for {clean_number}: {e}", exc_info=True)
+            return []
+
 # Singleton client instance for general use
 whatsapp_client = EvolutionAPIClient()

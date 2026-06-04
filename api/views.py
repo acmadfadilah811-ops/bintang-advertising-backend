@@ -2555,3 +2555,57 @@ class BoMItemViewSet(viewsets.ModelViewSet):
     queryset = BoMItem.objects.select_related('bom', 'inventory_item').all()
     serializer_class = BoMItemSerializer
     permission_classes = [IsOwnerOrManager]
+
+
+# ---------------------------------------------------------
+# WHATSAPP INTEGRATION: CHATS, MESSAGES, SEND
+# ---------------------------------------------------------
+class WhatsAppChatsView(APIView):
+    """
+    GET /api/whatsapp/chats/
+    Retrieves all active chats from the WhatsApp Gateway (Evolution API).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .whatsapp_client import whatsapp_client
+        chats = whatsapp_client.get_chats()
+        return Response(chats)
+
+
+class WhatsAppMessagesView(APIView):
+    """
+    GET /api/whatsapp/messages/?number=628xx
+    Retrieves message history for a specific number from Evolution API.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .whatsapp_client import whatsapp_client
+        number = request.query_params.get('number')
+        if not number:
+            return Response({"error": "Query parameter 'number' is required"}, status=400)
+        
+        limit = int(request.query_params.get('limit', 50))
+        messages = whatsapp_client.get_messages(number, limit=limit)
+        return Response(messages)
+
+
+class WhatsAppSendMessageView(APIView):
+    """
+    POST /api/whatsapp/send/
+    Sends a WhatsApp message manually to a contact.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .whatsapp_client import whatsapp_client
+        number = request.data.get('number')
+        text = request.data.get('text')
+        if not number or not text:
+            return Response({"error": "Fields 'number' and 'text' are required"}, status=400)
+        
+        result = whatsapp_client.send_text_message(number, text)
+        if result:
+            return Response(result)
+        return Response({"error": "Failed to send message via WhatsApp Gateway"}, status=500)
