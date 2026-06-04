@@ -108,7 +108,7 @@ def ekstrak_nama_dari_pesan(pesan):
 # ════════════════════════════════════════════════════════════════
 
 def get_system_prompt(nama_pelanggan=""):
-    from .models import ProductPrice, AppConfig
+    from .models import ProductPrice, SystemConfig
     import json
 
     prices = ProductPrice.objects.all()
@@ -120,9 +120,9 @@ def get_system_prompt(nama_pelanggan=""):
     string_harga = json.dumps(data_harga, ensure_ascii=False, indent=2)
 
     try:
-        conf = AppConfig.objects.get(pk="system_prompt")
+        conf = SystemConfig.objects.get(pk="system_prompt")
         template_ai = conf.value
-    except AppConfig.DoesNotExist:
+    except SystemConfig.DoesNotExist:
         biz_name = get_business_name()
         template_ai = (
             f"Kamu adalah asisten virtual {biz_name} yang ramah dan profesional. "
@@ -379,7 +379,7 @@ def cek_harga(pesan, nama_pelanggan):
 # ════════════════════════════════════════════════════════════════
 
 def get_form_order(nama_pelanggan=""):
-    from .models import AppConfig
+    from .models import SystemConfig
     nama_isi = nama_pelanggan if nama_pelanggan else ""
     biz_name = get_business_name()
     default_template = (
@@ -411,12 +411,12 @@ def get_form_order(nama_pelanggan=""):
         f"di baris paling bawah agar pesanan otomatis masuk ke sistem kami 👇"
     )
     try:
-        conf = AppConfig.objects.get(pk="form_order_template")
+        conf = SystemConfig.objects.get(pk="form_order_template")
         template = conf.value
         if nama_pelanggan and "Nama    : " in template:
             template = template.replace("Nama    : ", f"Nama    : {nama_pelanggan}")
         return template
-    except AppConfig.DoesNotExist:
+    except SystemConfig.DoesNotExist:
         return default_template
 
 

@@ -11,7 +11,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 import django
 django.setup()
 
-from api.models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, ProductPrice, AppConfig, FAQ
+from api.models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, ProductPrice, SystemConfig, FAQ
 
 # Lokasi file database lama
 OLD_DB_PATH = r"d:\buku zis\bintang_advertising_app\app.db"
@@ -167,7 +167,7 @@ def migrate_others(cursor):
         
     cursor.execute("SELECT key, value FROM config")
     for r in cursor.fetchall():
-        AppConfig.objects.get_or_create(key=r[0], defaults={'value': r[1]})
+        SystemConfig.objects.get_or_create(key=r[0], defaults={'value': r[1]})
 
     cursor.execute("SELECT pertanyaan, jawaban FROM faq")
     for r in cursor.fetchall():
