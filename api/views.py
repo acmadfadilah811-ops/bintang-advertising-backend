@@ -1419,6 +1419,42 @@ class BusinessSettingsView(APIView):
 
 
 # ---------------------------------------------------------
+# CONTACT STATS VIEW — Standalone APIView untuk statistik pelanggan
+# ---------------------------------------------------------
+class ContactStatsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import Sum, Count
+        
+        total_customers = Contact.objects.count()
+        
+        total_revenue = Order.objects.aggregate(
+            total=Sum('total_harga')
+        )['total'] or 0
+        
+        total_piutang = Order.objects.filter(
+            status_global__in=['review', 'desain', 'proses']
+        ).aggregate(total=Sum('sisa_tagihan'))['total'] or 0
+        
+        top_customers = Contact.objects.order_by('-total_spent')[:5]
+        
+        avg_order_value = (
+            total_revenue / max(1, total_customers)
+            if total_customers > 0 else 0
+        )
+        
+        from .serializers import ContactSerializer
+        return Response({
+            'total_customers': total_customers,
+            'total_revenue': total_revenue,
+            'avg_order_value': int(avg_order_value),
+            'total_piutang': total_piutang,
+            'top_customers': ContactSerializer(top_customers, many=True).data,
+        })
+
+
+# ---------------------------------------------------------
 # DASHBOARD VIEW — Agregasi data untuk halaman Dashboard
 # ---------------------------------------------------------
 class DashboardView(APIView):

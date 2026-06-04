@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, EvolutionWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView, KomplainViewSet
+from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, EvolutionWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView, KomplainViewSet, ContactStatsView
 from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView
 
 router = DefaultRouter()
@@ -25,6 +25,7 @@ router.register(r'bom-items', views.BoMItemViewSet, basename='bom-item')
 
 
 urlpatterns = [
+    path('contacts/stats/', ContactStatsView.as_view(), name='contact-stats'),
     path('', include(router.urls)),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
     path('auth/create-user/', CreateUserView.as_view(), name='create_user'),
