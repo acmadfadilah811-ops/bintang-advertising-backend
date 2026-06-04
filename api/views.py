@@ -1877,9 +1877,18 @@ class EvolutionWebhookView(APIView):
         data = request.data
 
         # 1. Validasi API Key
+        from django.utils.crypto import constant_time_compare
         auth_key = request.headers.get("apikey") or request.headers.get("Authorization", "")
         expected_key = os.getenv("EVOLUTION_API_KEY", "LocalTestingApiKey123")
-        if auth_key and expected_key and auth_key != expected_key and f"Bearer {expected_key}" != auth_key:
+        
+        is_valid = False
+        if auth_key and expected_key:
+            if constant_time_compare(auth_key, expected_key):
+                is_valid = True
+            elif auth_key.startswith("Bearer ") and constant_time_compare(auth_key, f"Bearer {expected_key}"):
+                is_valid = True
+
+        if not is_valid:
             logger.warning(f"Unauthorized Webhook request dengan apikey: {auth_key}")
             return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
 

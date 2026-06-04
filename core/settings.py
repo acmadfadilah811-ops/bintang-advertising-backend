@@ -116,6 +116,7 @@ if DB_ENGINE == 'sqlite':
         }
     }
 elif DB_ENGINE in ('postgresql', 'postgres'):
+    db_ssl = os.getenv('DB_SSL', 'False').lower() in ('true', '1', 'yes')
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -125,6 +126,7 @@ elif DB_ENGINE in ('postgresql', 'postgres'):
             'HOST': os.getenv('DB_HOST', '127.0.0.1'),
             'PORT': os.getenv('DB_PORT', '5432'),
             'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+            'OPTIONS': {'sslmode': 'require'} if db_ssl else {}
         }
     }
 else:
