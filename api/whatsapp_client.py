@@ -41,12 +41,10 @@ class EvolutionAPIClient:
         url = f"{self.base_url}/message/sendText/{self.instance_name}"
         payload = {
             "number": clean_number,
+            "text": text,
             "options": {
                 "delay": 0,
                 "presence": "composing"
-            },
-            "textMessage": {
-                "text": text
             }
         }
         
@@ -65,22 +63,15 @@ class EvolutionAPIClient:
         status: 'composing' (typing), 'recording' (recording audio), 'paused' (stop typing/recording)
         """
         clean_number = number.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
-        url = f"{self.base_url}/chat/retriever/setPresence/{self.instance_name}"
+        url = f"{self.base_url}/chat/sendPresence/{self.instance_name}"
         
         payload = {
-            "number": clean_number,
-            "presence": status
+            "presence": status,
+            "id": f"{clean_number}@s.whatsapp.net"
         }
         
         try:
-            # Set presence endpoint in newer Evolution API versions is POST to /chat/retriever/setPresence/instance or /instance/setPresence/instance
-            # Let's try /chat/retriever/setPresence/{instance} or fallback to /instance/setPresence/{instance} if it fails
             response = requests.post(url, json=payload, headers=self.headers, timeout=5)
-            if response.status_code == 404:
-                # Fallback to alternate endpoint structure
-                alt_url = f"{self.base_url}/instance/setPresence/{self.instance_name}"
-                response = requests.post(alt_url, json=payload, headers=self.headers, timeout=5)
-            
             response.raise_for_status()
             return response.json()
         except Exception as e:
