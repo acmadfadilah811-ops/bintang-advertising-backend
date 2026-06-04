@@ -24,6 +24,14 @@ from .serializers import (
     BusinessSettingsSerializer, KomplainOrderSerializer, KomplainLogSerializer,
     CustomerActivitySerializer, BillOfMaterialsSerializer, BoMItemSerializer
 )
+import os
+import calendar
+from django.core.cache import cache
+from django.db.models import OuterRef, Subquery, Max
+from django.db.models.functions import Coalesce
+from hr.models import Akun, TransaksiBukuBesar
+from users.models import SecurityAuditLog
+from .whatsapp_client import whatsapp_client
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +143,6 @@ class CustomUserViewSet(viewsets.ModelViewSet):
         user_to_reset.save()
         
         # Catat audit log
-        from users.models import SecurityAuditLog
         SecurityAuditLog.objects.create(
             user=request.user,
             username_input=request.user.username,
@@ -156,8 +163,6 @@ class ContactViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # Query efisien — gunakan Subquery untuk dianotasikan ke queryset kontak
-        from django.db.models import OuterRef, Subquery, Sum
-        from django.db.models.functions import Coalesce
 
         orders_subquery = Order.objects.filter(
             nomor_wa=OuterRef('nomor_wa')
@@ -177,7 +182,6 @@ class ContactViewSet(viewsets.ModelViewSet):
         Dipanggil on-demand, menggunakan bulk_create/bulk_update agar sangat cepat.
         """
         from django.db.models import Max, Sum, Count
-        from django.db.models.functions import Coalesce
 
         # 1. Fetch mapping nama terbaru secara efisien
         name_map = {}
@@ -245,7 +249,6 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Auto-generate ID: INV-YYYYMMDD-XXXX"""
-        from django.utils import timezone
         today    = timezone.now().strftime('%Y%m%d')
         short_id = uuid.uuid4().hex[:4].upper()
         inv_id   = f'INV-{today}-{short_id}'
@@ -307,8 +310,6 @@ def record_material_consumption_to_general_ledger(inventory_item, qty, job):
     Mencatat konsumsi bahan baku ke Buku Besar (Double-Entry Bookkeeping) sebagai Beban HPP.
     """
     try:
-        from hr.models import Akun, TransaksiBukuBesar
-        from django.utils import timezone
         
         # Hitung nilai HPP (kuantitas * cost_per_unit)
         cost = qty * (inventory_item.cost_per_unit or 0.0)
@@ -357,7 +358,6 @@ def deduct_job_materials_if_needed(job, user):
     Jika BoM tidak ditemukan untuk produk/bahan terkait, fallback ke input manual di catatan_staff.
     Juga mencatat konsumsi bahan ke Buku Besar (HPP).
     """
-    from django.db import transaction
     from .models import InventoryItem, RestockHistory, ProductPrice, BillOfMaterials, BoMItem
     
     marker = f"Job #{job.id}"
@@ -547,8 +547,6 @@ def record_payment_to_general_ledger(order, jumlah_bayar, metode, is_dp=False):
     Mencatat pembayaran (DP / Pelunasan) secara otomatis ke Buku Besar (Double-Entry Bookkeeping).
     """
     try:
-        from hr.models import Akun, TransaksiBukuBesar
-        from django.utils import timezone
         
         metode_clean = (metode or 'tunai').lower()
         if metode_clean == 'transfer':
@@ -648,7 +646,6 @@ class OrderViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         # Proteksi Keamanan: Hanya Owner dan Manager yang boleh menghapus pesanan
         if request.user.role not in ['owner', 'manager']:
-            from users.models import SecurityAuditLog
             SecurityAuditLog.objects.create(
                 user=request.user,
                 event="PERMISSION_DENIED",
@@ -661,7 +658,6 @@ class OrderViewSet(viewsets.ModelViewSet):
         
         order = self.get_object()
         # Catat audit log penghapusan sebelum dihapus
-        from users.models import SecurityAuditLog
         SecurityAuditLog.objects.create(
             user=request.user,
             event="TOKEN_REVOKED", # Menggunakan token_revoked sebagai representasi general admin revoke action
@@ -761,7 +757,6 @@ class AssignOrderView(APIView):
         # JIKA tahap masih None tapi ada divisi_id, ambil tahap pertama di divisi tersebut
         if not tahap and divisi_id:
             try:
-                from .models import TahapProses as TahapModel
                 tahap = TahapModel.objects.filter(divisi_id=divisi_id).order_by('urutan').first()
             except Exception:
                 pass
@@ -769,7 +764,6 @@ class AssignOrderView(APIView):
         # JIKA tahap masih None tapi staff diisi, ambil tahap pertama divisi staff sebagai fallback
         if not tahap and staff and staff.divisi:
             try:
-                from .models import TahapProses as TahapModel
                 tahap = TahapModel.objects.filter(divisi=staff.divisi).order_by('urutan').first()
             except Exception:
                 pass
@@ -872,7 +866,6 @@ class JobBoardViewSet(viewsets.ModelViewSet):
         # Jalankan logika sinkronisasi jika status berubah
         if old_status != new_status:
             user = self.request.user
-            from django.utils import timezone
             
             # 1. Kembali ke Antrean
             if new_status == 'antrean':
@@ -1127,7 +1120,6 @@ class ProductPriceViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='seed')
     def seed_prices(self, request):
-        import os
         import json
         from django.conf import settings
         
@@ -1251,13 +1243,11 @@ class DashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from django.core.cache import cache
         cache_key = "dashboard_data"
         cached_data = cache.get(cache_key)
         if cached_data:
             return Response(cached_data)
 
-        import calendar
         from datetime import timedelta
 
         # Ambil waktu sekarang sesuai timezone lokal
@@ -1865,14 +1855,11 @@ class EvolutionWebhookView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        import os
         from .wa_logic import (
             menunggu_nama,
             simpan_ke_memori, cek_tracking, cek_harga, cek_rules_awal,
             cek_database_faq, tanya_ai_finishing, ekstrak_nama_dari_pesan,
         )
-        from .whatsapp_client import whatsapp_client
-        from django.core.cache import cache
 
         data = request.data
 
@@ -1956,7 +1943,6 @@ class EvolutionWebhookView(APIView):
 
         if staff_user:
             from hr.models import DailyAttendanceSession, UnlockRequest
-            from django.utils import timezone
             today = timezone.localdate()
             sesi = DailyAttendanceSession.objects.filter(tanggal=today).first()
             if sesi:
@@ -2105,7 +2091,6 @@ class EvolutionWebhookView(APIView):
         """
         Kirim balasan dengan simulasi mengetik secara asinkron di thread terpisah.
         """
-        from .whatsapp_client import whatsapp_client
         import threading
         import time
 
@@ -2295,8 +2280,6 @@ class StaffPerformanceReportView(APIView):
     permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        import calendar
-        from django.utils import timezone
         
         time_range = request.query_params.get('range', 'bulan_ini')
         now = timezone.localtime(timezone.now())
@@ -2461,7 +2444,6 @@ class HealthCheckView(APIView):
 
         status_cache = False
         try:
-            from django.core.cache import cache
             cache.set('health_check', 'ok', 5)
             status_cache = cache.get('health_check') == 'ok'
         except Exception:
@@ -2632,7 +2614,6 @@ class WhatsAppChatsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from .whatsapp_client import whatsapp_client
         chats = whatsapp_client.get_chats()
         return Response(chats)
 
@@ -2645,7 +2626,6 @@ class WhatsAppMessagesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from .whatsapp_client import whatsapp_client
         number = request.query_params.get('number')
         if not number:
             return Response({"error": "Query parameter 'number' is required"}, status=400)
@@ -2663,7 +2643,6 @@ class WhatsAppSendMessageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        from .whatsapp_client import whatsapp_client
         number = request.data.get('number')
         text = request.data.get('text')
         if not number or not text:
@@ -2690,7 +2669,6 @@ class WhatsAppSendMediaView(APIView):
         import mimetypes
         from django.core.files.storage import default_storage
         from django.utils.text import get_valid_filename
-        from .whatsapp_client import whatsapp_client
 
         number = request.data.get('number')
         caption = request.data.get('caption', '')
