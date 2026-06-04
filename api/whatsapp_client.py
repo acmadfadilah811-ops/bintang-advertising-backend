@@ -88,7 +88,7 @@ class EvolutionAPIClient:
         url = f"{self.base_url}/chat/findChats/{self.instance_name}"
         try:
             logger.info("Fetching chats from Evolution API...")
-            response = requests.get(url, headers=self.headers, timeout=10)
+            response = requests.post(url, json={}, headers=self.headers, timeout=10)
             response.raise_for_status()
             return response.json()
         except Exception as e:
