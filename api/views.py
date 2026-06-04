@@ -2064,7 +2064,7 @@ class EvolutionWebhookView(APIView):
         def ambil_field(teks, *keys):
             for key in keys:
                 match = _re.search(
-                    rf'-\s*{_re.escape(key)}\s*:\s*([^\n]*)',
+                    rf'(?:[-*••]|\d+\.)?\s*{_re.escape(key)}\s*[:=]\s*([^\n]*)',
                     teks, _re.IGNORECASE
                 )
                 if match:
@@ -2077,7 +2077,7 @@ class EvolutionWebhookView(APIView):
             ambil_field(detail, 'Nama Pemesan', 'Nama') or nama_kontak or '-'
         )
 
-        blok_items = _re.split(r'(?im)^\s*[\*_]*\s*(?:📦\s*)?[\*_]*item\s+\d+[\*_]*\s*[\*_]*.*$', detail)
+        blok_items = _re.split(r'(?im)^\s*[-*•\[\*_]*\s*(?:📦\s*)?[\*_]*item\s+\d+[\*_\]:]*\s*[\*_]*.*$', detail)
         blok_items = [b.strip() for b in blok_items if b.strip()]
 
         if len(blok_items) <= 1:
@@ -2105,10 +2105,11 @@ class EvolutionWebhookView(APIView):
                 nomor_wa=contact.nomor_wa,
                 nama=nama_order,
                 status_global='review',
-                catatan_pelanggan=detail[:500],
+                catatan_pelanggan='',
             )
 
             items_dibuat = 0
+            items_parsed_info = []
             for blok in blok_items:
                 if not blok.strip():
                     continue
@@ -2129,7 +2130,22 @@ class EvolutionWebhookView(APIView):
                 except Exception:
                     qty = 1
 
-                detail_produk = " | ".join(filter(None, [ukuran, bahan, finishing, keterangan]))
+                # Parse panjang & lebar
+                panjang = 0.0
+                lebar = 0.0
+                if ukuran:
+                    dimensi_match = _re.search(r'([\d.,]+)\s*[xX*]\s*([\d.,]+)', ukuran)
+                    if dimensi_match:
+                        try:
+                            panjang = float(dimensi_match.group(1).replace(',', '.'))
+                            lebar = float(dimensi_match.group(2).replace(',', '.'))
+                        except ValueError:
+                            pass
+
+                detail_json = []
+                if ukuran: detail_json.append({"key": "Ukuran", "value": ukuran})
+                if finishing: detail_json.append({"key": "Finishing", "value": finishing})
+                if bahan: detail_json.append({"key": "Bahan", "value": bahan})
 
                 gdrive_link = ''
                 link_match = _re.search(r'(https?://\S+)', blok)
@@ -2140,10 +2156,20 @@ class EvolutionWebhookView(APIView):
                     order=order,
                     jenis_produk=jenis_produk,
                     qty=qty,
+                    panjang=panjang,
+                    lebar=lebar,
+                    bahan=bahan or '',
                     harga_jual=0,
-                    detail=detail_produk,
+                    detail=detail_json,
+                    keterangan_detail=keterangan or '',
                     gdrive_customer_link=gdrive_link,
                 )
+
+                items_parsed_info.append({
+                    'qty': qty,
+                    'jenis_produk': jenis_produk,
+                    'keterangan': keterangan
+                })
 
                 if 'belum' in file_desain:
                     tahap_awal = TahapProses.objects.filter(
@@ -2166,7 +2192,8 @@ class EvolutionWebhookView(APIView):
                     jenis_produk='Umum',
                     qty=1,
                     harga_jual=0,
-                    detail=detail[:200],
+                    detail=[{"key": "Info", "value": "Format tidak terurai"}],
+                    keterangan_detail=detail[:200],
                 )
                 tahap_awal = TahapProses.objects.order_by('urutan').first()
                 if tahap_awal:
@@ -2175,6 +2202,17 @@ class EvolutionWebhookView(APIView):
                         tahap=tahap_awal,
                         status_pekerjaan='antrean'
                     )
+                order.catatan_pelanggan = "Pemesanan dari WhatsApp (Format tidak terurai)"[:500]
+                order.save()
+            else:
+                summary_parts = []
+                for item in items_parsed_info:
+                    part = f"{item['qty']}x {item['jenis_produk']}"
+                    if item['keterangan']:
+                        part += f" ({item['keterangan']})"
+                    summary_parts.append(part)
+                order.catatan_pelanggan = ", ".join(summary_parts)[:500]
+                order.save()
 
         return order_id
 
