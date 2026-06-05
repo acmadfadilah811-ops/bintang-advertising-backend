@@ -105,9 +105,12 @@ class CustomLoginView(TokenObtainPairView):
         # --- Login BERHASIL (Kredensial Valid) ---
         user = serializer.user
 
-        # Deteksi Perubahan IP jika User memiliki Email terdaftar
+        # Deteksi Perubahan IP jika User memiliki Email terdaftar (bisa dibypass via env)
         requires_verification = False
-        if user.email:
+        import os
+        bypass_verification = os.getenv("SECURITY_BYPASS_IP_VERIFICATION", "False").lower() == "true"
+        
+        if user.email and not bypass_verification:
             last_success = SecurityAuditLog.objects.filter(
                 user=user, event="LOGIN_SUCCESS", berhasil=True
             ).order_by("-waktu").first()
