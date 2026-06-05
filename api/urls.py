@@ -57,6 +57,7 @@ urlpatterns = [
     path('business-settings/', BusinessSettingsView.as_view(), name='business-settings'),
     
     # WhatsApp Chat Integration
+    path('whatsapp/status/', views.WhatsAppStatusView.as_view(), name='whatsapp-status'),
     path('whatsapp/chats/', views.WhatsAppChatsView.as_view(), name='whatsapp-chats'),
     path('whatsapp/messages/', views.WhatsAppMessagesView.as_view(), name='whatsapp-messages'),
     path('whatsapp/send/', views.WhatsAppSendMessageView.as_view(), name='whatsapp-send'),

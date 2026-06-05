@@ -2822,8 +2822,78 @@ class BoMItemViewSet(viewsets.ModelViewSet):
 
 
 # ---------------------------------------------------------
-# WHATSAPP INTEGRATION: CHATS, MESSAGES, SEND
+# WHATSAPP INTEGRATION: STATUS, QR CODE, CHATS, MESSAGES, SEND
 # ---------------------------------------------------------
+class WhatsAppStatusView(APIView):
+    """
+    GET /api/whatsapp/status/
+    Returns the current connection state of the WhatsApp instance
+    and a QR code (base64) for scanning if not yet connected.
+    Owner/Manager only.
+    """
+    permission_classes = [IsOwnerOrManager]
+
+    def get(self, request):
+        import requests as req_lib
+        base_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080").rstrip('/')
+        api_key  = os.getenv("EVOLUTION_API_KEY", "LocalTestingApiKey123")
+        instance = os.getenv("EVOLUTION_INSTANCE_NAME", "bintang_instance")
+        headers  = {"apikey": api_key}
+
+        # 1. Get connection state
+        state = "unknown"
+        owner_jid = None
+        try:
+            r = req_lib.get(f"{base_url}/instance/connectionState/{instance}", headers=headers, timeout=5)
+            if r.ok:
+                data = r.json()
+                state = data.get("instance", {}).get("state", "unknown")
+        except Exception as e:
+            logger.warning(f"Could not fetch WA connection state: {e}")
+
+        # 2. If not connected, get QR code
+        qr_base64 = None
+        pairing_code = None
+        if state in ("connecting", "close", "unknown"):
+            try:
+                r = req_lib.get(f"{base_url}/instance/connect/{instance}", headers=headers, timeout=10)
+                if r.ok:
+                    data = r.json()
+                    qr_base64 = data.get("base64")
+                    pairing_code = data.get("pairingCode")
+            except Exception as e:
+                logger.warning(f"Could not fetch WA QR code: {e}")
+
+        # 3. Get instance info (message/chat count etc)
+        instance_info = {}
+        try:
+            r = req_lib.get(f"{base_url}/instance/fetchInstances", headers=headers, timeout=5)
+            if r.ok:
+                instances = r.json()
+                for inst in (instances if isinstance(instances, list) else []):
+                    if inst.get("name") == instance:
+                        instance_info = {
+                            "ownerJid":    inst.get("ownerJid"),
+                            "profileName": inst.get("profileName"),
+                            "messageCount": inst.get("_count", {}).get("Message", 0),
+                            "chatCount":    inst.get("_count", {}).get("Chat", 0),
+                        }
+                        owner_jid = inst.get("ownerJid")
+                        break
+        except Exception as e:
+            logger.warning(f"Could not fetch WA instance info: {e}")
+
+        return Response({
+            "state":        state,
+            "connected":    state == "open",
+            "owner_jid":    owner_jid,
+            "qr_base64":    qr_base64,
+            "pairing_code": pairing_code,
+            "instance_name": instance,
+            **instance_info,
+        })
+
+
 class WhatsAppChatsView(APIView):
     """
     GET /api/whatsapp/chats/
