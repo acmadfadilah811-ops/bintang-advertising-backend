@@ -3067,3 +3067,26 @@ class WhatsAppSendMediaView(APIView):
         except Exception as e:
             logger.error(f"Error handling WhatsApp send media upload: {e}", exc_info=True)
             return Response({"error": str(e)}, status=500)
+
+
+class ClientLogView(APIView):
+    """
+    POST /api/log-client-error/
+    Logs frontend/client-side uncaught crashes to backend log files.
+    """
+    permission_classes = [] # Allow anonymous logging if crash occurs before login config is fully resolved
+
+    def post(self, request):
+        error_msg = request.data.get('error', 'Unknown Error')
+        error_info = request.data.get('info', {})
+        url = request.data.get('url', 'Unknown URL')
+        user_agent = request.META.get('HTTP_USER_AGENT', 'Unknown User Agent')
+        
+        logger.critical(
+            f"[CLIENT_CRASH] Uncaught frontend exception:\n"
+            f"URL: {url}\n"
+            f"Error: {error_msg}\n"
+            f"Component Stack: {error_info.get('componentStack', 'N/A')}\n"
+            f"User Agent: {user_agent}"
+        )
+        return Response({"status": "error_logged"}, status=200)
