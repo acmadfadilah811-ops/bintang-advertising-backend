@@ -87,16 +87,28 @@ class EvolutionAPIClient:
             logger.warning(f"Failed to set WhatsApp presence: {e}")
             return None
 
-    def get_chats(self):
+    def get_chats(self, limit=100):
         """
-        Retrieves all chats/conversations for the WhatsApp instance.
+        Retrieves recent chats/conversations for the WhatsApp instance.
+        Limited to `limit` most recent chats to prevent performance issues at scale.
         """
         url = f"{self.base_url}/chat/findChats/{self.instance_name}"
         try:
             logger.info("Fetching chats from Evolution API...")
-            response = requests.post(url, json={}, headers=self.headers, timeout=10)
+            response = requests.post(
+                url,
+                json={"page": 1, "limit": limit},
+                headers=self.headers,
+                timeout=10
+            )
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            # Handle both list and paginated dict response
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                return data.get("chats") or data.get("records") or []
+            return []
         except Exception as e:
             logger.error(f"Error fetching WhatsApp chats: {e}", exc_info=True)
             return []
