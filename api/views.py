@@ -2266,15 +2266,21 @@ class EvolutionWebhookView(APIView):
         if is_form_order or is_form_desain:
             if 'data sudah sesuai' in p_kecil:
                 detail_bersih = _re.sub(r'(?i)\*?data sudah sesuai\*?', '', message_text).strip()
-                order_id = self._simpan_order_dari_form(sender_number, nama_pelanggan, detail_bersih)
-
-                label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
-                jawaban = (
-                    f"Terima kasih {panggilan}! {label} ✅\n\n"
-                    f"🎫 *ID PESANAN: {order_id}*\n"
-                    f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
-                    f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
-                )
+                try:
+                    order_id = self._simpan_order_dari_form(sender_number, nama_pelanggan, detail_bersih)
+                    label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
+                    jawaban = (
+                        f"Terima kasih {panggilan}! {label} ✅\n\n"
+                        f"🎫 *ID PESANAN: {order_id}*\n"
+                        f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
+                        f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
+                    )
+                except ValueError as ve:
+                    jawaban = (
+                        f"Maaf {panggilan}, format pengisian form pesanan Kakak belum lengkap / ada yang salah:\n\n"
+                        f"⚠️ {str(ve)}\n\n"
+                        f"Mohon perbaiki dan kirimkan ulang dengan format yang benar ya Kak. 🙏😊"
+                    )
             else:
                 jawaban = (
                     f"Terima kasih {panggilan}! Data order sudah kami terima.\n\n"
@@ -2308,24 +2314,60 @@ class EvolutionWebhookView(APIView):
     def _kirim_balas_async(self, number, text):
         """
         Kirim balasan dengan simulasi mengetik secara asinkron di thread terpisah.
+        Tracks task status in Django cache.
         """
         import threading
         import time
+        import uuid
+        from django.core.cache import cache
+
+        task_id = f"async_task_{uuid.uuid4().hex}"
+        cache.set(task_id, {"status": "pending", "number": number, "text": text[:50], "timestamp": time.time()}, timeout=3600)
 
         def worker():
+            cache.set(task_id, {"status": "running", "number": number, "text": text[:50], "timestamp": time.time()}, timeout=3600)
+            
             # Hitung delay berdasarkan panjang karakter (misal 30 karakter per detik)
             char_delay = len(text) / 30.0
             total_delay = min(max(2.0, char_delay), 15.0)
 
             # Tampilkan status sedang mengetik
-            whatsapp_client.send_presence(number, "composing")
+            try:
+                whatsapp_client.send_presence(number, "composing")
+            except Exception as e:
+                logger.warning(f"Failed to send presence composing: {e}")
+                
             time.sleep(total_delay)
             
-            # Kirim pesan dan matikan presence
-            whatsapp_client.send_text_message(number, text)
-            whatsapp_client.send_presence(number, "paused")
+            # Kirim pesan dan matikan presence dengan retry
+            success = False
+            error_msg = ""
+            for attempt in range(3):
+                try:
+                    res = whatsapp_client.send_text_message(number, text)
+                    if res:
+                        success = True
+                        break
+                    else:
+                        error_msg = "Evolution API returned empty response"
+                except Exception as e:
+                    error_msg = str(e)
+                    logger.error(f"Attempt {attempt+1} failed to send WA message: {e}")
+                time.sleep(2)
+            
+            try:
+                whatsapp_client.send_presence(number, "paused")
+            except Exception as e:
+                logger.warning(f"Failed to send presence paused: {e}")
+
+            if success:
+                cache.set(task_id, {"status": "success", "number": number, "timestamp": time.time()}, timeout=3600)
+            else:
+                logger.critical(f"[WA_SEND_FAILURE] Failed to send message to {number} after 3 attempts. Error: {error_msg}. Text: {text}")
+                cache.set(task_id, {"status": "failed", "number": number, "error": error_msg, "timestamp": time.time()}, timeout=86400)
 
         threading.Thread(target=worker, daemon=True).start()
+        return task_id
 
     def _simpan_order_dari_form(self, nomor, nama_kontak, detail):
         def ambil_field(teks, *keys):
@@ -2392,10 +2434,19 @@ class EvolutionWebhookView(APIView):
                 if jenis_produk == 'Umum' and not ukuran and not bahan:
                     continue
 
+                if not jumlah_str or not jumlah_str.strip():
+                    raise ValueError(f"Kolom 'Jumlah' pada Item {items_dibuat+1} tidak boleh kosong.")
+                
+                digits_only = ''.join(filter(str.isdigit, jumlah_str))
+                if not digits_only:
+                    raise ValueError(f"Jumlah '{jumlah_str}' pada Item {items_dibuat+1} tidak mengandung angka yang valid.")
+                
                 try:
-                    qty = int(''.join(filter(str.isdigit, jumlah_str)) or '1')
-                except Exception:
-                    qty = 1
+                    qty = int(digits_only)
+                    if qty <= 0:
+                        raise ValueError(f"Jumlah '{qty}' pada Item {items_dibuat+1} harus lebih dari nol.")
+                except ValueError:
+                    raise ValueError(f"Jumlah '{jumlah_str}' pada Item {items_dibuat+1} bukan angka yang valid.")
 
                 # Parse panjang & lebar
                 panjang = 0.0

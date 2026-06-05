@@ -179,16 +179,19 @@ def run():
         print(f"[ERROR] File database lama tidak ditemukan di {OLD_DB_PATH}")
         return
 
+    from django.db import transaction
+
     conn = sqlite3.connect(OLD_DB_PATH)
     cursor = conn.cursor()
 
     try:
-        migrate_master_data()
-        migrate_users(cursor)
-        migrate_orders(cursor)
-        migrate_inventory(cursor)
-        migrate_contacts(cursor)
-        migrate_others(cursor)
+        with transaction.atomic():
+            migrate_master_data()
+            migrate_users(cursor)
+            migrate_orders(cursor)
+            migrate_inventory(cursor)
+            migrate_contacts(cursor)
+            migrate_others(cursor)
         print("\n[SUCCESS] SEMUA DATA BERHASIL DIMIGRASI KE MYSQL!")
     except Exception as e:
         print(f"\n[ERROR] Terjadi kesalahan: {str(e)}")

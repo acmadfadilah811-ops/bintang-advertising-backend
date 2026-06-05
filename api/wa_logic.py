@@ -551,6 +551,11 @@ def cek_database_faq(pesan, nama_pelanggan):
 
 def tanya_ai_finishing(nomor):
     try:
+        from openai import OpenAIError
+    except ImportError:
+        OpenAIError = Exception
+
+    try:
         history = get_memori_percakapan(nomor)
         client = get_ai_client()
         response = client.chat.completions.create(
@@ -559,9 +564,22 @@ def tanya_ai_finishing(nomor):
             max_tokens=350,
             temperature=0.3,
         )
-        return response.choices[0].message.content
+        if not response or not hasattr(response, 'choices') or not response.choices:
+            raise ValueError("No completion choices returned from AI model")
+        
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError("Empty response content returned from AI model")
+            
+        return content
+    except ValueError as e:
+        logger.error(f"[ERROR AI Webhook] Invalid response structure: {e}")
+        return "Halo Kak! Mohon maaf, respon AI kami sedang kosong. Bisa diulangi pertanyaannya? 🙏😊"
+    except OpenAIError as e:
+        logger.error(f"[ERROR AI Webhook] OpenAI API error occurred: {e}", exc_info=True)
+        return "Halo Kak! Mohon maaf, koneksi ke asisten virtual kami terganggu. Silakan dicoba lagi sebentar lagi ya... 🙏😊"
     except Exception as e:
-        logger.error(f"[ERROR AI Webhook] Failed to fetch completion: {e}", exc_info=True)
+        logger.error(f"[ERROR AI Webhook] Unexpected error: {e}", exc_info=True)
         return (
             "Halo Kak! Mohon maaf sistem kami sedang sedikit sibuk. "
             "Boleh diulangi dalam 1-2 menit? 🙏😊"
