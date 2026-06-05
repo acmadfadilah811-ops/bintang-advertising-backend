@@ -140,8 +140,22 @@ class EvolutionAPIClient:
             response.raise_for_status()
             res_data = response.json()
             if isinstance(res_data, dict):
-                return res_data.get("messages", []) or res_data.get("records", []) or res_data
-            return res_data
+                # Handle nested messages dictionary containing records list
+                msgs = res_data.get("messages")
+                if isinstance(msgs, dict):
+                    return msgs.get("records", [])
+                elif isinstance(msgs, list):
+                    return msgs
+                
+                # Handle records directly at top level
+                records = res_data.get("records")
+                if isinstance(records, list):
+                    return records
+                
+                return []
+            if isinstance(res_data, list):
+                return res_data
+            return []
         except Exception as e:
             logger.error(f"Error fetching WhatsApp messages for {clean_number}: {e}", exc_info=True)
             return []
