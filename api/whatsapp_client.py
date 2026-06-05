@@ -26,12 +26,15 @@ class EvolutionAPIClient:
         Sends a plain text message to a WhatsApp number.
         Includes outbound deduplication (anti-loop) checking.
         """
-        # Ensure number format has no suffix (e.g. @s.whatsapp.net) and no +, -, spaces
-        clean_number = number.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
+        if '@' in number:
+            clean_number = number
+        else:
+            clean_number = number.replace('+', '').replace(' ', '').replace('-', '')
         
         # Outbound Anti-Loop Check (15s TTL for duplicate text to same number)
         text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
-        outbound_cache_key = f"evo_outbound_{clean_number}_{text_hash}"
+        cache_safe_num = clean_number.replace('@', '_')
+        outbound_cache_key = f"evo_outbound_{cache_safe_num}_{text_hash}"
         if cache.get(outbound_cache_key):
             logger.warning(f"[OUTBOUND DETECTED LOOP] Dropping duplicate message to {clean_number}: {text[:50]}...")
             return None
@@ -64,7 +67,10 @@ class EvolutionAPIClient:
         Sets presence status for a number.
         status: 'composing' (typing), 'recording' (recording audio), 'paused' (stop typing/recording)
         """
-        clean_number = number.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
+        if '@' in number:
+            clean_number = number
+        else:
+            clean_number = number.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
         url = f"{self.base_url}/chat/sendPresence/{self.instance_name}"
         
         payload = {
@@ -99,19 +105,25 @@ class EvolutionAPIClient:
         """
         Retrieves message history for a specific WhatsApp contact.
         """
-        clean_number = number.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
+        if '@' in number:
+            remote_jid = number
+            clean_number = number.split('@')[0]
+        else:
+            clean_number = number.replace('+', '').replace(' ', '').replace('-', '')
+            remote_jid = f"{clean_number}@s.whatsapp.net"
+            
         url = f"{self.base_url}/chat/findMessages/{self.instance_name}"
         payload = {
             "where": {
                 "key": {
-                    "remoteJid": f"{clean_number}@s.whatsapp.net"
+                    "remoteJid": remote_jid
                 }
             },
             "page": 1,
             "limit": limit
         }
         try:
-            logger.info(f"Fetching messages for {clean_number} from Evolution API...")
+            logger.info(f"Fetching messages for {clean_number} ({remote_jid}) from Evolution API...")
             response = requests.post(url, json=payload, headers=self.headers, timeout=10)
             response.raise_for_status()
             res_data = response.json()
@@ -126,7 +138,10 @@ class EvolutionAPIClient:
         """
         Sends a media message (image, video, document, audio) to a WhatsApp number.
         """
-        clean_number = number.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
+        if '@' in number:
+            clean_number = number
+        else:
+            clean_number = number.split('@')[0].replace('+', '').replace(' ', '').replace('-', '')
         url = f"{self.base_url}/message/sendMedia/{self.instance_name}"
         
         payload = {

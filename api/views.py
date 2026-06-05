@@ -1982,7 +1982,7 @@ class FonnteWebhookView(APIView):
                 id=order_id,
                 nomor_wa=contact.nomor_wa,  # BUG FIX: harus string, bukan objek Contact
                 nama=nama_order,
-                status_global='review',
+                status_global='draft',
                 catatan_pelanggan=detail[:500],
             )
 
@@ -2371,7 +2371,7 @@ class EvolutionWebhookView(APIView):
                 id=order_id,
                 nomor_wa=contact.nomor_wa,
                 nama=nama_order,
-                status_global='review',
+                status_global='draft',
                 catatan_pelanggan='',
             )
 
