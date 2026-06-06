@@ -130,18 +130,90 @@ class JobBoardSerializer(serializers.ModelSerializer):
 # --- 4. Order Item Serializer (Detail Pecahan) ---
 class OrderItemSerializer(serializers.ModelSerializer):
     jobs = JobBoardSerializer(many=True, read_only=True) # Nested JobBoard
+    insentif = serializers.SerializerMethodField()
+    biaya_desain = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
         fields = '__all__'
         read_only_fields = ['luas'] # Luas otomatis dihitung oleh backend, front-end dilarang kirim data ini
 
+    def get_insentif(self, obj):
+        job = obj.jobs.first()
+        return job.insentif if job else 0
+
+    def get_biaya_desain(self, obj):
+        job = obj.jobs.first()
+        return job.biaya_desain if job else 0
+
     def create(self, validated_data):
         current_user = validated_data.pop('_current_user', None)
+        request = self.context.get('request')
+        insentif_val = 0
+        biaya_desain_val = 0
+        if request and request.data:
+            try: insentif_val = int(request.data.get('insentif', 0) or 0)
+            except (ValueError, TypeError): pass
+            try: biaya_desain_val = int(request.data.get('biaya_desain', 0) or 0)
+            except (ValueError, TypeError): pass
+
         instance = OrderItem(**validated_data)
         if current_user:
             instance._current_user = current_user
         instance.save()
+
+        # Create default job if needed
+        from api.models import TahapProses, JobBoard
+        tahap_awal = TahapProses.objects.order_by('urutan').first()
+        if tahap_awal:
+            JobBoard.objects.create(
+                order_item=instance,
+                tahap=tahap_awal,
+                status_pekerjaan='antrean',
+                insentif=insentif_val,
+                biaya_desain=biaya_desain_val
+            )
+        return instance
+
+    def update(self, instance, validated_data):
+        current_user = validated_data.pop('_current_user', None)
+        request = self.context.get('request')
+        insentif_val = None
+        biaya_desain_val = None
+        if request and request.data:
+            if 'insentif' in request.data:
+                try: insentif_val = int(request.data.get('insentif', 0) or 0)
+                except (ValueError, TypeError): pass
+            if 'biaya_desain' in request.data:
+                try: biaya_desain_val = int(request.data.get('biaya_desain', 0) or 0)
+                except (ValueError, TypeError): pass
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if current_user:
+            instance._current_user = current_user
+        instance.save()
+
+        if insentif_val is not None or biaya_desain_val is not None:
+            jobs = instance.jobs.all()
+            if jobs.exists():
+                for job in jobs:
+                    if insentif_val is not None:
+                        job.insentif = insentif_val
+                    if biaya_desain_val is not None:
+                        job.biaya_desain = biaya_desain_val
+                    job.save()
+            else:
+                from api.models import TahapProses, JobBoard
+                tahap_awal = TahapProses.objects.order_by('urutan').first()
+                if tahap_awal:
+                    JobBoard.objects.create(
+                        order_item=instance,
+                        tahap=tahap_awal,
+                        status_pekerjaan='antrean',
+                        insentif=insentif_val or 0,
+                        biaya_desain=biaya_desain_val or 0
+                    )
         return instance
 
 class OrderActivityLogSerializer(serializers.ModelSerializer):
