@@ -1885,10 +1885,9 @@ class FonnteWebhookView(APIView):
             is_form_desain = 'tulisan yang dimuat' in p_kecil or 'dominan warna' in p_kecil
 
             if is_form_order or is_form_desain:
-                if 'data sudah sesuai' in p_kecil:
-                    detail_bersih = _re.sub(r'(?i)\*?data sudah sesuai\*?', '', message).strip()
+                detail_bersih = _re.sub(r'(?i)\*?data sudah sesuai\*?', '', message).strip()
+                try:
                     order_id = self._simpan_order_dari_form(sender, nama_pelanggan, detail_bersih)
-
                     label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
                     jawaban = (
                         f"Terima kasih {panggilan}! {label} ✅\n\n"
@@ -1896,13 +1895,11 @@ class FonnteWebhookView(APIView):
                         f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
                         f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
                     )
-                else:
+                except ValueError as ve:
                     jawaban = (
-                        f"Terima kasih {panggilan}! Data order sudah kami terima.\n\n"
-                        f"⚠️ *PENTING:*\n"
-                        f"Jika data di atas sudah benar, silakan *copy-paste ulang* form pesanan "
-                        f"tersebut dan tambahkan tulisan *DATA SUDAH SESUAI* di baris paling bawah "
-                        f"agar pesanan Kakak langsung otomatis terdaftar di sistem kami ya. 🙏😊"
+                        f"Maaf {panggilan}, format pengisian form pesanan Kakak belum lengkap / ada yang salah:\n\n"
+                        f"⚠️ {str(ve)}\n\n"
+                        f"Mohon perbaiki dan kirimkan ulang dengan format yang benar ya Kak. 🙏😊"
                     )
 
         # ── STEP 4: Cek tanya harga (jawab info harga, TANPA form) ──
@@ -2264,30 +2261,21 @@ class EvolutionWebhookView(APIView):
         is_form_desain = 'tulisan yang dimuat' in p_kecil or 'dominan warna' in p_kecil
 
         if is_form_order or is_form_desain:
-            if 'data sudah sesuai' in p_kecil:
-                detail_bersih = _re.sub(r'(?i)\*?data sudah sesuai\*?', '', message_text).strip()
-                try:
-                    order_id = self._simpan_order_dari_form(sender_number, nama_pelanggan, detail_bersih)
-                    label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
-                    jawaban = (
-                        f"Terima kasih {panggilan}! {label} ✅\n\n"
-                        f"🎫 *ID PESANAN: {order_id}*\n"
-                        f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
-                        f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
-                    )
-                except ValueError as ve:
-                    jawaban = (
-                        f"Maaf {panggilan}, format pengisian form pesanan Kakak belum lengkap / ada yang salah:\n\n"
-                        f"⚠️ {str(ve)}\n\n"
-                        f"Mohon perbaiki dan kirimkan ulang dengan format yang benar ya Kak. 🙏😊"
-                    )
-            else:
+            detail_bersih = _re.sub(r'(?i)\*?data sudah sesuai\*?', '', message_text).strip()
+            try:
+                order_id = self._simpan_order_dari_form(sender_number, nama_pelanggan, detail_bersih)
+                label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
                 jawaban = (
-                    f"Terima kasih {panggilan}! Data order sudah kami terima.\n\n"
-                    f"⚠️ *PENTING:*\n"
-                    f"Jika data di atas sudah benar, silakan *copy-paste ulang* form pesanan "
-                    f"tersebut dan tambahkan tulisan *DATA SUDAH SESUAI* di baris paling bawah "
-                    f"agar pesanan Kakak langsung otomatis terdaftar di sistem kami ya. 🙏😊"
+                    f"Terima kasih {panggilan}! {label} ✅\n\n"
+                    f"🎫 *ID PESANAN: {order_id}*\n"
+                    f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
+                    f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
+                )
+            except ValueError as ve:
+                jawaban = (
+                    f"Maaf {panggilan}, format pengisian form pesanan Kakak belum lengkap / ada yang salah:\n\n"
+                    f"⚠️ {str(ve)}\n\n"
+                    f"Mohon perbaiki dan kirimkan ulang dengan format yang benar ya Kak. 🙏😊"
                 )
 
         # Step 4: Cek tanya harga

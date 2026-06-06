@@ -155,9 +155,7 @@ def get_system_prompt(nama_pelanggan=""):
             "- Finishing     : \n"
             "- File Desain   : sudah ada / belum ada\n"
             "- Keterangan    : \n\n"
-            "⚠️ *PENTING:* Setelah form diisi, tambahkan di baris paling bawah:\n"
-            "*DATA SUDAH SESUAI*\n"
-            "agar pesanan otomatis masuk ke sistem kami.\n"
+            "⚠️ *PENTING:* Kirimkan form yang sudah diisi lengkap, dan sistem kami akan langsung mendaftarkan pesanan Kakak secara otomatis. 👇\n"
             "=== AKHIR TEMPLATE ===\n\n"
             "Saat mengirim form, awali dengan: 'Siap Kak! Silakan *copy* dan isi form berikut:'"
         )
@@ -406,9 +404,7 @@ def get_form_order(nama_pelanggan=""):
         f"- Keterangan    : \n\n"
         f"_ℹ️ Kolom yang tidak relevan isi dengan -*_\n"
         f"_Tambah *Item 3*, *Item 4*, dst. jika ada lebih banyak pesanan._\n\n"
-        f"⚠️ *PENTING:* Setelah form diisi lengkap, tambahkan:\n"
-        f"*DATA SUDAH SESUAI*\n"
-        f"di baris paling bawah agar pesanan otomatis masuk ke sistem kami 👇"
+        f"⚠️ *PENTING:* Cukup isi lengkap data di atas dan kirimkan kembali. Pesanan Kakak akan langsung otomatis terdaftar di sistem kami ya! 🙏😊"
     )
     try:
         conf = SystemConfig.objects.get(pk="form_order_template")
