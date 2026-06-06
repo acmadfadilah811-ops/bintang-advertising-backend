@@ -1885,7 +1885,8 @@ class FonnteWebhookView(APIView):
             is_form_desain = 'tulisan yang dimuat' in p_kecil or 'dominan warna' in p_kecil
 
             if is_form_order or is_form_desain:
-                detail_bersih = _re.sub(r'(?i)\*?data sudah sesuai\*?', '', message).strip()
+                # Bersihkan footer instruksi/konfirmasi
+                detail_bersih = _re.split(r'(?i)===?\s*AKHIR\s*TEMPLATE\s*===?|⚠️\s*\*?PENTING:\*?|data\s+sudah\s+sesuai', message)[0].strip()
                 try:
                     order_id = self._simpan_order_dari_form(sender, nama_pelanggan, detail_bersih)
                     label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
@@ -1930,9 +1931,9 @@ class FonnteWebhookView(APIView):
 
         def ambil_field(teks, *keys):
             for key in keys:
-                # Pakai [^\n]* agar tidak match lintas baris
+                # Pakai [^\r\n]* agar tidak match lintas baris pada sistem operasi / platform yang mengirim CRLF atau CR saja
                 match = _re.search(
-                    rf'-\s*{_re.escape(key)}\s*:\s*([^\n]*)',
+                    rf'-\s*{_re.escape(key)}\s*:\s*([^\r\n]*)',
                     teks, _re.IGNORECASE
                 )
                 if match:
@@ -2261,7 +2262,8 @@ class EvolutionWebhookView(APIView):
         is_form_desain = 'tulisan yang dimuat' in p_kecil or 'dominan warna' in p_kecil
 
         if is_form_order or is_form_desain:
-            detail_bersih = _re.sub(r'(?i)\*?data sudah sesuai\*?', '', message_text).strip()
+            # Bersihkan footer instruksi/konfirmasi
+            detail_bersih = _re.split(r'(?i)===?\s*AKHIR\s*TEMPLATE\s*===?|⚠️\s*\*?PENTING:\*?|data\s+sudah\s+sesuai', message_text)[0].strip()
             try:
                 order_id = self._simpan_order_dari_form(sender_number, nama_pelanggan, detail_bersih)
                 label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
@@ -2360,8 +2362,9 @@ class EvolutionWebhookView(APIView):
     def _simpan_order_dari_form(self, nomor, nama_kontak, detail):
         def ambil_field(teks, *keys):
             for key in keys:
+                # Pakai [^\r\n]* agar tidak match lintas baris pada platform dengan CR atau CRLF
                 match = _re.search(
-                    rf'(?:[-*••]|\d+\.)?\s*{_re.escape(key)}\s*[:=]\s*([^\n]*)',
+                    rf'(?:[-*••]|\d+\.)?\s*{_re.escape(key)}\s*[:=]\s*([^\r\n]*)',
                     teks, _re.IGNORECASE
                 )
                 if match:
