@@ -197,10 +197,22 @@ STATUS_LABEL = {
 
 
 def format_tracking(order, panggilan="Kak"):
+    status_map = {
+        'draft': 'Draft Penawaran',
+        'quotation': 'Kirim Penawaran',
+        'review': 'Menunggu Review Manager',
+        'desain': 'Proses Desain',
+        'proses': 'Dalam Proses Produksi',
+        'ready': 'Siap Diambil / Selesai Produksi',
+        'selesai': 'Selesai Seluruhnya',
+        'batal': 'Dibatalkan / Cancel',
+    }
+    status_display = status_map.get(order.status_global, order.status_global.upper())
+
     lines = [
         f"📦 *STATUS PESANAN ({order.id})*",
         f"👤 *Pemesan*: {order.nama or '-'}",
-        f"📋 *Status*: {order.status_global.upper()}",
+        f"📋 *Status*: {status_display}",
         "",
     ]
 
@@ -226,10 +238,24 @@ def format_tracking(order, panggilan="Kak"):
             if item.harga_jual and item.harga_jual > 0:
                 lines.append(f"     💰 Harga: Rp {item.harga_jual:,}".replace(',', '.'))
 
-    lines.append(
-        f"\n_Pesanan sudah kami catat {panggilan}. "
-        f"Tim kami akan segera memverifikasi dan menghubungi Kakak. Mohon ditunggu ya! 🙏_"
-    )
+    # Tentukan footer dinamis berdasarkan status_global
+    status = order.status_global
+    if status in ('draft', 'review', 'quotation'):
+        footer = f"\n_Pesanan sudah kami catat {panggilan}. Tim kami sedang memverifikasi rincian pesanan Kakak. Mohon ditunggu ya! 🙏_"
+    elif status == 'desain':
+        footer = f"\n_Pesanan {panggilan} saat ini sedang dalam tahap pembuatan desain oleh desainer kami. Mohon ditunggu ya! 🎨_"
+    elif status == 'proses':
+        footer = f"\n_Pesanan {panggilan} sedang diproduksi di workshop kami. Kami akan mengabari Kakak begitu pesanan siap! 🔧_"
+    elif status == 'ready':
+        footer = f"\n_Pesanan {panggilan} sudah selesai diproduksi dan siap diambil/dikirim! Silakan hubungi admin untuk pengambilan ya Kak! 🎉_"
+    elif status == 'selesai':
+        footer = f"\n_Pesanan {panggilan} sudah selesai diserahterimakan. Terima kasih banyak atas kepercayaan Kakak pada Bintang Advertising! 😊_"
+    elif status == 'batal':
+        footer = f"\n_Pesanan ini telah dibatalkan. Silakan hubungi kami jika ada pertanyaan. 🙏_"
+    else:
+        footer = f"\n_Pesanan sudah kami catat {panggilan}. Tim kami akan segera menghubungi Kakak. Mohon ditunggu ya! 🙏_"
+
+    lines.append(footer)
     return "\n".join(lines)
 
 
