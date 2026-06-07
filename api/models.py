@@ -293,6 +293,7 @@ class OrderItem(models.Model):
     biaya_bahan = models.IntegerField(default=0)
     estimasi = models.CharField(max_length=50, default="-")
     gdrive_customer_link = models.URLField(max_length=500, null=True, blank=True)
+    desain_susulan = models.BooleanField(default=False, help_text="Apakah file desain ini dikirim susulan oleh customer")
     keterangan_detail = models.TextField(null=True, blank=True, help_text="Keterangan khusus/detail cetak dari CS")
 
     class Meta:

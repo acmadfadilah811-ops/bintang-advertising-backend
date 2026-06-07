@@ -238,20 +238,33 @@ def format_tracking(order, panggilan="Kak"):
             if item.harga_jual and item.harga_jual > 0:
                 lines.append(f"     💰 Harga: Rp {item.harga_jual:,}".replace(',', '.'))
 
-    # Tentukan footer dinamis berdasarkan status_global
+    # Tentukan footer dinamis berdasarkan status_global dan status job riil
     status = order.status_global
-    if status in ('draft', 'review', 'quotation'):
-        footer = f"\n_Pesanan sudah kami catat {panggilan}. Tim kami sedang memverifikasi rincian pesanan Kakak. Mohon ditunggu ya! 🙏_"
-    elif status == 'desain':
-        footer = f"\n_Pesanan {panggilan} saat ini sedang dalam tahap pembuatan desain oleh desainer kami. Mohon ditunggu ya! 🎨_"
-    elif status == 'proses':
-        footer = f"\n_Pesanan {panggilan} sedang diproduksi di workshop kami. Kami akan mengabari Kakak begitu pesanan siap! 🔧_"
-    elif status == 'ready':
-        footer = f"\n_Pesanan {panggilan} sudah selesai diproduksi dan siap diambil/dikirim! Silakan hubungi admin untuk pengambilan ya Kak! 🎉_"
+    has_desain_job = False
+    has_proses_job = False
+
+    for item in items:
+        for job in item.jobs.all():
+            if job.tahap:
+                tahap_lower = job.tahap.nama.lower()
+                divisi_lower = job.tahap.divisi.nama.lower() if job.tahap.divisi else ''
+                if 'desain' in tahap_lower or 'design' in tahap_lower or 'desain' in divisi_lower or 'design' in divisi_lower:
+                    has_desain_job = True
+                if 'cetak' in tahap_lower or 'print' in tahap_lower or 'proses' in tahap_lower or 'produksi' in tahap_lower or 'cetak' in divisi_lower or 'print' in divisi_lower or 'produksi' in divisi_lower:
+                    has_proses_job = True
+
+    if status == 'batal':
+        footer = f"\n_Pesanan ini telah dibatalkan. Silakan hubungi kami jika ada pertanyaan. 🙏_"
     elif status == 'selesai':
         footer = f"\n_Pesanan {panggilan} sudah selesai diserahterimakan. Terima kasih banyak atas kepercayaan Kakak pada Bintang Advertising! 😊_"
-    elif status == 'batal':
-        footer = f"\n_Pesanan ini telah dibatalkan. Silakan hubungi kami jika ada pertanyaan. 🙏_"
+    elif status == 'ready':
+        footer = f"\n_Pesanan {panggilan} sudah selesai diproduksi dan siap diambil/dikirim! Silakan hubungi admin untuk pengambilan ya Kak! 🎉_"
+    elif status == 'proses' or has_proses_job:
+        footer = f"\n_Pesanan {panggilan} sedang diproduksi di workshop kami. Kami akan mengabari Kakak begitu pesanan siap! 🔧_"
+    elif status == 'desain' or has_desain_job:
+        footer = f"\n_Pesanan {panggilan} saat ini sedang dalam tahap pembuatan desain oleh desainer kami. Mohon ditunggu ya! 🎨_"
+    elif status in ('draft', 'review', 'quotation'):
+        footer = f"\n_Pesanan sudah kami catat {panggilan}. Tim kami sedang memverifikasi rincian pesanan Kakak. Mohon ditunggu ya! 🙏_"
     else:
         footer = f"\n_Pesanan sudah kami catat {panggilan}. Tim kami akan segera menghubungi Kakak. Mohon ditunggu ya! 🙏_"
 
@@ -302,15 +315,430 @@ def cek_tracking(pesan, nomor, nama_pelanggan):
             )
 
 
+def proses_kirim_desain(pesan, nomor, nama_pelanggan):
+    from .models import Order, OrderActivityLog
+    p = pesan.lower().strip()
+    panggilan = f"Kak {nama_pelanggan}" if nama_pelanggan else "Kak"
+
+    if 'kirim desain' not in p:
+        return None
+
+    # Cari Order ID
+    match = re.search(r'(ord-[\w-]+)', p)
+    if not match:
+        return (
+            f"Mohon sertakan ID Pesanan Kakak untuk mengirim desain susulan.\n"
+            f"Format: *Kirim Desain [ID Pesanan] [Link Google Drive]*\n"
+            f"Contoh: *Kirim Desain ORD-20260606-XXXX https://drive.google.com/...*"
+        )
+
+    order_id = match.group(1).upper()
+    try:
+        order = Order.objects.get(id__iexact=order_id)
+    except Order.DoesNotExist:
+        return f"Maaf {panggilan}, ID pesanan *{order_id}* tidak ditemukan. Mohon periksa kembali ya Kak 🙏"
+
+    # Validasi nomor WA
+    cleaned_input = ''.join(filter(str.isdigit, nomor))
+    cleaned_db = ''.join(filter(str.isdigit, order.nomor_wa))
+    if cleaned_input[-9:] != cleaned_db[-9:]:
+        return f"Maaf {panggilan}, nomor WhatsApp ini tidak cocok dengan data pemesan ID *{order_id}*."
+
+    # Cari URL
+    url_match = re.search(r'(https?://[^\s]+)', pesan)
+    if not url_match:
+        return (
+            f"Silakan sertakan link file desain Kakak (misal: link Google Drive atau Dropbox).\n"
+            f"Contoh: *Kirim Desain {order_id} https://drive.google.com/...*"
+        )
+
+    gdrive_link = url_match.group(1)
+    
+    # Simpan ke order items
+    items = order.items.all()
+    if not items.exists():
+        return f"Belum ada item produk di pesanan *{order_id}*."
+
+    updated = False
+    for item in items:
+        if not item.gdrive_customer_link or items.count() == 1:
+            item.gdrive_customer_link = gdrive_link
+            item.desain_susulan = True
+            item.save()
+            updated = True
+
+    if not updated:
+        first_item = items.first()
+        first_item.gdrive_customer_link = gdrive_link
+        first_item.desain_susulan = True
+        first_item.save()
+
+    # Catat di OrderActivityLog
+    OrderActivityLog.objects.create(
+        order=order,
+        user=None,
+        tindakan="SUBMIT_DESIGN_SUSULAN",
+        keterangan=f"Pelanggan mengirim link desain susulan via WA: {gdrive_link}"
+    )
+
+    return (
+        f"Terima kasih {panggilan}! Link desain untuk pesanan *{order_id}* berhasil kami simpan. ✅\n\n"
+        f"Tim desain kami akan segera meninjau dan memproses pesanan Kakak. Mohon ditunggu ya! 😊"
+    )
+
+
 # ════════════════════════════════════════════════════════════════
-# INFO HARGA — Jawab tanpa langsung kirim form order
+# INFO HARGA & KALKULATOR PINTAR
 # ════════════════════════════════════════════════════════════════
+
+def get_price_for_qty(tiers, quantity):
+    if not tiers:
+        return 0
+    import re
+    for tier_key, price in tiers.items():
+        key_clean = re.sub(r'(?i)[a-z\s+]+', '', tier_key).strip()
+        if '-' in key_clean:
+            parts = key_clean.split('-')
+            try:
+                low = int(parts[0])
+                high = int(parts[1])
+                if low <= quantity <= high:
+                    return price
+            except ValueError:
+                pass
+        elif '>' in key_clean:
+            try:
+                val = int(key_clean.replace('>', ''))
+                if quantity > val:
+                    return price
+            except ValueError:
+                pass
+        else:
+            try:
+                val = int(key_clean)
+                if quantity == val:
+                    return price
+            except ValueError:
+                pass
+    return list(tiers.values())[-1]
+
+
+def hitung_harga_item_db(jenis_produk, bahan, qty, panjang=0.0, lebar=0.0):
+    from .models import ProductPrice
+    
+    prod_name = jenis_produk.strip()
+    material_name = bahan.strip() if bahan else ''
+    
+    # 1. Check if it's outdoor banner (priced by m2)
+    is_outdoor = any(k in prod_name.lower() for k in ['banner', 'spanduk', 'mmt', 'baliho', 'outdoor', 'albatros', 'oneway', 'one way', 'luster'])
+    
+    if is_outdoor and panjang > 0 and lebar > 0:
+        luas = panjang * lebar
+        prod_obj = None
+        if material_name:
+            prod_obj = ProductPrice.objects.filter(
+                kategori='print_outdoor_per_m2',
+                nama_produk__icontains=material_name
+            ).first()
+            if not prod_obj:
+                prod_obj = ProductPrice.objects.filter(
+                    kategori='print_outdoor_per_m2',
+                    material__icontains=material_name
+                ).first()
+        if not prod_obj:
+            prod_obj = ProductPrice.objects.filter(
+                kategori='print_outdoor_per_m2',
+                nama_produk__icontains=prod_name
+            ).first()
+        if not prod_obj:
+            prod_obj = ProductPrice.objects.filter(
+                kategori='print_outdoor_per_m2',
+                nama_produk__icontains='280gr'
+            ).first()
+            
+        if prod_obj:
+            return int(luas * prod_obj.harga * qty)
+        return int(luas * 25000 * qty)
+        
+    # 2. Check for Sticker A3+
+    is_sticker = any(k in prod_name.lower() for k in ['stiker', 'sticker'])
+    if is_sticker:
+        prod_obj = None
+        if material_name:
+            prod_obj = ProductPrice.objects.filter(
+                kategori='sticker_a3_plus',
+                nama_produk__icontains=material_name
+            ).first()
+        if not prod_obj:
+            prod_obj = ProductPrice.objects.filter(
+                kategori='sticker_a3_plus',
+                nama_produk__icontains='Chromo'
+            ).first()
+            
+        if prod_obj:
+            if prod_obj.price_type == 'tiered':
+                price_unit = get_price_for_qty(prod_obj.tiers, qty)
+            else:
+                price_unit = prod_obj.harga
+            return int(price_unit * qty)
+        return int(7000 * qty)
+        
+    # 3. Check for Kartu Nama
+    is_kartu = any(k in prod_name.lower() for k in ['kartu nama', 'kartu'])
+    if is_kartu:
+        prod_obj = None
+        sisi_name = "2 Sisi" if "2" in prod_name or "2" in material_name else "1 Sisi"
+        has_laminasi = any(k in prod_name.lower() or k in material_name.lower() for k in ['laminasi', 'lam', 'glossy', 'doff'])
+        search_name = sisi_name + " + Laminasi" if has_laminasi else sisi_name
+        
+        prod_obj = ProductPrice.objects.filter(
+            kategori='kartu_nama_ivory_260',
+            nama_produk__icontains=search_name
+        ).first()
+        
+        if prod_obj:
+            if prod_obj.price_type == 'tiered':
+                price_unit = get_price_for_qty(prod_obj.tiers, qty)
+            else:
+                price_unit = prod_obj.harga
+            return int(price_unit * qty)
+        return int(35000 * qty)
+        
+    # 4. Check for Print A3+
+    is_a3 = any(k in prod_name.lower() or k in material_name.lower() for k in ['a3', 'cetak a3', 'print a3'])
+    if is_a3:
+        prod_obj = None
+        paper_types = ['AP150', 'Ivory 230', 'Ivory 260', 'HVS']
+        for p_t in paper_types:
+            if p_t.lower() in prod_name.lower() or p_t.lower() in material_name.lower():
+                prod_obj = ProductPrice.objects.filter(
+                    kategori='print_a3_plus',
+                    nama_produk__icontains=p_t
+                ).first()
+                break
+        if not prod_obj:
+            prod_obj = ProductPrice.objects.filter(
+                kategori='print_a3_plus',
+                nama_produk__icontains='AP150'
+            ).first()
+            
+        if prod_obj:
+            if prod_obj.price_type == 'tiered':
+                price_unit = get_price_for_qty(prod_obj.tiers, qty)
+            else:
+                price_unit = prod_obj.harga
+            return int(price_unit * qty)
+        return int(5500 * qty)
+        
+    prod_obj = ProductPrice.objects.filter(nama_produk__icontains=prod_name).first()
+    if prod_obj:
+        if prod_obj.price_type == 'tiered':
+            price_unit = get_price_for_qty(prod_obj.tiers, qty)
+        else:
+            price_unit = prod_obj.harga
+        return int(price_unit * qty)
+        
+    return 0
+
+
+def hitung_harga_otomatis(pesan, nama_pelanggan=""):
+    from .models import ProductPrice
+    import re
+    
+    p = pesan.lower().strip()
+    panggilan = f"Kak {nama_pelanggan}" if nama_pelanggan else "Kak"
+    
+    # 1. Parse Input (Dimensions & Qty)
+    protected = p
+    protected = re.sub(r'\ba[3456]\+?\b', ' ', protected)
+    protected = re.sub(r'\b[12]\s*sisi\b', ' ', protected)
+    protected = re.sub(r'\d+\s*gr\b', ' ', protected)
+    protected = re.sub(r'\d+\s*gsm\b', ' ', protected)
+    
+    dim_match = re.search(r'(\d+(?:[.,]\d+)?)\s*(?:m|meter|cm)?\s*(?:x|\*|by|kali)\s*(\d+(?:[.,]\d+)?)\s*(?:m|meter|cm)?', protected)
+    
+    panjang = None
+    lebar = None
+    unit = "m"
+    
+    if dim_match:
+        try:
+            val1 = float(dim_match.group(1).replace(',', '.'))
+            val2 = float(dim_match.group(2).replace(',', '.'))
+            context_around = p[max(0, dim_match.start()-5):min(len(p), dim_match.end()+10)]
+            if 'cm' in context_around or val1 >= 10 or val2 >= 10:
+                unit = "cm"
+                panjang = val1 / 100.0
+                lebar = val2 / 100.0
+            else:
+                unit = "m"
+                panjang = val1
+                lebar = val2
+        except Exception:
+            pass
+
+    string_for_qty = protected
+    if dim_match:
+        string_for_qty = protected[:dim_match.start()] + " " + protected[dim_match.end():]
+
+    qty = 1
+    qty_with_unit = re.search(r'\b(\d+)\s*(?:lbr|lembar|pcs|pc|box|buah|bks|pack|paket|set)\b', string_for_qty)
+    if qty_with_unit:
+        try:
+            qty = int(qty_with_unit.group(1))
+        except Exception:
+            pass
+    else:
+        qty_preceded = re.search(r'\b(?:qty|jumlah|sebanyak)\s*[:=]?\s*(\d+)\b', string_for_qty)
+        if qty_preceded:
+            try:
+                qty = int(qty_preceded.group(1))
+            except Exception:
+                pass
+        else:
+            numbers = re.findall(r'\b(\d+)\b', string_for_qty)
+            if numbers:
+                try:
+                    qty = int(numbers[0])
+                except Exception:
+                    pass
+
+    # 2. Identify Product Category
+    is_banner = any(k in p for k in ['banner', 'spanduk', 'mmt', 'baliho', 'outdoor', 'albatros', 'oneway', 'one way', 'luster'])
+    is_sticker = any(k in p for k in ['stiker', 'sticker', 'chromo', 'vinyl', 'hologram', 'transparan'])
+    is_kartu_nama = any(k in p for k in ['kartu nama', 'kartu', 'box'])
+    is_a3 = any(k in p for k in ['a3', 'brosur', 'ap150', 'ap120', 'ivory', 'hvs', 'flyer', 'poster', 'print a3'])
+    
+    is_calc_intent = any(k in p for k in ['hitung', 'kalkulasi', 'kalkulator', 'estimasi'])
+    is_price_intent = any(k in p for k in ['harga', 'berapa', 'tarif', 'biaya', 'kisaran', 'rate', 'cost', 'price'])
+    
+    # If there is a calculation intent or a price query with dimensions/quantities
+    has_specs = (panjang and lebar) or (qty > 1 and (is_sticker or is_kartu_nama or is_a3))
+    
+    if not (is_banner or is_sticker or is_kartu_nama or is_a3) and (is_calc_intent or (is_price_intent and has_specs)):
+        if panjang and lebar:
+            is_banner = True
+        else:
+            return (
+                f"Tentu {panggilan}! Silakan sebutkan produk yang ingin dihitung harganya.\n"
+                f"Contoh:\n"
+                f"• _hitung banner 2x3 meter 2 lembar_\n"
+                f"• _hitung stiker chromo 50 lembar_\n"
+                f"• _hitung kartu nama 1 sisi 3 box_"
+            )
+
+    if not (is_banner or is_sticker or is_kartu_nama or is_a3 or is_calc_intent or (is_price_intent and has_specs)):
+        return None
+
+    # 3. Perform Calculations and Format Response
+    if is_banner:
+        if not panjang or not lebar:
+            return (
+                f"Untuk menghitung harga *Banner/Spanduk*, mohon sertakan ukurannya ya {panggilan}.\n"
+                f"Contoh: *hitung banner 3x1 sebanyak 2 lembar*"
+            )
+            
+        luas = panjang * lebar
+        lines = [
+            f"🧮 *KALKULATOR PINTAR - BANNER/SPANDUK*",
+            f"Halo {panggilan}! Berikut rincian estimasi harganya:\n",
+            f"📐 *Ukuran*: {panjang:.2f} x {lebar:.2f} meter (Luas: {luas:.2f} m²)",
+            f"📦 *Jumlah*: {qty} lembar\n",
+            f"💵 *Pilihan Bahan & Estimasi Harga*:"
+        ]
+        
+        products = ProductPrice.objects.filter(kategori='print_outdoor_per_m2')
+        if not products.exists():
+            products = ProductPrice.objects.filter(kategori__icontains='outdoor')
+            
+        for prod in products:
+            price_per_m2 = prod.harga
+            subtotal = int(luas * price_per_m2 * qty)
+            lines.append(f"• *{prod.nama_produk}* (Rp {price_per_m2:,}/m²)".replace(',', '.'))
+            lines.append(f"  └─ Total: *Rp {subtotal:,}*".replace(',', '.'))
+            
+        lines.append("\n_Catatan: Harga belum termasuk biaya desain & finishing khusus (jika ada)._")
+        lines.append("Mau langsung order? Balas dengan ketik *Order* atau *1* ya Kak! 😊")
+        return "\n".join(lines)
+        
+    elif is_sticker:
+        lines = [
+            f"🧮 *KALKULATOR PINTAR - STIKER A3+*",
+            f"Halo {panggilan}! Berikut rincian estimasi harganya:\n",
+            f"📦 *Jumlah*: {qty} lembar A3+\n",
+            f"💵 *Pilihan Bahan & Estimasi Harga*:"
+        ]
+        
+        products = ProductPrice.objects.filter(kategori='sticker_a3_plus')
+        for prod in products:
+            if prod.price_type == 'tiered':
+                price_unit = get_price_for_qty(prod.tiers, qty)
+            else:
+                price_unit = prod.harga
+            subtotal = int(price_unit * qty)
+            lines.append(f"• *Stiker {prod.nama_produk}*:")
+            lines.append(f"  └─ Rp {price_unit:,}/lbr × {qty} lbr = *Rp {subtotal:,}*".replace(',', '.'))
+            
+        lines.append("\n_Semakin banyak jumlah lembaran, harga per lembar semakin murah!_")
+        lines.append("Mau langsung order? Balas dengan ketik *Order* atau *1* ya Kak! 😊")
+        return "\n".join(lines)
+        
+    elif is_kartu_nama:
+        lines = [
+            f"🧮 *KALKULATOR PINTAR - KARTU NAMA*",
+            f"Halo {panggilan}! Berikut rincian estimasi harganya:\n",
+            f"📦 *Jumlah*: {qty} Box (1 Box = 100 lembar)\n",
+            f"💵 *Pilihan Bahan & Estimasi Harga (Bahan Ivory 260)*:"
+        ]
+        
+        products = ProductPrice.objects.filter(kategori='kartu_nama_ivory_260')
+        for prod in products:
+            if prod.price_type == 'tiered':
+                price_unit = get_price_for_qty(prod.tiers, qty)
+            else:
+                price_unit = prod.harga
+            subtotal = int(price_unit * qty)
+            lines.append(f"• *{prod.nama_produk}*:")
+            lines.append(f"  └─ Rp {price_unit:,}/box × {qty} box = *Rp {subtotal:,}*".replace(',', '.'))
+            
+        lines.append("\n_Tersedia juga bahan premium Aster. Silakan hubungi admin jika ingin bahan Aster._")
+        lines.append("Mau langsung order? Balas dengan ketik *Order* atau *1* ya Kak! 😊")
+        return "\n".join(lines)
+        
+    elif is_a3:
+        lines = [
+            f"🧮 *KALKULATOR PINTAR - PRINT A3+*",
+            f"Halo {panggilan}! Berikut rincian estimasi harganya:\n",
+            f"📦 *Jumlah*: {qty} lembar A3+\n",
+            f"💵 *Pilihan Kertas & Estimasi Harga*:"
+        ]
+        
+        products = ProductPrice.objects.filter(kategori='print_a3_plus')
+        for prod in products:
+            if prod.price_type == 'tiered':
+                price_unit = get_price_for_qty(prod.tiers, qty)
+            else:
+                price_unit = prod.harga
+            subtotal = int(price_unit * qty)
+            lines.append(f"• *Kertas {prod.nama_produk}*:")
+            lines.append(f"  └─ Rp {price_unit:,}/lbr × {qty} lbr = *Rp {subtotal:,}*".replace(',', '.'))
+            
+        lines.append("\nMau langsung order? Balas dengan ketik *Order* atau *1* ya Kak! 😊")
+        return "\n".join(lines)
+
+    return None
 
 def cek_harga(pesan, nama_pelanggan):
     """
     Cek apakah pelanggan menanyakan harga — jika ya, jawab dengan info harga.
     TIDAK mengirimkan form order.
     """
+    # 1. Coba hitung harga otomatis dengan kalkulator pintar terlebih dahulu
+    jawaban_kalkulator = hitung_harga_otomatis(pesan, nama_pelanggan)
+    if jawaban_kalkulator:
+        return jawaban_kalkulator
+
+    # 2. Jika tidak ada spesifikasi kalkulator, tampilkan list harga umum
     from .models import ProductPrice
     p = pesan.lower()
     panggilan = f"Kak {nama_pelanggan}" if nama_pelanggan else "Kak"

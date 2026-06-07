@@ -1793,6 +1793,7 @@ class FonnteWebhookView(APIView):
             menunggu_nama,
             simpan_ke_memori, cek_tracking, cek_harga, cek_rules_awal,
             cek_database_faq, tanya_ai_finishing, ekstrak_nama_dari_pesan,
+            proses_kirim_desain,
         )
 
         data = request.data
@@ -1865,10 +1866,12 @@ class FonnteWebhookView(APIView):
         # Simpan ke memori AI
         simpan_ke_memori(sender, "user", message, nama_pelanggan)
 
-        # ── STEP 2: Tracking pesanan ───────────────────────────────
-        jawaban = cek_tracking(message, sender, nama_pelanggan)
+        # ── STEP 2: Tracking / Kirim Desain pesanan ───────────────────────────────
+        jawaban = proses_kirim_desain(message, sender, nama_pelanggan)
+        if not jawaban:
+            jawaban = cek_tracking(message, sender, nama_pelanggan)
         if jawaban:
-            # Langsung balas tracking — jangan lanjut ke step lain
+            # Langsung balas tracking / kirim desain — jangan lanjut ke step lain
             simpan_ke_memori(sender, "assistant", jawaban, nama_pelanggan)
             return self._kirim_balas(jawaban)
 
@@ -1889,13 +1892,52 @@ class FonnteWebhookView(APIView):
                 detail_bersih = _re.split(r'(?i)===?\s*AKHIR\s*TEMPLATE\s*===?|⚠️\s*\*?PENTING:\*?|data\s+sudah\s+sesuai', message)[0].strip()
                 try:
                     order_id = self._simpan_order_dari_form(sender, nama_pelanggan, detail_bersih)
+                    order_instance = Order.objects.prefetch_related('items').get(id=order_id)
                     label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
+                    
+                    item_lines = []
+                    total_estimasi = 0
+                    for item in order_instance.items.all():
+                        spec_parts = []
+                        if item.panjang > 0 and item.lebar > 0:
+                            spec_parts.append(f"{item.panjang:.1f}x{item.lebar:.1f}m")
+                        if item.bahan:
+                            spec_parts.append(item.bahan)
+                        spec_str = f" ({', '.join(spec_parts)})" if spec_parts else ""
+                        
+                        price_val = item.harga_jual or 0
+                        price_display = f"Rp {price_val:,}" if price_val > 0 else "Hubungi Admin"
+                        price_display = price_display.replace(',', '.')
+                        item_lines.append(f"• *{item.jenis_produk}*{spec_str} - {item.qty}x")
+                        item_lines.append(f"  └─ Est. Harga: *{price_display}*")
+                        total_estimasi += price_val
+                        
+                    total_display = f"Rp {total_estimasi:,}" if total_estimasi > 0 else "Hubungi Admin"
+                    total_display = total_display.replace(',', '.')
+                    
                     jawaban = (
                         f"Terima kasih {panggilan}! {label} ✅\n\n"
                         f"🎫 *ID PESANAN: {order_id}*\n"
                         f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
+                        f"📝 *RINCIAN PESANAN:*\n"
+                        + "\n".join(item_lines) + "\n\n"
+                        f"💰 *TOTAL ESTIMASI: {total_display}*\n\n"
                         f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
                     )
+                    # Jika ada item yang belum memiliki desain, infokan link upload
+                    from django.db.models import Q
+                    has_no_design = order_instance.items.filter(Q(gdrive_customer_link__isnull=True) | Q(gdrive_customer_link='')).exists()
+                    if has_no_design:
+                        frontend_base = os.getenv("FRONTEND_PUBLIC_URL", "https://brandy-crm-811.web.app")
+                        if not frontend_base.startswith("http"):
+                            frontend_base = f"https://{frontend_base}"
+                        upload_link = f"{frontend_base}/public/upload-desain/{order_id}"
+                        jawaban += (
+                            f"\n\nJika file desain sudah siap, Kakak bisa mengirimkannya lewat link berikut:\n"
+                            f"🔗 {upload_link}\n"
+                            f"Atau mengirimkannya langsung ke chat ini dengan format:\n"
+                            f"*Kirim Desain {order_id} [Link Google Drive]*"
+                        )
                 except ValueError as ve:
                     jawaban = (
                         f"Maaf {panggilan}, format pengisian form pesanan Kakak belum lengkap / ada yang salah:\n\n"
@@ -2023,6 +2065,9 @@ class FonnteWebhookView(APIView):
                 if finishing: detail_json.append({"key": "Finishing", "value": finishing})
                 if bahan: detail_json.append({"key": "Bahan", "value": bahan})
 
+                from .wa_logic import hitung_harga_item_db
+                calculated_price = hitung_harga_item_db(jenis_produk, bahan, qty, panjang, lebar)
+
                 order_item = OrderItem.objects.create(
                     order=order,
                     jenis_produk=jenis_produk,
@@ -2030,7 +2075,7 @@ class FonnteWebhookView(APIView):
                     panjang=panjang,
                     lebar=lebar,
                     bahan=bahan or '',
-                    harga_jual=0,
+                    harga_jual=calculated_price,
                     detail=detail_json,
                     keterangan_detail=keterangan or '',
                     gdrive_customer_link='',
@@ -2054,11 +2099,14 @@ class FonnteWebhookView(APIView):
 
             # Jika tidak ada item yang terdeteksi, buat 1 item generik
             if items_dibuat == 0:
+                from .wa_logic import hitung_harga_item_db
+                calculated_price = hitung_harga_item_db('Umum', '', 1)
+                
                 order_item = OrderItem.objects.create(
                     order=order,
                     jenis_produk='Umum',
                     qty=1,
-                    harga_jual=0,
+                    harga_jual=calculated_price,
                     detail=detail[:200],
                 )
                 tahap_awal = TahapProses.objects.order_by('urutan').first()
@@ -2089,6 +2137,7 @@ class EvolutionWebhookView(APIView):
             menunggu_nama,
             simpan_ke_memori, cek_tracking, cek_harga, cek_rules_awal,
             cek_database_faq, tanya_ai_finishing, ekstrak_nama_dari_pesan,
+            proses_kirim_desain,
         )
 
         data = request.data
@@ -2260,8 +2309,10 @@ class EvolutionWebhookView(APIView):
         # Simpan pesan masuk ke memori AI
         simpan_ke_memori(sender_number, "user", message_text, nama_pelanggan)
 
-        # Step 2: Cek tracking pesanan
-        jawaban = cek_tracking(message_text, sender_number, nama_pelanggan)
+        # Step 2: Cek tracking / Kirim Desain pesanan
+        jawaban = proses_kirim_desain(message_text, sender_number, nama_pelanggan)
+        if not jawaban:
+            jawaban = cek_tracking(message_text, sender_number, nama_pelanggan)
         if jawaban:
             simpan_ke_memori(sender_number, "assistant", jawaban, nama_pelanggan)
             self._kirim_balas_async(sender_number, jawaban)
@@ -2280,13 +2331,52 @@ class EvolutionWebhookView(APIView):
             detail_bersih = _re.split(r'(?i)===?\s*AKHIR\s*TEMPLATE\s*===?|⚠️\s*\*?PENTING:\*?|data\s+sudah\s+sesuai', message_text)[0].strip()
             try:
                 order_id = self._simpan_order_dari_form(sender_number, nama_pelanggan, detail_bersih)
+                order_instance = Order.objects.prefetch_related('items').get(id=order_id)
                 label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
+                
+                item_lines = []
+                total_estimasi = 0
+                for item in order_instance.items.all():
+                    spec_parts = []
+                    if item.panjang > 0 and item.lebar > 0:
+                        spec_parts.append(f"{item.panjang:.1f}x{item.lebar:.1f}m")
+                    if item.bahan:
+                        spec_parts.append(item.bahan)
+                    spec_str = f" ({', '.join(spec_parts)})" if spec_parts else ""
+                    
+                    price_val = item.harga_jual or 0
+                    price_display = f"Rp {price_val:,}" if price_val > 0 else "Hubungi Admin"
+                    price_display = price_display.replace(',', '.')
+                    item_lines.append(f"• *{item.jenis_produk}*{spec_str} - {item.qty}x")
+                    item_lines.append(f"  └─ Est. Harga: *{price_display}*")
+                    total_estimasi += price_val
+                    
+                total_display = f"Rp {total_estimasi:,}" if total_estimasi > 0 else "Hubungi Admin"
+                total_display = total_display.replace(',', '.')
+                
                 jawaban = (
                     f"Terima kasih {panggilan}! {label} ✅\n\n"
                     f"🎫 *ID PESANAN: {order_id}*\n"
                     f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
+                    f"📝 *RINCIAN PESANAN:*\n"
+                    + "\n".join(item_lines) + "\n\n"
+                    f"💰 *TOTAL ESTIMASI: {total_display}*\n\n"
                     f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
                 )
+                # Jika ada item yang belum memiliki desain, infokan link upload
+                from django.db.models import Q
+                has_no_design = order_instance.items.filter(Q(gdrive_customer_link__isnull=True) | Q(gdrive_customer_link='')).exists()
+                if has_no_design:
+                    frontend_base = os.getenv("FRONTEND_PUBLIC_URL", "https://brandy-crm-811.web.app")
+                    if not frontend_base.startswith("http"):
+                        frontend_base = f"https://{frontend_base}"
+                    upload_link = f"{frontend_base}/public/upload-desain/{order_id}"
+                    jawaban += (
+                        f"\n\nJika file desain sudah siap, Kakak bisa mengirimkannya lewat link berikut:\n"
+                        f"🔗 {upload_link}\n"
+                        f"Atau mengirimkannya langsung ke chat ini dengan format:\n"
+                        f"*Kirim Desain {order_id} [Link Google Drive]*"
+                    )
             except ValueError as ve:
                 jawaban = (
                     f"Maaf {panggilan}, format pengisian form pesanan Kakak belum lengkap / ada yang salah:\n\n"
@@ -2475,6 +2565,9 @@ class EvolutionWebhookView(APIView):
                 if link_match:
                     gdrive_link = link_match.group(1)
 
+                from .wa_logic import hitung_harga_item_db
+                calculated_price = hitung_harga_item_db(jenis_produk, bahan, qty, panjang, lebar)
+
                 order_item = OrderItem.objects.create(
                     order=order,
                     jenis_produk=jenis_produk,
@@ -2482,7 +2575,7 @@ class EvolutionWebhookView(APIView):
                     panjang=panjang,
                     lebar=lebar,
                     bahan=bahan or '',
-                    harga_jual=0,
+                    harga_jual=calculated_price,
                     detail=detail_json,
                     keterangan_detail=keterangan or '',
                     gdrive_customer_link=gdrive_link,
@@ -2505,11 +2598,14 @@ class EvolutionWebhookView(APIView):
                 items_dibuat += 1
 
             if items_dibuat == 0:
+                from .wa_logic import hitung_harga_item_db
+                calculated_price = hitung_harga_item_db('Umum', '', 1)
+
                 order_item = OrderItem.objects.create(
                     order=order,
                     jenis_produk='Umum',
                     qty=1,
-                    harga_jual=0,
+                    harga_jual=calculated_price,
                     detail=[{"key": "Info", "value": "Format tidak terurai"}],
                     keterangan_detail=detail[:200],
                 )
@@ -3079,3 +3175,117 @@ class ClientLogView(APIView):
             f"User Agent: {user_agent}"
         )
         return Response({"status": "error_logged"}, status=200)
+
+
+class PublicOrderDetailsView(APIView):
+    """
+    POST /api/public/get-order-details/
+    Get order status & items for public upload design page (AllowAny).
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        order_id = str(request.data.get('order_id', '')).strip().upper()
+        nomor_wa = str(request.data.get('nomor_wa', '')).strip()
+
+        if not order_id or not nomor_wa:
+            return Response({'error': 'ID Pesanan dan Nomor WhatsApp wajib diisi.'}, status=400)
+
+        cleaned_input = ''.join(filter(str.isdigit, nomor_wa))
+        if not cleaned_input:
+            return Response({'error': 'Format Nomor WhatsApp tidak valid.'}, status=400)
+
+        # Cari order
+        try:
+            order = Order.objects.get(id__iexact=order_id)
+        except Order.DoesNotExist:
+            return Response({'error': 'ID Pesanan tidak ditemukan.'}, status=404)
+
+        cleaned_db = ''.join(filter(str.isdigit, order.nomor_wa))
+        
+        # Validasi nomor WA (terima kecocokan 9 digit terakhir)
+        if cleaned_input[-9:] != cleaned_db[-9:]:
+            return Response({'error': 'Nomor WhatsApp tidak cocok dengan data pesanan.'}, status=403)
+
+        items_data = []
+        for item in order.items.all():
+            items_data.append({
+                'id': item.id,
+                'jenis_produk': item.jenis_produk,
+                'bahan': item.bahan or '-',
+                'qty': item.qty,
+                'gdrive_customer_link': item.gdrive_customer_link or '',
+                'desain_susulan': item.desain_susulan
+            })
+
+        return Response({
+            'order_id': order.id,
+            'nama': order.nama,
+            'status_global': order.status_global,
+            'items': items_data
+        }, status=200)
+
+
+class PublicSubmitDesignView(APIView):
+    """
+    POST /api/public/submit-design/
+    Submit design url/file for specific order item (AllowAny).
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        order_id = str(request.data.get('order_id', '')).strip().upper()
+        nomor_wa = str(request.data.get('nomor_wa', '')).strip()
+        item_id = request.data.get('item_id')
+        gdrive_link = str(request.data.get('gdrive_link', '')).strip()
+        file_obj = request.FILES.get('file')
+
+        if not order_id or not nomor_wa or not item_id:
+            return Response({'error': 'ID Pesanan, Nomor WhatsApp, dan Item wajib ditentukan.'}, status=400)
+
+        if not gdrive_link and not file_obj:
+            return Response({'error': 'Sertakan Link Google Drive atau unggah File Desain.'}, status=400)
+
+        cleaned_input = ''.join(filter(str.isdigit, nomor_wa))
+        try:
+            order = Order.objects.get(id__iexact=order_id)
+        except Order.DoesNotExist:
+            return Response({'error': 'ID Pesanan tidak ditemukan.'}, status=404)
+
+        cleaned_db = ''.join(filter(str.isdigit, order.nomor_wa))
+        if cleaned_input[-9:] != cleaned_db[-9:]:
+            return Response({'error': 'Nomor WhatsApp tidak cocok.'}, status=403)
+
+        try:
+            item = order.items.get(id=item_id)
+        except OrderItem.DoesNotExist:
+            return Response({'error': 'Item tidak ditemukan pada pesanan ini.'}, status=404)
+
+        if file_obj:
+            from django.core.files.storage import default_storage
+            import uuid
+            # Buat nama file unik agar tidak timpa
+            ext = file_obj.name.split('.')[-1]
+            unique_name = f"{order_id}_{item.id}_{uuid.uuid4().hex[:6]}.{ext}"
+            path = default_storage.save(f'desain_susulan/{unique_name}', file_obj)
+            file_url = request.build_absolute_uri(settings.MEDIA_URL + path)
+            item.gdrive_customer_link = file_url
+        else:
+            item.gdrive_customer_link = gdrive_link
+
+        item.desain_susulan = True
+        item.save()
+
+        # Log aktifitas
+        OrderActivityLog.objects.create(
+            order=order,
+            user=None,
+            tindakan="SUBMIT_DESIGN_SUSULAN",
+            keterangan=f"Pelanggan mengunggah file desain susulan untuk item '{item.jenis_produk}'"
+        )
+
+        return Response({
+            'status': 'success',
+            'message': 'Desain susulan berhasil dikirim! Tim kami akan segera meninjau file Anda.',
+            'gdrive_customer_link': item.gdrive_customer_link
+        }, status=200)

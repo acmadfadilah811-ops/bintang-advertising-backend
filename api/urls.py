@@ -66,6 +66,10 @@ urlpatterns = [
     # Client Error Logging
     path('log-client-error/', views.ClientLogView.as_view(), name='log-client-error'),
 
+    # Public upload design susulan
+    path('public/get-order-details/', views.PublicOrderDetailsView.as_view(), name='public-get-order-details'),
+    path('public/submit-design/', views.PublicSubmitDesignView.as_view(), name='public-submit-design'),
+
     # Health check
     path('health/', HealthCheckView.as_view(), name='health-check'),
 ]
