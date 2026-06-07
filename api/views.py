@@ -707,10 +707,17 @@ class OrderViewSet(viewsets.ModelViewSet):
         # ✅ Filter tab/status di database level
         tab = self.request.query_params.get('tab')
         if tab:
-            if tab == 'piutang':
+            tab_map = {
+                'pending': 'review',
+                'printing': 'proses',
+                'completed': 'selesai',
+                'cancelled': 'batal'
+            }
+            mapped_tab = tab_map.get(tab, tab)
+            if mapped_tab == 'piutang':
                 base_qs = base_qs.filter(sisa_tagihan__gt=0).exclude(status_global='batal')
-            elif tab in ['draft', 'quotation', 'review', 'desain', 'proses', 'ready', 'selesai', 'batal']:
-                base_qs = base_qs.filter(status_global=tab)
+            elif mapped_tab in ['draft', 'quotation', 'review', 'desain', 'proses', 'ready', 'selesai', 'batal']:
+                base_qs = base_qs.filter(status_global=mapped_tab)
             
         if user.role in ['owner', 'manager', 'admin']:
             return base_qs
