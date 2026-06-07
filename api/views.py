@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, BasePermission, AllowAny
 from rest_framework.decorators import action
+from rest_framework.throttling import AnonRateThrottle
 from django.db.models import Count, Sum, Q, F
 from django.utils import timezone
 from django.db import transaction
@@ -1779,6 +1780,7 @@ class FonnteWebhookView(APIView):
     Alur: tanya nama → tracking → form order → aturan awal → FAQ → AI
     """
     permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
 
     def _kirim_balas(self, pesan):
         """Selalu kembalikan format array replies yang diharapkan Fonnte."""
@@ -2044,7 +2046,9 @@ class FonnteWebhookView(APIView):
                     continue
 
                 try:
-                    qty = int(''.join(filter(str.isdigit, jumlah_str)) or '1')
+                    # Extract the first consecutive block of digits instead of filtering out all non-digits (which turns "2.5" into "25")
+                    match_qty = _re.search(r'\d+', jumlah_str or '')
+                    qty = int(match_qty.group(0)) if match_qty else 1
                 except Exception:
                     qty = 1
 
@@ -2131,6 +2135,7 @@ class EvolutionWebhookView(APIView):
     dan mengirim balasan asinkron via REST API Client.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
 
     def post(self, request, *args, **kwargs):
         from .wa_logic import (
@@ -2532,7 +2537,10 @@ class EvolutionWebhookView(APIView):
                 if not jumlah_str or not jumlah_str.strip():
                     raise ValueError(f"Kolom 'Jumlah' pada Item {items_dibuat+1} tidak boleh kosong.")
                 
-                digits_only = ''.join(filter(str.isdigit, jumlah_str))
+                # Extract the first consecutive block of digits instead of filtering out all non-digits (which turns "2.5" into "25")
+                match_qty = _re.search(r'\d+', jumlah_str)
+                digits_only = match_qty.group(0) if match_qty else ''
+                
                 if not digits_only:
                     raise ValueError(f"Jumlah '{jumlah_str}' pada Item {items_dibuat+1} tidak mengandung angka yang valid.")
                 
@@ -2785,6 +2793,7 @@ class StaffPerformanceReportView(APIView):
 class HealthCheckView(APIView):
     """GET /api/health/ — Cek status semua komponen sistem."""
     permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
 
     def get(self, request):
         from django.db import connection
@@ -3160,18 +3169,32 @@ class ClientLogView(APIView):
     Logs frontend/client-side uncaught crashes to backend log files.
     """
     permission_classes = [] # Allow anonymous logging if crash occurs before login config is fully resolved
+    throttle_classes = [AnonRateThrottle]
 
     def post(self, request):
-        error_msg = request.data.get('error', 'Unknown Error')
+        error_msg = str(request.data.get('error', 'Unknown Error'))[:500]
+        # Remove any newlines or Carriage Returns to prevent log injection
+        error_msg = error_msg.replace('\n', ' ').replace('\r', ' ')
+        
         error_info = request.data.get('info', {})
-        url = request.data.get('url', 'Unknown URL')
-        user_agent = request.META.get('HTTP_USER_AGENT', 'Unknown User Agent')
+        if not isinstance(error_info, dict):
+            error_info = {}
+            
+        url = str(request.data.get('url', 'Unknown URL'))[:200]
+        url = url.replace('\n', ' ').replace('\r', ' ')
+        
+        user_agent = str(request.META.get('HTTP_USER_AGENT', 'Unknown User Agent'))[:200]
+        user_agent = user_agent.replace('\n', ' ').replace('\r', ' ')
+        
+        comp_stack = str(error_info.get('componentStack', 'N/A'))[:2000]
+        # We can keep stack trace newlines but escape them or log them safely
+        comp_stack = comp_stack.replace('\r', '')
         
         logger.critical(
             f"[CLIENT_CRASH] Uncaught frontend exception:\n"
             f"URL: {url}\n"
             f"Error: {error_msg}\n"
-            f"Component Stack: {error_info.get('componentStack', 'N/A')}\n"
+            f"Component Stack: {comp_stack}\n"
             f"User Agent: {user_agent}"
         )
         return Response({"status": "error_logged"}, status=200)
@@ -3183,6 +3206,7 @@ class PublicOrderDetailsView(APIView):
     Get order status & items for public upload design page (AllowAny).
     """
     permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
 
     def post(self, request):
         order_id = str(request.data.get('order_id', '')).strip().upper()
@@ -3232,6 +3256,7 @@ class PublicSubmitDesignView(APIView):
     Submit design url/file for specific order item (AllowAny).
     """
     permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
 
     def post(self, request):
         order_id = str(request.data.get('order_id', '')).strip().upper()

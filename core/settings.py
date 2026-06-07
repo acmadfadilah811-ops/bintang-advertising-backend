@@ -258,6 +258,13 @@ REST_FRAMEWORK = {
     # --- Pagination Kustom (Hanya aktif jika menyertakan param ?page= atau ?page_size=) ---
     'DEFAULT_PAGINATION_CLASS': 'api.pagination.OptionalPageNumberPagination',
     'PAGE_SIZE': 50,
+    # --- Rate Limiting / Throttling ---
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '30/minute',
+    },
 }
 
 # --- Konfigurasi DRF Spectacular (OpenAPI 3.0) ---

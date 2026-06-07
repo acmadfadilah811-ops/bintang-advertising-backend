@@ -1008,12 +1008,30 @@ def tanya_ai_finishing(nomor):
     try:
         history = get_memori_percakapan(nomor)
         client = get_ai_client()
-        response = client.chat.completions.create(
-            model="gemini-2.5-flash",
-            messages=history,
-            max_tokens=350,
-            temperature=0.3,
-        )
+        
+        # Retry logic with exponential backoff and timeout handling
+        import time
+        max_retries = 3
+        backoff_sec = 1.0
+        response = None
+        
+        for attempt in range(max_retries):
+            try:
+                response = client.chat.completions.create(
+                    model="gemini-2.5-flash",
+                    messages=history,
+                    max_tokens=350,
+                    temperature=0.3,
+                    timeout=15.0,  # 15 seconds timeout
+                )
+                break
+            except Exception as e:
+                logger.warning(f"AI completion attempt {attempt + 1} failed: {e}")
+                if attempt == max_retries - 1:
+                    raise e
+                time.sleep(backoff_sec)
+                backoff_sec *= 2.0
+
         if not response or not hasattr(response, 'choices') or not response.choices:
             raise ValueError("No completion choices returned from AI model")
         
