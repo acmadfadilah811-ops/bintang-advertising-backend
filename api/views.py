@@ -1983,7 +1983,9 @@ class FonnteWebhookView(APIView):
                 if match:
                     val = match.group(1).strip().strip('*_')
                     if val and val not in ('-', 'sudah ada / belum ada', '*sudah ada* / *belum ada*'):
-                        return val
+                        # Sanitize: strip HTML tags to prevent XSS and limit length to prevent giant strings
+                        val = _re.sub(r'<[^>]*>', '', val)
+                        return val[:250].strip()
             return ''
 
         # Ambil nama pemesan dari form (bisa "Nama Pemesan" atau "Nama")
@@ -2479,7 +2481,9 @@ class EvolutionWebhookView(APIView):
                 if match:
                     val = match.group(1).strip().strip('*_')
                     if val and val not in ('-', 'sudah ada / belum ada', '*sudah ada* / *belum ada*'):
-                        return val
+                        # Sanitize: strip HTML tags to prevent XSS and limit length to prevent giant strings
+                        val = _re.sub(r'<[^>]*>', '', val)
+                        return val[:250].strip()
             return ''
 
         nama_dari_form = (
@@ -3172,6 +3176,13 @@ class ClientLogView(APIView):
     throttle_classes = [AnonRateThrottle]
 
     def post(self, request):
+        # Basic pre-shared header token auth check
+        auth_header = request.headers.get("X-Client-Log-Auth")
+        expected_secret = os.getenv("CLIENT_LOG_SECRET", "BintangClientLogSecretKey123")
+        if not auth_header or auth_header != expected_secret:
+            logger.warning(f"Unauthorized call to ClientLogView from IP: {request.META.get('REMOTE_ADDR')}")
+            return Response({"error": "Unauthorized"}, status=401)
+
         error_msg = str(request.data.get('error', 'Unknown Error'))[:500]
         # Remove any newlines or Carriage Returns to prevent log injection
         error_msg = error_msg.replace('\n', ' ').replace('\r', ' ')
