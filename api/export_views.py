@@ -77,6 +77,39 @@ class ExportOrdersView(APIView):
         if not _check_role(request.user):
             return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
 
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
+
+        # Base Query
+        orders_qs = Order.objects.prefetch_related(
+            'items', 'items__jobs', 'items__jobs__pic_staff'
+        ).order_by('-waktu')
+
+        if start_date_str:
+            try:
+                from django.utils.dateparse import parse_date
+                s_date = parse_date(start_date_str)
+                if s_date:
+                    orders_qs = orders_qs.filter(waktu__date__gte=s_date)
+            except Exception:
+                pass
+        if end_date_str:
+            try:
+                from django.utils.dateparse import parse_date
+                e_date = parse_date(end_date_str)
+                if e_date:
+                    orders_qs = orders_qs.filter(waktu__date__lte=e_date)
+            except Exception:
+                pass
+
+        # Safety limit to prevent memory issue
+        total_count = orders_qs.count()
+        if total_count > 50000:
+            return Response({
+                'error': 'Terlalu banyak data untuk diekspor. Gunakan filter rentang tanggal (start_date & end_date) untuk membatasi hasil.',
+                'suggestion': f'Total data saat ini: {total_count} (Maksimal: 50.000)'
+            }, status=400)
+
         response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = f'attachment; filename="orders_{timezone.now().strftime("%Y%m%d")}.xlsx"'
 
@@ -92,11 +125,7 @@ class ExportOrdersView(APIView):
             ]
             ws.append(headers)
 
-            # Prefetch related items and job boards to optimize queries
-            orders = Order.objects.prefetch_related(
-                'items', 'items__jobs', 'items__jobs__pic_staff'
-            ).order_by('-waktu')
-            for order in orders:
+            for order in orders_qs:
                 items = order.items.all()
                 products = ", ".join([it.jenis_produk for it in items])
                 quantities = ", ".join([str(it.qty) for it in items])
@@ -151,8 +180,9 @@ class ExportInventoryView(APIView):
             for item in items:
                 status = 'Kritis' if item.stok < item.min_stok else 'Aman'
                 
-                # Evaluasi di memory Python agar tidak memicu N+1 query
-                history_list = sorted(list(item.history.all()), key=lambda h: h.waktu, reverse=True)
+                # Evaluasi di memory Python agar tidak memicu N+1 query.
+                # Karena RestockHistory memiliki Meta ordering = ['-waktu'], list ini sudah berurutan terbalik secara default.
+                history_list = list(item.history.all())
                 
                 latest_history = history_list[0] if history_list else None
                 tanggal_update_str = latest_history.waktu.strftime('%Y-%m-%d %H:%M') if latest_history else '-'
