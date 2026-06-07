@@ -32,32 +32,46 @@ def cleanup_expired_session_tokens():
     return expired_count
 
 
-def cleanup_old_activity_logs(days=90):
+def cleanup_old_activity_logs(days=90, batch_size=1000):
     """
     Hapus SecurityAuditLog yang lebih tua dari N hari (default 90 hari).
     Mencegah tabel audit log tumbuh tidak terbatas.
+    Menggunakan batching untuk menghindari database table lock.
     """
     from users.models import SecurityAuditLog
 
     cutoff = timezone.now() - timedelta(days=days)
-    deleted_count, _ = SecurityAuditLog.objects.filter(
-        timestamp__lt=cutoff
-    ).delete()
+    total_deleted = 0
+    while True:
+        ids = list(SecurityAuditLog.objects.filter(
+            timestamp__lt=cutoff
+        ).values_list('id', flat=True)[:batch_size])
+        if not ids:
+            break
+        deleted_count, _ = SecurityAuditLog.objects.filter(id__in=ids).delete()
+        total_deleted += deleted_count
 
-    logger.info(f"[cleanup] Menghapus {deleted_count} audit log lama (>{ days} hari).")
-    return deleted_count
+    logger.info(f"[cleanup] Menghapus {total_deleted} audit log lama (>{days} hari) dalam batch.")
+    return total_deleted
 
 
-def cleanup_old_order_activity_logs(days=180):
+def cleanup_old_order_activity_logs(days=180, batch_size=1000):
     """
     Hapus OrderActivityLog yang lebih tua dari N hari (default 180 hari).
+    Menggunakan batching untuk menghindari database table lock.
     """
     from .models import OrderActivityLog
 
     cutoff = timezone.now() - timedelta(days=days)
-    deleted_count, _ = OrderActivityLog.objects.filter(
-        waktu__lt=cutoff
-    ).delete()
+    total_deleted = 0
+    while True:
+        ids = list(OrderActivityLog.objects.filter(
+            waktu__lt=cutoff
+        ).values_list('id', flat=True)[:batch_size])
+        if not ids:
+            break
+        deleted_count, _ = OrderActivityLog.objects.filter(id__in=ids).delete()
+        total_deleted += deleted_count
 
-    logger.info(f"[cleanup] Menghapus {deleted_count} order activity log lama (>{days} hari).")
-    return deleted_count
+    logger.info(f"[cleanup] Menghapus {total_deleted} order activity log lama (>{days} hari) dalam batch.")
+    return total_deleted

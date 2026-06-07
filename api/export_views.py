@@ -34,10 +34,18 @@ class ExportContactsView(APIView):
             ws.append(headers)
 
             contacts = Contact.objects.all().order_by('-total_spent')
+            
+            # Optimasi N+1: Prefetch seluruh order sekaligus dan kelompokkan menggunakan dictionary
+            from collections import defaultdict
+            orders_by_wa = defaultdict(list)
+            all_orders = Order.objects.prefetch_related('items').all().order_by('-waktu')
+            for order in all_orders:
+                orders_by_wa[order.nomor_wa].append(order)
+
             for c in contacts:
                 # Ambil daftar produk yang dipesan beserta tanggalnya
                 ordered_products_with_dates = []
-                customer_orders = Order.objects.filter(nomor_wa=c.nomor_wa).prefetch_related('items').order_by('-waktu')
+                customer_orders = orders_by_wa.get(c.nomor_wa, [])
                 for order in customer_orders:
                     tgl_str = order.waktu.strftime('%d/%m/%Y')
                     for item in order.items.all():

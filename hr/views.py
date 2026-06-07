@@ -930,20 +930,26 @@ class UnlockRequestActionView(APIView):
     permission_classes = [IsOwnerOrManagerPerm]
     
     def post(self, request, pk, action):
-        req = UnlockRequest.objects.filter(pk=pk).first()
-        if not req:
-            return Response({"detail": "Permintaan tidak ditemukan."}, status=404)
-            
-        if action == "approve":
-            req.status = "approved"
-        elif action == "reject":
-            req.status = "rejected"
-        else:
-            return Response({"detail": "Action tidak valid."}, status=400)
-            
-        req.direspon_oleh = request.user
-        req.waktu_respon = timezone.now()
-        req.save()
+        from django.db import transaction
+        
+        with transaction.atomic():
+            req = UnlockRequest.objects.select_for_update().filter(pk=pk).first()
+            if not req:
+                return Response({"detail": "Permintaan tidak ditemukan."}, status=404)
+                
+            if req.status != "pending":
+                return Response({"detail": f"Permintaan sudah diproses sebelumnya (Status saat ini: {req.status})."}, status=400)
+                
+            if action == "approve":
+                req.status = "approved"
+            elif action == "reject":
+                req.status = "rejected"
+            else:
+                return Response({"detail": "Action tidak valid."}, status=400)
+                
+            req.direspon_oleh = request.user
+            req.waktu_respon = timezone.now()
+            req.save()
         
         return Response({"detail": f"Permintaan berhasil di-{action}.", "status": req.status})
 
