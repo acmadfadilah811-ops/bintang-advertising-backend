@@ -2078,9 +2078,6 @@ class FonnteWebhookView(APIView):
                 if finishing: detail_json.append({"key": "Finishing", "value": finishing})
                 if bahan: detail_json.append({"key": "Bahan", "value": bahan})
 
-                from .wa_logic import hitung_harga_item_db
-                calculated_price = hitung_harga_item_db(jenis_produk, bahan, qty, panjang, lebar)
-
                 order_item = OrderItem.objects.create(
                     order=order,
                     jenis_produk=jenis_produk,
@@ -2088,7 +2085,7 @@ class FonnteWebhookView(APIView):
                     panjang=panjang,
                     lebar=lebar,
                     bahan=bahan or '',
-                    harga_jual=calculated_price,
+                    harga_jual=0,
                     detail=detail_json,
                     keterangan_detail=keterangan or '',
                     gdrive_customer_link='',
@@ -2112,14 +2109,11 @@ class FonnteWebhookView(APIView):
 
             # Jika tidak ada item yang terdeteksi, buat 1 item generik
             if items_dibuat == 0:
-                from .wa_logic import hitung_harga_item_db
-                calculated_price = hitung_harga_item_db('Umum', '', 1)
-                
                 order_item = OrderItem.objects.create(
                     order=order,
                     jenis_produk='Umum',
                     qty=1,
-                    harga_jual=calculated_price,
+                    harga_jual=0,
                     detail=detail[:200],
                 )
                 tahap_awal = TahapProses.objects.order_by('urutan').first()
@@ -2584,9 +2578,6 @@ class EvolutionWebhookView(APIView):
                 if link_match:
                     gdrive_link = link_match.group(1)
 
-                from .wa_logic import hitung_harga_item_db
-                calculated_price = hitung_harga_item_db(jenis_produk, bahan, qty, panjang, lebar)
-
                 order_item = OrderItem.objects.create(
                     order=order,
                     jenis_produk=jenis_produk,
@@ -2594,7 +2585,7 @@ class EvolutionWebhookView(APIView):
                     panjang=panjang,
                     lebar=lebar,
                     bahan=bahan or '',
-                    harga_jual=calculated_price,
+                    harga_jual=0,
                     detail=detail_json,
                     keterangan_detail=keterangan or '',
                     gdrive_customer_link=gdrive_link,
@@ -2617,14 +2608,11 @@ class EvolutionWebhookView(APIView):
                 items_dibuat += 1
 
             if items_dibuat == 0:
-                from .wa_logic import hitung_harga_item_db
-                calculated_price = hitung_harga_item_db('Umum', '', 1)
-
                 order_item = OrderItem.objects.create(
                     order=order,
                     jenis_produk='Umum',
                     qty=1,
-                    harga_jual=calculated_price,
+                    harga_jual=0,
                     detail=[{"key": "Info", "value": "Format tidak terurai"}],
                     keterangan_detail=detail[:200],
                 )

@@ -733,10 +733,7 @@ def cek_harga(pesan, nama_pelanggan):
     Cek apakah pelanggan menanyakan harga — jika ya, jawab dengan info harga.
     TIDAK mengirimkan form order.
     """
-    # 1. Coba hitung harga otomatis dengan kalkulator pintar terlebih dahulu
-    jawaban_kalkulator = hitung_harga_otomatis(pesan, nama_pelanggan)
-    if jawaban_kalkulator:
-        return jawaban_kalkulator
+    # 1. Kalkulator pintar otomatis dinonaktifkan demi akurasi harga (dihitung manual oleh admin).
 
     # 2. Jika tidak ada spesifikasi kalkulator, tampilkan list harga umum
     from .models import ProductPrice
