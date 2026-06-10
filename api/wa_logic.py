@@ -125,14 +125,16 @@ def get_system_prompt(nama_pelanggan=""):
     except SystemConfig.DoesNotExist:
         biz_name = get_business_name()
         template_ai = (
-            f"Kamu adalah asisten virtual {biz_name} yang ramah dan profesional. "
-            "Jawab dalam bahasa Indonesia yang santai dan singkat.\n\n"
-            "=== ATURAN WAJIB ===\n"
-            "1. Jika pelanggan menyebut ingin mencetak, memesan, membuat, atau order produk apapun, "
-            "LANGSUNG kirimkan form order di bawah ini PERSIS APA ADANYA. "
-            "JANGAN tanya detail dulu. JANGAN buat form sendiri dengan format berbeda.\n"
-            "2. Jika hanya tanya harga atau info produk, jawab singkat tanpa form.\n"
-            "3. Jangan mengarang harga — gunakan data harga yang tersedia.\n\n"
+            f"Kamu adalah asisten virtual {biz_name} yang sangat ramah, sopan, dan profesional.\n"
+            f"Saat ini kamu sedang melayani pelanggan bernama {nama_pelanggan or 'Kakak'}.\n\n"
+            "=== ATURAN WAJIB & BATASAN RANAH ===\n"
+            "1. BATASAN RANAH (MUTLAK): Kamu HANYA boleh menjawab pertanyaan yang berkaitan langsung dengan layanan cetak, produk, info harga, status pesanan, dan informasi bisnis dari Bintang Advertising.\n"
+            "Jika pelanggan bertanya tentang topik di luar bisnis ini (misal: politik, agama, tips umum, matematika, membantu tugas, gosip, resep makanan, curhat, menyapa secara umum di luar bisnis, dll.), Anda WAJIB menolak secara sopan dan mengarahkan kembali ke layanan cetak kami.\n"
+            "Contoh penolakan: 'Mohon maaf ya Kak, sebagai asisten virtual Bintang Advertising, saya hanya dapat membantu terkait informasi produk, harga, pemesanan, dan layanan cetak di Bintang Advertising. Ada yang bisa saya bantu terkait kebutuhan cetak Kakak? 😊'\n\n"
+            "2. JAWAB SINGKAT & LENGKAP: Jawablah dengan santai, komunikatif, dan ringkas dalam bahasa Indonesia. Jangan bertele-tele agar jawaban tidak terpotong (truncated) di WhatsApp.\n\n"
+            "3. PANTANGAN UTAMA & SANGAT KRUSIAL: JANGAN PERNAH MENGARANG, MENAKSIR, ATAU MEMBUAT HARGA SENDIRI! Jika produk/spesifikasi yang ditanyakan tidak tertera secara persis di \"Data harga produk\" di bawah (misalnya: sablon kaos, brosur custom, cetak buku selain yasin, dll.), Anda DILARANG memberikan perkiraan harga. Jawablah secara sopan bahwa produk tersebut belum masuk daftar harga standar kami, dan minta pelanggan menunggu sebentar karena admin manusia kami akan segera membalas chat ini untuk memberikan penawaran harga terbaik secara langsung.\n"
+            "Contoh: 'Mohon maaf ya Kak, produk tersebut belum masuk ke dalam daftar harga standar kami. Silakan tunggu sebentar ya Kak, admin kami akan segera membantu memberikan penawaran harga terbaik untuk Kakak! 🙏😊'\n\n"
+            "4. ALUR ORDER: Jika pelanggan menyebut ingin memesan, membuat, mencetak, atau order produk apapun, LANGSUNG kirimkan form order di bawah ini PERSIS apa adanya. JANGAN tanya detail dulu. JANGAN buat form sendiri dengan format berbeda.\n\n"
             "=== TEMPLATE FORM ORDER (gunakan PERSIS ini, jangan ubah format) ===\n"
             f"📋 *FORM ORDER - {biz_name}*\n"
             "_(Bisa isi lebih dari 1 item)_\n\n"
@@ -273,9 +275,21 @@ def format_tracking(order, panggilan="Kak"):
 
 
 def cek_tracking(pesan, nomor, nama_pelanggan):
+    p = pesan.lower().strip()
+    panggilan = f"Kak {nama_pelanggan}" if nama_pelanggan else "Kak"
+
+    # BUG FIX: Skip jika ini merupakan kiriman form order atau form desain agar tidak ter-intercept
+    is_form_ord = (
+        ('jenis produk' in p and ('no. wa' in p or 'item 1' in p or 'no wa' in p))
+        or
+        ('nama pemesan' in p and 'jenis produk' in p)
+    )
+    is_form_des = 'tulisan yang dimuat' in p or 'dominan warna' in p
+    if is_form_ord or is_form_des:
+        return None
+
     from .models import Order
     p = pesan.lower()
-    panggilan = f"Kak {nama_pelanggan}" if nama_pelanggan else "Kak"
 
     # Hanya trigger jika ada keyword tracking yang SPESIFIK
     keyword_tracking = ['cek pesanan', 'cek order', 'lacak', 'tracking', 'status pesanan', 'ord-']
@@ -315,22 +329,38 @@ def cek_tracking(pesan, nomor, nama_pelanggan):
             )
 
 
-def proses_kirim_desain(pesan, nomor, nama_pelanggan):
+def proses_kirim_desain(pesan, nomor, nama_pelanggan, media_url=""):
     from .models import Order, OrderActivityLog
     p = pesan.lower().strip()
     panggilan = f"Kak {nama_pelanggan}" if nama_pelanggan else "Kak"
 
-    if 'kirim desain' not in p:
-        return None
-
-    # Cari Order ID
+    is_kirim_desain = 'kirim desain' in p
     match = re.search(r'(ord-[\w-]+)', p)
-    if not match:
-        return (
-            f"Mohon sertakan ID Pesanan Kakak untuk mengirim desain susulan.\n"
-            f"Format: *Kirim Desain [ID Pesanan] [Link Google Drive]*\n"
-            f"Contoh: *Kirim Desain ORD-20260606-XXXX https://drive.google.com/...*"
-        )
+
+    # 1. Jika ada media_url dan ID order terdeteksi
+    if media_url and match:
+        gdrive_link = media_url
+    # 2. Jika ada keyword kirim desain
+    elif is_kirim_desain:
+        if not match:
+            return (
+                f"Mohon sertakan ID Pesanan Kakak untuk mengirim desain susulan.\n"
+                f"Format: *Kirim Desain [ID Pesanan] [Link Google Drive]*\n"
+                f"Contoh: *Kirim Desain ORD-20260606-XXXX https://drive.google.com/...*"
+            )
+
+        url_match = re.search(r'(https?://[^\s]+)', pesan)
+        if not url_match and media_url:
+            gdrive_link = media_url
+        elif url_match:
+            gdrive_link = url_match.group(1)
+        else:
+            return (
+                f"Silakan sertakan link file desain Kakak (misal: link Google Drive atau Dropbox).\n"
+                f"Contoh: *Kirim Desain {match.group(1).upper()} https://drive.google.com/...*"
+            )
+    else:
+        return None
 
     order_id = match.group(1).upper()
     try:
@@ -344,16 +374,6 @@ def proses_kirim_desain(pesan, nomor, nama_pelanggan):
     if cleaned_input[-9:] != cleaned_db[-9:]:
         return f"Maaf {panggilan}, nomor WhatsApp ini tidak cocok dengan data pemesan ID *{order_id}*."
 
-    # Cari URL
-    url_match = re.search(r'(https?://[^\s]+)', pesan)
-    if not url_match:
-        return (
-            f"Silakan sertakan link file desain Kakak (misal: link Google Drive atau Dropbox).\n"
-            f"Contoh: *Kirim Desain {order_id} https://drive.google.com/...*"
-        )
-
-    gdrive_link = url_match.group(1)
-    
     # Simpan ke order items
     items = order.items.all()
     if not items.exists():
@@ -378,7 +398,7 @@ def proses_kirim_desain(pesan, nomor, nama_pelanggan):
         order=order,
         user=None,
         tindakan="SUBMIT_DESIGN_SUSULAN",
-        keterangan=f"Pelanggan mengirim link desain susulan via WA: {gdrive_link}"
+        keterangan=f"Pelanggan mengirim file desain susulan via WA: {gdrive_link}"
     )
 
     return (
@@ -610,8 +630,12 @@ def hitung_harga_otomatis(pesan, nama_pelanggan=""):
     is_a3 = any(k in p for k in ['a3', 'brosur', 'ap150', 'ap120', 'ivory', 'hvs', 'flyer', 'poster', 'print a3'])
     
     is_calc_intent = any(k in p for k in ['hitung', 'kalkulasi', 'kalkulator', 'estimasi'])
-    is_price_intent = any(k in p for k in ['harga', 'berapa', 'tarif', 'biaya', 'kisaran', 'rate', 'cost', 'price'])
+    is_price_intent = any(k in p for k in ['harga', 'berapa', 'tarif', 'biaya', 'kisaran', 'rate', 'cost', 'price', 'harganya', 'ongkos', 'ongkir'])
     
+    # Hanya kalkulasi jika ada niat kalkulasi/tanya harga, atau jika ada spesifikasi lengkap (ukuran atau jumlah > 1)
+    if not (is_calc_intent or is_price_intent or (panjang and lebar) or (qty > 1)):
+        return None
+
     # If there is a calculation intent or a price query with dimensions/quantities
     has_specs = (panjang and lebar) or (qty > 1 and (is_sticker or is_kartu_nama or is_a3))
     
@@ -640,7 +664,7 @@ def hitung_harga_otomatis(pesan, nama_pelanggan=""):
             
         luas = panjang * lebar
         lines = [
-            f"🧮 *KALKULATOR PINTAR - BANNER/SPANDUK*",
+            f"📋 *ESTIMASI TOTAL BIAYA - BANNER/SPANDUK*",
             f"Halo {panggilan}! Berikut rincian estimasi harganya:\n",
             f"📐 *Ukuran*: {panjang:.2f} x {lebar:.2f} meter (Luas: {luas:.2f} m²)",
             f"📦 *Jumlah*: {qty} lembar\n",
@@ -663,7 +687,7 @@ def hitung_harga_otomatis(pesan, nama_pelanggan=""):
         
     elif is_sticker:
         lines = [
-            f"🧮 *KALKULATOR PINTAR - STIKER A3+*",
+            f"📋 *ESTIMASI TOTAL BIAYA - STIKER A3+*",
             f"Halo {panggilan}! Berikut rincian estimasi harganya:\n",
             f"📦 *Jumlah*: {qty} lembar A3+\n",
             f"💵 *Pilihan Bahan & Estimasi Harga*:"
@@ -685,7 +709,7 @@ def hitung_harga_otomatis(pesan, nama_pelanggan=""):
         
     elif is_kartu_nama:
         lines = [
-            f"🧮 *KALKULATOR PINTAR - KARTU NAMA*",
+            f"📋 *ESTIMASI TOTAL BIAYA - KARTU NAMA*",
             f"Halo {panggilan}! Berikut rincian estimasi harganya:\n",
             f"📦 *Jumlah*: {qty} Box (1 Box = 100 lembar)\n",
             f"💵 *Pilihan Bahan & Estimasi Harga (Bahan Ivory 260)*:"
@@ -707,7 +731,7 @@ def hitung_harga_otomatis(pesan, nama_pelanggan=""):
         
     elif is_a3:
         lines = [
-            f"🧮 *KALKULATOR PINTAR - PRINT A3+*",
+            f"📋 *ESTIMASI TOTAL BIAYA - PRINT A3+*",
             f"Halo {panggilan}! Berikut rincian estimasi harganya:\n",
             f"📦 *Jumlah*: {qty} lembar A3+\n",
             f"💵 *Pilihan Kertas & Estimasi Harga*:"
@@ -733,7 +757,28 @@ def cek_harga(pesan, nama_pelanggan):
     Cek apakah pelanggan menanyakan harga — jika ya, jawab dengan info harga.
     TIDAK mengirimkan form order.
     """
-    # 1. Kalkulator pintar otomatis dinonaktifkan demi akurasi harga (dihitung manual oleh admin).
+    p = pesan.lower().strip()
+    panggilan = f"Kak {nama_pelanggan}" if nama_pelanggan else "Kak"
+    
+    # ── CEK TANYA HARI INI / CETAK CEPAT (RUSH ORDER) TERLEBIH DAHULU ─────────────
+    kata_cepat = [
+        'hari ini', 'langsung jadi', 'bisa ditunggu', 'express', 'kilat',
+        'kapan jadi', 'selesai kapan', 'bisa jadi', 'hari ini jadi', 'langsung selesai',
+        'buru-buru', 'kejar deadline', 'kapan beres', 'bisa ditunggu'
+    ]
+    if any(k in p for k in kata_cepat):
+        return (
+            f"Mohon maaf {panggilan}, untuk cetak cepat atau jika ingin jadi hari ini, "
+            "kami perlu konfirmasi kepada staff terlebih dahulu terkait jam jadi, "
+            "karena perlu melihat antrean yang sudah ada ya Kak. 🙏\n\n"
+            "Boleh tahu rencana mau cetak produk apa, ukuran berapa, dan berapa banyak? "
+            "Biar bisa kami tanyakan langsung ke staff produksi. 😊"
+        )
+
+    # 1. Coba hitung harga otomatis dengan kalkulator pintar terlebih dahulu
+    jawaban_kalkulator = hitung_harga_otomatis(pesan, nama_pelanggan)
+    if jawaban_kalkulator:
+        return jawaban_kalkulator
 
     # 2. Jika tidak ada spesifikasi kalkulator, tampilkan list harga umum
     from .models import ProductPrice
@@ -810,17 +855,24 @@ def cek_harga(pesan, nama_pelanggan):
             f"Cetak berapa lembar {panggilan}? 😊"
         )
 
-    # Tanya harga umum tanpa spesifik produk
-    return (
-        f"Halo {panggilan}! 😊 Berikut kisaran harga kami:\n\n"
-        f"🏳️ *Banner/Spanduk*: Rp 18.000–65.000/m²\n"
-        f"🏷️ *Stiker*: Rp 7.000–15.000/lembar\n"
-        f"💳 *Kartu Nama*: Rp 35.000–65.000/box\n"
-        f"📄 *Print A3+*: Rp 5.000–8.000/lembar\n"
-        f"🪧 *Stand Banner*: mulai Rp 150.000\n"
-        f"📖 *Buku Yasin*: hubungi admin untuk penawaran\n\n"
-        f"Tanya harga spesifik produk tertentu? Sebutkan aja ya Kak 😊"
-    )
+    # Tanya harga umum/pricelist secara eksplisit
+    kata_umum = ['daftar', 'list', 'tabel', 'pricelist', 'price list', 'semua', 'katalog', 'apa saja', 'menu']
+    is_short_price_query = (len(p) <= 15) and any(k in p for k in ['harga', 'berapa', 'pricelist'])
+    
+    if any(k in p for k in kata_umum) or is_short_price_query:
+        return (
+            f"Halo {panggilan}! 😊 Berikut kisaran harga kami:\n\n"
+            f"🏳️ *Banner/Spanduk*: Rp 18.000–65.000/m²\n"
+            f"🏷️ *Stiker*: Rp 7.000–15.000/lembar\n"
+            f"💳 *Kartu Nama*: Rp 35.000–65.000/box\n"
+            f"📄 *Print A3+*: Rp 5.000–8.000/lembar\n"
+            f"🪧 *Stand Banner*: mulai Rp 150.000\n"
+            f"📖 *Buku Yasin*: hubungi admin untuk penawaran\n\n"
+            f"Tanya harga spesifik produk tertentu? Sebutkan aja ya Kak 😊"
+        )
+
+    # Jika bukan request pricelist umum dan tidak cocok produk spesifik, biarkan AI menjawab sesuai konteks percakapan
+    return None
 
 
 # ════════════════════════════════════════════════════════════════
@@ -930,6 +982,21 @@ def cek_rules_awal(pesan, nomor, nama_pelanggan):
             f"Tanya harga produk tertentu atau langsung mau pesan? 😊"
         )
 
+    # ── CEK TANYA HARI INI / CETAK CEPAT (RUSH ORDER) ─────────────
+    kata_cepat = [
+        'hari ini', 'langsung jadi', 'bisa ditunggu', 'express', 'kilat',
+        'kapan jadi', 'selesai kapan', 'bisa jadi', 'hari ini jadi', 'langsung selesai',
+        'buru-buru', 'kejar deadline', 'kapan beres', 'bisa ditunggu'
+    ]
+    if any(k in p for k in kata_cepat):
+        return (
+            f"Mohon maaf {panggilan}, untuk cetak cepat atau jika ingin jadi hari ini, "
+            "kami perlu konfirmasi kepada staff terlebih dahulu terkait jam jadi, "
+            "karena perlu melihat antrean yang sudah ada ya Kak. 🙏\n\n"
+            "Boleh tahu rencana mau cetak produk apa, ukuran berapa, dan berapa banyak? "
+            "Biar bisa kami tanyakan langsung ke staff produksi. 😊"
+        )
+
     # ── MINTA FORM / EKSPLISIT MAU ORDER ─────────────────────────
     # Trigger 1: kata order eksplisit
     kata_order_eksplisit = [
@@ -958,8 +1025,9 @@ def cek_rules_awal(pesan, nomor, nama_pelanggan):
         return f"Siap {panggilan}! Silakan *copy* dan isi form order berikut:\n\n{form}"
 
     # Trigger 3: hanya sebutkan produk TANPA tanya harga → tawarkan opsi
-    # (jangan langsung form — mungkin mereka hanya tanya info)
-    if punya_produk and not any(k in p for k in ['harga', 'berapa', 'tarif', 'biaya']):
+    # (Hanya jika pesannya sangat singkat/hanya nama produk saja, agar tidak menabrak pertanyaan kalimat lengkap/AI)
+    is_short_keyword = (len(p) <= 15) or (p in [k.lower() for k in kata_produk_all])
+    if punya_produk and is_short_keyword and not any(k in p for k in ['harga', 'berapa', 'tarif', 'biaya']):
         return (
             f"Halo {panggilan}! 😊 Butuh bantuan apa untuk *{pesan.strip()}*?\n\n"
             f"1️⃣ Tanya *harga*\n"
@@ -1015,9 +1083,9 @@ def tanya_ai_finishing(nomor):
         for attempt in range(max_retries):
             try:
                 response = client.chat.completions.create(
-                    model="gemini-2.5-flash",
+                    model=os.getenv("KOBOI_MODEL", "gemini-2.5-flash"),
                     messages=history,
-                    max_tokens=350,
+                    max_tokens=2048,
                     temperature=0.3,
                     timeout=15.0,  # 15 seconds timeout
                 )

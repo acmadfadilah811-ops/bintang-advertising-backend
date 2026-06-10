@@ -1777,6 +1777,115 @@ class ForwardJobView(APIView):
 
             return Response({'error': 'Aksi tidak valid. Gunakan "forward" atau "selesai".'}, status=status.HTTP_400_BAD_REQUEST)
 
+def update_desain_dari_form_data(detail):
+    """
+    Parse teks FORM KONSEP DESAIN -> update ke DB pada OrderItem yang cocok.
+    Kembalikan (order_id, success_boolean, error_message).
+    """
+    def ambil_field(teks, *keys):
+        keys_all = [
+            'ID Pesanan', 'ID Order',
+            'Tulisan yang dimuat', 'Tulisan',
+            'Dominan Warna', 'Warna',
+            'Logo / Foto (Ada/Tidak)', 'Logo / Foto', 'Logo',
+            'Bentuk (Vertikal / Horizontal)', 'Bentuk',
+            'Request Tambahan', 'Keterangan',
+            'desain sudah sesuai', 'data sudah sesuai',
+            'File Desain'
+        ]
+        escaped_keys = []
+        for k in keys_all:
+            pat = _re.escape(k).replace('\\ ', ' ').replace(' ', '[ \t\xa0]+')
+            escaped_keys.append(pat)
+        
+        # Add footers manually
+        escaped_keys.append(r'===?\s*AKHIR\s*TEMPLATE\s*===?')
+        escaped_keys.append(r'⚠️\s*\*?PENTING:\*?')
+        
+        lookahead_keys_pat = "|".join(escaped_keys)
+
+        for key in keys:
+            key_pat = _re.escape(key).replace('\\ ', ' ').replace(' ', '[ \t\xa0]+')
+            # Lookahead check for next field header or footer keywords
+            pattern = rf'(?:[-*••]|\d+\.)?[ \t\xa0]*{key_pat}[ \t\xa0]*[:=][ \t\xa0]*(.*?)(?=\r?\n[ \t\xa0]*(?:[-*••]|\d+\.)?[ \t\xa0]*(?:{lookahead_keys_pat})[ \t\xa0]*[:=]|\r?\n[ \t\xa0]*(?:{lookahead_keys_pat})|$)'
+            match = _re.search(pattern, teks, _re.IGNORECASE | _re.DOTALL)
+            if match:
+                val = match.group(1).strip().strip('*_')
+                if val and val not in ('-', 'sudah ada / belum ada', '*sudah ada* / *belum ada*'):
+                    return val
+        return ''
+
+    order_id = ambil_field(detail, 'ID Pesanan', 'ID Order').upper()
+    if not order_id:
+        # Fallback search menggunakan regex untuk ORD-...
+        match = _re.search(r'(ord-[\w-]+)', detail, _re.IGNORECASE)
+        if match:
+            order_id = match.group(1).upper()
+
+    if not order_id:
+        return None, False, "ID Pesanan tidak ditemukan dalam form konsep desain Kakak."
+
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        return order_id, False, f"Pesanan dengan ID *{order_id}* tidak ditemukan di sistem kami."
+
+    # Ekstrak field konsep desain
+    tulisan = ambil_field(detail, 'Tulisan yang dimuat', 'Tulisan')
+    warna = ambil_field(detail, 'Dominan Warna', 'Warna')
+    logo = ambil_field(detail, 'Logo / Foto (Ada/Tidak)', 'Logo / Foto', 'Logo')
+    bentuk = ambil_field(detail, 'Bentuk (Vertikal / Horizontal)', 'Bentuk')
+    req_tambahan = ambil_field(detail, 'Request Tambahan', 'Keterangan')
+
+    # Update OrderItem milik order ini
+    item = order.items.first()
+    if not item:
+        return order_id, False, f"Pesanan *{order_id}* tidak memiliki item produk."
+
+    with transaction.atomic():
+        # Bentuk detail_desain dalam JSON
+        detail_json = []
+        if isinstance(item.detail, list):
+            detail_json = item.detail
+        elif isinstance(item.detail, str) and item.detail:
+            detail_json = [{"key": "Spesifikasi", "value": item.detail}]
+
+        # Ganti info konsep desain lama jika ada
+        detail_json = [d for d in detail_json if d.get('key') != 'Konsep Desain']
+        detail_json.append({
+            "key": "Konsep Desain",
+            "value": {
+                "tulisan": tulisan,
+                "warna_dominan": warna,
+                "logo_foto": logo,
+                "bentuk": bentuk,
+                "request_tambahan": req_tambahan
+            }
+        })
+        item.detail = detail_json
+        
+        # Update keterangan_detail
+        keterangan_gabung = (
+            f"Konsep Desain:\n"
+            f"- Tulisan yang dimuat: {tulisan}\n"
+            f"- Dominan Warna: {warna}\n"
+            f"- Logo / Foto (Ada/Tidak): {logo}\n"
+            f"- Bentuk (Vertikal / Horizontal): {bentuk}\n"
+            f"- Request Tambahan: {req_tambahan}"
+        )
+        item.keterangan_detail = keterangan_gabung
+        item.save()
+
+        # Pindahkan job board ke tahap desain jika ada
+        jobs = JobBoard.objects.filter(order_item=item)
+        for job in jobs:
+            if job.tahap and 'desain' in job.tahap.nama.lower():
+                # Jika status pekerjaan tertahan di antrean, aktifkan kembali
+                job.status_pekerjaan = 'antrean'
+                job.save()
+
+    return order_id, True, ""
+
 # ---------------------------------------------------------
 # 12. WEBHOOK FONNTE (BOT WHATSAPP) — Full logic
 # ---------------------------------------------------------
@@ -1812,10 +1921,12 @@ class FonnteWebhookView(APIView):
             sender  = str(data['query'].get('sender', '')).strip()
             message = str(data['query'].get('message', '')).strip()
             is_group = data['query'].get('isGroup', False)
+            media_url = data['query'].get('url', '') or data['query'].get('filename', '')
         else:
             sender  = str(data.get('sender', '')).strip()
             message = str(data.get('message', data.get('query', ''))).strip()
             is_group = False
+            media_url = data.get('url', '') or data.get('filename', '')
 
         # Bersihkan format nomor: hapus +, spasi, tanda -
         # Contoh: "+62 882-0075-63131" → "628820075631131"
@@ -1876,13 +1987,22 @@ class FonnteWebhookView(APIView):
         simpan_ke_memori(sender, "user", message, nama_pelanggan)
 
         # ── STEP 2: Tracking / Kirim Desain pesanan ───────────────────────────────
-        jawaban = proses_kirim_desain(message, sender, nama_pelanggan)
-        if not jawaban:
-            jawaban = cek_tracking(message, sender, nama_pelanggan)
-        if jawaban:
-            # Langsung balas tracking / kirim desain — jangan lanjut ke step lain
-            simpan_ke_memori(sender, "assistant", jawaban, nama_pelanggan)
-            return self._kirim_balas(jawaban)
+        is_form_order = (
+            ('jenis produk' in p_kecil and ('no. wa' in p_kecil or 'item 1' in p_kecil or 'no wa' in p_kecil))
+            or
+            ('nama pemesan' in p_kecil and 'jenis produk' in p_kecil)
+        )
+        is_form_desain = 'tulisan yang dimuat' in p_kecil or 'dominan warna' in p_kecil
+
+        jawaban = ""
+        if not (is_form_order or is_form_desain):
+            jawaban = proses_kirim_desain(message, sender, nama_pelanggan, media_url=media_url)
+            if not jawaban:
+                jawaban = cek_tracking(message, sender, nama_pelanggan)
+            if jawaban:
+                # Langsung balas tracking / kirim desain — jangan lanjut ke step lain
+                simpan_ke_memori(sender, "assistant", jawaban, nama_pelanggan)
+                return self._kirim_balas(jawaban)
 
         # ── STEP 3: Deteksi form order / desain masuk ─────────────
         if not jawaban:
@@ -1898,55 +2018,79 @@ class FonnteWebhookView(APIView):
 
             if is_form_order or is_form_desain:
                 # Bersihkan footer instruksi/konfirmasi
-                detail_bersih = _re.split(r'(?i)===?\s*AKHIR\s*TEMPLATE\s*===?|⚠️\s*\*?PENTING:\*?|data\s+sudah\s+sesuai', message)[0].strip()
+                detail_bersih = _re.split(r'(?i)===?\s*AKHIR\s*TEMPLATE\s*===?|⚠️\s*\*?PENTING:\*?|data\s+sudah\s+sesuai|desain\s+sudah\s+sesuai', message)[0].strip()
                 try:
-                    order_id = self._simpan_order_dari_form(sender, nama_pelanggan, detail_bersih)
-                    order_instance = Order.objects.prefetch_related('items').get(id=order_id)
-                    label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
-                    
-                    item_lines = []
-                    total_estimasi = 0
-                    for item in order_instance.items.all():
-                        spec_parts = []
-                        if item.panjang > 0 and item.lebar > 0:
-                            spec_parts.append(f"{item.panjang:.1f}x{item.lebar:.1f}m")
-                        if item.bahan:
-                            spec_parts.append(item.bahan)
-                        spec_str = f" ({', '.join(spec_parts)})" if spec_parts else ""
+                    if is_form_desain:
+                        order_id, success, err_msg = update_desain_dari_form_data(detail_bersih)
+                        if success:
+                            jawaban = (
+                                f"Terima kasih {panggilan}! Konsep desain sudah masuk ke Antrean Desain ✅\n\n"
+                                f"🎫 *ID PESANAN: {order_id}*\n"
+                                f"Tim desain kami akan segera memproses konsep Kakak. Mohon ditunggu ya! 🙏"
+                            )
+                        else:
+                            jawaban = (
+                                f"Maaf {panggilan}, gagal memproses konsep desain Kakak:\n"
+                                f"⚠️ {err_msg}\n\n"
+                                f"Mohon periksa kembali ID Pesanan Kakak dan kirimkan ulang dengan benar ya Kak. 🙏"
+                            )
+                    else:
+                        order_id, is_desain_ready = self._simpan_order_dari_form(sender, nama_pelanggan, detail_bersih)
+                        order_instance = Order.objects.prefetch_related('items').get(id=order_id)
+                        label = "Pesanan Anda telah masuk ke sistem kami"
                         
-                        price_val = item.harga_jual or 0
-                        price_display = f"Rp {price_val:,}" if price_val > 0 else "Hubungi Admin"
-                        price_display = price_display.replace(',', '.')
-                        item_lines.append(f"• *{item.jenis_produk}*{spec_str} - {item.qty}x")
-                        item_lines.append(f"  └─ Est. Harga: *{price_display}*")
-                        total_estimasi += price_val
+                        item_lines = []
+                        total_estimasi = 0
+                        for item in order_instance.items.all():
+                            spec_parts = []
+                            if item.panjang > 0 and item.lebar > 0:
+                                spec_parts.append(f"{item.panjang:.1f}x{item.lebar:.1f}m")
+                            if item.bahan:
+                                spec_parts.append(item.bahan)
+                            spec_str = f" ({', '.join(spec_parts)})" if spec_parts else ""
+                            
+                            price_val = item.harga_jual or 0
+                            price_display = f"Rp {price_val:,}" if price_val > 0 else "Hubungi Admin"
+                            price_display = price_display.replace(',', '.')
+                            item_lines.append(f"• *{item.jenis_produk}*{spec_str} - {item.qty}x")
+                            item_lines.append(f"  └─ Est. Harga: *{price_display}*")
+                            total_estimasi += price_val
+                            
+                        total_display = f"Rp {total_estimasi:,}" if total_estimasi > 0 else "Hubungi Admin"
+                        total_display = total_display.replace(',', '.')
                         
-                    total_display = f"Rp {total_estimasi:,}" if total_estimasi > 0 else "Hubungi Admin"
-                    total_display = total_display.replace(',', '.')
-                    
-                    jawaban = (
-                        f"Terima kasih {panggilan}! {label} ✅\n\n"
-                        f"🎫 *ID PESANAN: {order_id}*\n"
-                        f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
-                        f"📝 *RINCIAN PESANAN:*\n"
-                        + "\n".join(item_lines) + "\n\n"
-                        f"💰 *TOTAL ESTIMASI: {total_display}*\n\n"
-                        f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
-                    )
-                    # Jika ada item yang belum memiliki desain, infokan link upload
-                    from django.db.models import Q
-                    has_no_design = order_instance.items.filter(Q(gdrive_customer_link__isnull=True) | Q(gdrive_customer_link='')).exists()
-                    if has_no_design:
-                        frontend_base = os.getenv("FRONTEND_PUBLIC_URL", "https://brandy-crm-811.web.app")
-                        if not frontend_base.startswith("http"):
-                            frontend_base = f"https://{frontend_base}"
-                        upload_link = f"{frontend_base}/public/upload-desain/{order_id}"
-                        jawaban += (
-                            f"\n\nJika file desain sudah siap, Kakak bisa mengirimkannya lewat link berikut:\n"
-                            f"🔗 {upload_link}\n"
-                            f"Atau mengirimkannya langsung ke chat ini dengan format:\n"
-                            f"*Kirim Desain {order_id} [Link Google Drive]*"
+                        jawaban = (
+                            f"Terima kasih {panggilan}! {label} ✅\n\n"
+                            f"🎫 *ID PESANAN: {order_id}*\n"
+                            f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
+                            f"📝 *RINCIAN PESANAN:*\n"
+                            + "\n".join(item_lines) + "\n\n"
+                            f"💰 *TOTAL ESTIMASI: {total_display}*\n\n"
+                            f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
                         )
+                        # Jika ada item yang belum memiliki desain, infokan link upload / petunjuk kirim langsung
+                        from django.db.models import Q
+                        has_no_design = order_instance.items.filter(Q(gdrive_customer_link__isnull=True) | Q(gdrive_customer_link='')).exists()
+                        if has_no_design:
+                            if is_desain_ready:
+                                jawaban += (
+                                    f"\n\nSilakan kirimkan file desain Kakak langsung ke chat ini (sebagai Gambar atau Dokumen) "
+                                    f"dengan mencantumkan keterangan/caption ID Pesanan: *{order_id}* pada file tersebut ya Kak! 😊"
+                                )
+                            else:
+                                jawaban += (
+                                    f"\n\nSilakan *copy-paste* dan isi **Form Konsep Desain** di bawah ini agar tim desainer kami bisa langsung memprosesnya:\n\n"
+                                    f"📋 *FORM KONSEP DESAIN*\n"
+                                    f"- ID Pesanan: {order_id}\n"
+                                    f"- Tulisan yang dimuat:\n"
+                                    f"- Dominan Warna:\n"
+                                    f"- Logo / Foto (Ada/Tidak):\n"
+                                    f"- Bentuk (Vertikal / Horizontal):\n"
+                                    f"- Request Tambahan:\n\n"
+                                    f"⚠️ *PENTING:* Setelah form diisi lengkap, tambahkan di baris paling bawah:\n"
+                                    f"*DESAIN SUDAH SESUAI*\n"
+                                    f"agar konsep desain otomatis masuk ke sistem kami. 👇"
+                                )
                 except ValueError as ve:
                     jawaban = (
                         f"Maaf {panggilan}, format pengisian form pesanan Kakak belum lengkap / ada yang salah:\n\n"
@@ -1980,19 +2124,32 @@ class FonnteWebhookView(APIView):
         Kembalikan order_id.
         """
 
-        def ambil_field(teks, *keys):
+        def ambil_field(teks, *keys, max_len=1000):
+            keys_all = [
+                'Nama Pemesan', 'Nama', 'No. WA', 'No WA',
+                'Jenis Produk', 'Jumlah', 'Ukuran',
+                'Bahan/Material', 'Bahan / Material', 'Bahan',
+                'Finishing', 'File Desain', 'Keterangan',
+                'data sudah sesuai', 'desain sudah sesuai'
+            ]
+            escaped_keys = []
+            for k in keys_all:
+                pat = _re.escape(k).replace('\\ ', ' ').replace(' ', '[ \t\xa0]+')
+                escaped_keys.append(pat)
+            
+            escaped_keys.append(r'===?\s*AKHIR\s*TEMPLATE\s*===?')
+            escaped_keys.append(r'⚠️\s*\*?PENTING:\*?')
+            lookahead_keys_pat = "|".join(escaped_keys)
+
             for key in keys:
                 key_pat = _re.escape(key).replace('\\ ', ' ').replace(' ', '[ \t\xa0]+')
-                match = _re.search(
-                    rf'(?:[-*••]|\d+\.)?[ \t\xa0]*{key_pat}[ \t\xa0]*[:=][ \t\xa0]*([^\r\n]*)',
-                    teks, _re.IGNORECASE
-                )
+                pattern = rf'(?:[-*••]|\d+\.)?[ \t\xa0]*{key_pat}[ \t\xa0]*[:=][ \t\xa0]*(.*?)(?=\r?\n[ \t\xa0]*(?:[-*••]|\d+\.)?[ \t\xa0]*(?:{lookahead_keys_pat})[ \t\xa0]*[:=]|\r?\n[ \t\xa0]*(?:{lookahead_keys_pat})|$)'
+                match = _re.search(pattern, teks, _re.IGNORECASE | _re.DOTALL)
                 if match:
                     val = match.group(1).strip().strip('*_')
                     if val and val not in ('-', 'sudah ada / belum ada', '*sudah ada* / *belum ada*'):
-                        # Sanitize: strip HTML tags to prevent XSS and limit length to prevent giant strings
                         val = _re.sub(r'<[^>]*>', '', val)
-                        return val[:250].strip()
+                        return val[:max_len].strip()
             return ''
 
         # Ambil nama pemesan dari form (bisa "Nama Pemesan" atau "Nama")
@@ -2038,17 +2195,20 @@ class FonnteWebhookView(APIView):
             )
 
             items_dibuat = 0
+            is_desain_ready = False
             for blok in blok_items:
                 if not blok.strip():
                     continue
 
-                jenis_produk = ambil_field(blok, 'Jenis Produk') or 'Umum'
-                jumlah_str   = ambil_field(blok, 'Jumlah')
-                ukuran       = ambil_field(blok, 'Ukuran')
-                bahan        = ambil_field(blok, 'Bahan/Material', 'Bahan / Material', 'Bahan')
-                finishing    = ambil_field(blok, 'Finishing')
-                file_desain  = ambil_field(blok, 'File Desain').lower()
-                keterangan   = ambil_field(blok, 'Keterangan')
+                jenis_produk = ambil_field(blok, 'Jenis Produk', max_len=100) or 'Umum'
+                jumlah_str   = ambil_field(blok, 'Jumlah', max_len=50)
+                ukuran       = ambil_field(blok, 'Ukuran', max_len=100)
+                bahan        = ambil_field(blok, 'Bahan/Material', 'Bahan / Material', 'Bahan', max_len=100)
+                finishing    = ambil_field(blok, 'Finishing', max_len=250)
+                file_desain  = ambil_field(blok, 'File Desain', max_len=250).lower()
+                if file_desain and 'belum' not in file_desain:
+                    is_desain_ready = True
+                keterangan   = ambil_field(blok, 'Keterangan', max_len=1000)
 
                 # Skip blok item kosong (Item 2 yang tidak diisi)
                 if jenis_produk == 'Umum' and not ukuran and not bahan:
@@ -2125,7 +2285,7 @@ class FonnteWebhookView(APIView):
                     )
 
 
-        return order_id
+        return order_id, is_desain_ready
 
 
 # ---------------------------------------------------------
@@ -2197,6 +2357,7 @@ class EvolutionWebhookView(APIView):
         # Ekstrak konten pesan
         msg_content = event_data.get('message', {})
         message_text = ""
+        media_url = ""
         if isinstance(msg_content, dict):
             message_text = (
                 msg_content.get('conversation', '') or
@@ -2206,6 +2367,14 @@ class EvolutionWebhookView(APIView):
                 msg_content.get('documentMessage', {}).get('caption', '') or
                 ''
             ).strip()
+            
+            # Extract media URL/filename
+            if 'imageMessage' in msg_content:
+                media_url = msg_content['imageMessage'].get('url', '')
+            elif 'videoMessage' in msg_content:
+                media_url = msg_content['videoMessage'].get('url', '')
+            elif 'documentMessage' in msg_content:
+                media_url = msg_content['documentMessage'].get('url', '')
         elif isinstance(msg_content, str):
             message_text = msg_content.strip()
 
@@ -2318,13 +2487,22 @@ class EvolutionWebhookView(APIView):
         simpan_ke_memori(sender_number, "user", message_text, nama_pelanggan)
 
         # Step 2: Cek tracking / Kirim Desain pesanan
-        jawaban = proses_kirim_desain(message_text, sender_number, nama_pelanggan)
-        if not jawaban:
-            jawaban = cek_tracking(message_text, sender_number, nama_pelanggan)
-        if jawaban:
-            simpan_ke_memori(sender_number, "assistant", jawaban, nama_pelanggan)
-            self._kirim_balas_async(sender_number, jawaban)
-            return Response({'status': 'tracking_replied'}, status=status.HTTP_200_OK)
+        is_form_order = (
+            ('jenis produk' in p_kecil and ('no. wa' in p_kecil or 'item 1' in p_kecil or 'no wa' in p_kecil))
+            or
+            ('nama pemesan' in p_kecil and 'jenis produk' in p_kecil)
+        )
+        is_form_desain = 'tulisan yang dimuat' in p_kecil or 'dominan warna' in p_kecil
+
+        jawaban = ""
+        if not (is_form_order or is_form_desain):
+            jawaban = proses_kirim_desain(message_text, sender_number, nama_pelanggan, media_url=media_url)
+            if not jawaban:
+                jawaban = cek_tracking(message_text, sender_number, nama_pelanggan)
+            if jawaban:
+                simpan_ke_memori(sender_number, "assistant", jawaban, nama_pelanggan)
+                self._kirim_balas_async(sender_number, jawaban)
+                return Response({'status': 'tracking_replied'}, status=status.HTTP_200_OK)
 
         # Step 3: Deteksi form order / desain
         is_form_order = (
@@ -2336,55 +2514,79 @@ class EvolutionWebhookView(APIView):
 
         if is_form_order or is_form_desain:
             # Bersihkan footer instruksi/konfirmasi
-            detail_bersih = _re.split(r'(?i)===?\s*AKHIR\s*TEMPLATE\s*===?|⚠️\s*\*?PENTING:\*?|data\s+sudah\s+sesuai', message_text)[0].strip()
+            detail_bersih = _re.split(r'(?i)===?\s*AKHIR\s*TEMPLATE\s*===?|⚠️\s*\*?PENTING:\*?|data\s+sudah\s+sesuai|desain\s+sudah\s+sesuai', message_text)[0].strip()
             try:
-                order_id = self._simpan_order_dari_form(sender_number, nama_pelanggan, detail_bersih)
-                order_instance = Order.objects.prefetch_related('items').get(id=order_id)
-                label = "Konsep desain sudah masuk ke Antrean Desain" if is_form_desain else "Pesanan Anda telah masuk ke sistem kami"
-                
-                item_lines = []
-                total_estimasi = 0
-                for item in order_instance.items.all():
-                    spec_parts = []
-                    if item.panjang > 0 and item.lebar > 0:
-                        spec_parts.append(f"{item.panjang:.1f}x{item.lebar:.1f}m")
-                    if item.bahan:
-                        spec_parts.append(item.bahan)
-                    spec_str = f" ({', '.join(spec_parts)})" if spec_parts else ""
+                if is_form_desain:
+                    order_id, success, err_msg = update_desain_dari_form_data(detail_bersih)
+                    if success:
+                        jawaban = (
+                            f"Terima kasih {panggilan}! Konsep desain sudah masuk ke Antrean Desain ✅\n\n"
+                            f"🎫 *ID PESANAN: {order_id}*\n"
+                            f"Tim desain kami akan segera memproses konsep Kakak. Mohon ditunggu ya! 🙏"
+                        )
+                    else:
+                        jawaban = (
+                            f"Maaf {panggilan}, gagal memproses konsep desain Kakak:\n"
+                            f"⚠️ {err_msg}\n\n"
+                            f"Mohon periksa kembali ID Pesanan Kakak dan kirimkan ulang dengan benar ya Kak. 🙏"
+                        )
+                else:
+                    order_id, is_desain_ready = self._simpan_order_dari_form(sender_number, nama_pelanggan, detail_bersih)
+                    order_instance = Order.objects.prefetch_related('items').get(id=order_id)
+                    label = "Pesanan Anda telah masuk ke sistem kami"
                     
-                    price_val = item.harga_jual or 0
-                    price_display = f"Rp {price_val:,}" if price_val > 0 else "Hubungi Admin"
-                    price_display = price_display.replace(',', '.')
-                    item_lines.append(f"• *{item.jenis_produk}*{spec_str} - {item.qty}x")
-                    item_lines.append(f"  └─ Est. Harga: *{price_display}*")
-                    total_estimasi += price_val
+                    item_lines = []
+                    total_estimasi = 0
+                    for item in order_instance.items.all():
+                        spec_parts = []
+                        if item.panjang > 0 and item.lebar > 0:
+                            spec_parts.append(f"{item.panjang:.1f}x{item.lebar:.1f}m")
+                        if item.bahan:
+                            spec_parts.append(item.bahan)
+                        spec_str = f" ({', '.join(spec_parts)})" if spec_parts else ""
+                        
+                        price_val = item.harga_jual or 0
+                        price_display = f"Rp {price_val:,}" if price_val > 0 else "Hubungi Admin"
+                        price_display = price_display.replace(',', '.')
+                        item_lines.append(f"• *{item.jenis_produk}*{spec_str} - {item.qty}x")
+                        item_lines.append(f"  └─ Est. Harga: *{price_display}*")
+                        total_estimasi += price_val
+                        
+                    total_display = f"Rp {total_estimasi:,}" if total_estimasi > 0 else "Hubungi Admin"
+                    total_display = total_display.replace(',', '.')
                     
-                total_display = f"Rp {total_estimasi:,}" if total_estimasi > 0 else "Hubungi Admin"
-                total_display = total_display.replace(',', '.')
-                
-                jawaban = (
-                    f"Terima kasih {panggilan}! {label} ✅\n\n"
-                    f"🎫 *ID PESANAN: {order_id}*\n"
-                    f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
-                    f"📝 *RINCIAN PESANAN:*\n"
-                    + "\n".join(item_lines) + "\n\n"
-                    f"💰 *TOTAL ESTIMASI: {total_display}*\n\n"
-                    f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
-                )
-                # Jika ada item yang belum memiliki desain, infokan link upload
-                from django.db.models import Q
-                has_no_design = order_instance.items.filter(Q(gdrive_customer_link__isnull=True) | Q(gdrive_customer_link='')).exists()
-                if has_no_design:
-                    frontend_base = os.getenv("FRONTEND_PUBLIC_URL", "https://brandy-crm-811.web.app")
-                    if not frontend_base.startswith("http"):
-                        frontend_base = f"https://{frontend_base}"
-                    upload_link = f"{frontend_base}/public/upload-desain/{order_id}"
-                    jawaban += (
-                        f"\n\nJika file desain sudah siap, Kakak bisa mengirimkannya lewat link berikut:\n"
-                        f"🔗 {upload_link}\n"
-                        f"Atau mengirimkannya langsung ke chat ini dengan format:\n"
-                        f"*Kirim Desain {order_id} [Link Google Drive]*"
+                    jawaban = (
+                        f"Terima kasih {panggilan}! {label} ✅\n\n"
+                        f"🎫 *ID PESANAN: {order_id}*\n"
+                        f"_Simpan ID ini untuk melacak status pesanan Kakak._\n\n"
+                        f"📝 *RINCIAN PESANAN:*\n"
+                        + "\n".join(item_lines) + "\n\n"
+                        f"💰 *TOTAL ESTIMASI: {total_display}*\n\n"
+                        f"Tim kami akan segera memverifikasi pesanan Kakak. Mohon ditunggu 🙏"
                     )
+                    # Jika ada item yang belum memiliki desain, infokan link upload / petunjuk kirim langsung
+                    from django.db.models import Q
+                    has_no_design = order_instance.items.filter(Q(gdrive_customer_link__isnull=True) | Q(gdrive_customer_link='')).exists()
+                    if has_no_design:
+                        if is_desain_ready:
+                            jawaban += (
+                                f"\n\nSilakan kirimkan file desain Kakak langsung ke chat ini (sebagai Gambar atau Dokumen) "
+                                f"dengan mencantumkan keterangan/caption ID Pesanan: *{order_id}* pada file tersebut ya Kak! 😊"
+                            )
+                        else:
+                            jawaban += (
+                                f"\n\nSilakan *copy-paste* dan isi **Form Konsep Desain** di bawah ini agar tim desainer kami bisa langsung memprosesnya:\n\n"
+                                f"📋 *FORM KONSEP DESAIN*\n"
+                                f"- ID Pesanan: {order_id}\n"
+                                f"- Tulisan yang dimuat:\n"
+                                f"- Dominan Warna:\n"
+                                f"- Logo / Foto (Ada/Tidak):\n"
+                                f"- Bentuk (Vertikal / Horizontal):\n"
+                                f"- Request Tambahan:\n\n"
+                                f"⚠️ *PENTING:* Setelah form diisi lengkap, tambahkan di baris paling bawah:\n"
+                                f"*DESAIN SUDAH SESUAI*\n"
+                                f"agar konsep desain otomatis masuk ke sistem kami. 👇"
+                            )
             except ValueError as ve:
                 jawaban = (
                     f"Maaf {panggilan}, format pengisian form pesanan Kakak belum lengkap / ada yang salah:\n\n"
@@ -2472,19 +2674,32 @@ class EvolutionWebhookView(APIView):
         return task_id
 
     def _simpan_order_dari_form(self, nomor, nama_kontak, detail):
-        def ambil_field(teks, *keys):
+        def ambil_field(teks, *keys, max_len=1000):
+            keys_all = [
+                'Nama Pemesan', 'Nama', 'No. WA', 'No WA',
+                'Jenis Produk', 'Jumlah', 'Ukuran',
+                'Bahan/Material', 'Bahan / Material', 'Bahan',
+                'Finishing', 'File Desain', 'Keterangan',
+                'data sudah sesuai', 'desain sudah sesuai'
+            ]
+            escaped_keys = []
+            for k in keys_all:
+                pat = _re.escape(k).replace('\\ ', ' ').replace(' ', '[ \t\xa0]+')
+                escaped_keys.append(pat)
+            
+            escaped_keys.append(r'===?\s*AKHIR\s*TEMPLATE\s*===?')
+            escaped_keys.append(r'⚠️\s*\*?PENTING:\*?')
+            lookahead_keys_pat = "|".join(escaped_keys)
+
             for key in keys:
                 key_pat = _re.escape(key).replace('\\ ', ' ').replace(' ', '[ \t\xa0]+')
-                match = _re.search(
-                    rf'(?:[-*••]|\d+\.)?[ \t\xa0]*{key_pat}[ \t\xa0]*[:=][ \t\xa0]*([^\r\n]*)',
-                    teks, _re.IGNORECASE
-                )
+                pattern = rf'(?:[-*••]|\d+\.)?[ \t\xa0]*{key_pat}[ \t\xa0]*[:=][ \t\xa0]*(.*?)(?=\r?\n[ \t\xa0]*(?:[-*••]|\d+\.)?[ \t\xa0]*(?:{lookahead_keys_pat})[ \t\xa0]*[:=]|\r?\n[ \t\xa0]*(?:{lookahead_keys_pat})|$)'
+                match = _re.search(pattern, teks, _re.IGNORECASE | _re.DOTALL)
                 if match:
                     val = match.group(1).strip().strip('*_')
                     if val and val not in ('-', 'sudah ada / belum ada', '*sudah ada* / *belum ada*'):
-                        # Sanitize: strip HTML tags to prevent XSS and limit length to prevent giant strings
                         val = _re.sub(r'<[^>]*>', '', val)
-                        return val[:250].strip()
+                        return val[:max_len].strip()
             return ''
 
         nama_dari_form = (
@@ -2523,18 +2738,21 @@ class EvolutionWebhookView(APIView):
             )
 
             items_dibuat = 0
+            is_desain_ready = False
             items_parsed_info = []
             for blok in blok_items:
                 if not blok.strip():
                     continue
 
-                jenis_produk = ambil_field(blok, 'Jenis Produk') or 'Umum'
-                jumlah_str   = ambil_field(blok, 'Jumlah')
-                ukuran       = ambil_field(blok, 'Ukuran')
-                bahan        = ambil_field(blok, 'Bahan/Material', 'Bahan / Material', 'Bahan')
-                finishing    = ambil_field(blok, 'Finishing')
-                file_desain  = ambil_field(blok, 'File Desain').lower()
-                keterangan   = ambil_field(blok, 'Keterangan')
+                jenis_produk = ambil_field(blok, 'Jenis Produk', max_len=100) or 'Umum'
+                jumlah_str   = ambil_field(blok, 'Jumlah', max_len=50)
+                ukuran       = ambil_field(blok, 'Ukuran', max_len=100)
+                bahan        = ambil_field(blok, 'Bahan/Material', 'Bahan / Material', 'Bahan', max_len=100)
+                finishing    = ambil_field(blok, 'Finishing', max_len=250)
+                file_desain  = ambil_field(blok, 'File Desain', max_len=250).lower()
+                if file_desain and 'belum' not in file_desain:
+                    is_desain_ready = True
+                keterangan   = ambil_field(blok, 'Keterangan', max_len=1000)
 
                 if jenis_produk == 'Umum' and not ukuran and not bahan:
                     continue
@@ -2624,7 +2842,7 @@ class EvolutionWebhookView(APIView):
                         status_pekerjaan='antrean'
                     )
 
-        return order_id
+        return order_id, is_desain_ready
 
 
 # ---------------------------------------------------------

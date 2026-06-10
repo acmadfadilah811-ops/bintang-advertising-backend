@@ -38,3 +38,11 @@ backups/
 
 # Runtime config files
 hr_attendance_schedule.json
+
+# Local logs/temp files
+cache_history.txt
+customer_messages.txt
+daphne_all_logs.txt
+daphne_grep_logs.txt
+daphne_recent_logs.txt
+nginx_logs.txt
