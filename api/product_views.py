@@ -131,6 +131,283 @@ class ProductViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(nama__icontains=search)
         return queryset
 
+    @action(detail=False, methods=['post'], url_path='import-products')
+    def import_products(self, request):
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({'error': 'File tidak ditemukan / tidak terunggah.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            data = file_obj.read().decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                data = file_obj.read().decode('latin-1')
+            except Exception as e:
+                return Response({'error': f'Gagal membaca file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+                
+        csv_file = io.StringIO(data)
+        reader = csv.DictReader(csv_file)
+        
+        # Baca semua baris
+        rows = list(reader)
+        if not rows:
+            return Response({'error': 'File CSV kosong.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Group berdasarkan nama produk
+        from collections import defaultdict
+        product_groups = defaultdict(list)
+        for row in rows:
+            name = row.get('name')
+            if name:
+                product_groups[name.strip()].append(row)
+                
+        created_count = 0
+        updated_count = 0
+        
+        with transaction.atomic():
+            for product_name, group_rows in product_groups.items():
+                first_row = group_rows[0]
+                
+                # Resolusi Kategori
+                category_name = first_row.get('category')
+                category_obj = None
+                if category_name:
+                    category_obj, _ = ProductCategory.objects.get_or_create(nama=category_name.strip())
+                    
+                # Resolusi Brand
+                brand_name = first_row.get('brand')
+                brand_obj = None
+                if brand_name:
+                    brand_obj, _ = Brand.objects.get_or_create(nama=brand_name.strip())
+                    
+                # Resolusi Koleksi
+                collection_name = first_row.get('collections')
+                collection_obj = None
+                if collection_name:
+                    c_name = collection_name.split(',')[0].strip()
+                    if c_name:
+                        collection_obj, _ = Collection.objects.get_or_create(nama=c_name)
+                        
+                # Cek varian
+                has_var = any(r.get('variant_names') for r in group_rows)
+                
+                product_obj = Product.objects.filter(nama=product_name).first()
+                is_new = product_obj is None
+                
+                if is_new:
+                    product_obj = Product(nama=product_name)
+                    
+                product_obj.nama_alternatif = first_row.get('alternative_name') or ""
+                product_obj.kategori = category_obj
+                product_obj.brand = brand_obj
+                product_obj.koleksi = collection_obj
+                product_obj.satuan = first_row.get('uom') or "pcs"
+                product_obj.deskripsi = first_row.get('description') or ""
+                product_obj.has_variant = has_var
+                product_obj.is_active = (first_row.get('published', '1') == '1')
+                
+                if not has_var:
+                    product_obj.sku = first_row.get('sku') or None
+                    product_obj.barcode = first_row.get('barcode') or None
+                    try:
+                        product_obj.harga_beli = Decimal(first_row.get('buy_price') or '0.00')
+                    except (InvalidOperation, ValueError):
+                        product_obj.harga_beli = Decimal('0.00')
+                    try:
+                        product_obj.harga_jual_toko = Decimal(first_row.get('pos_sell_price') or first_row.get('sell_price') or '0.00')
+                    except (InvalidOperation, ValueError):
+                        product_obj.harga_jual_toko = Decimal('0.00')
+                    try:
+                        product_obj.harga_jual_online = Decimal(first_row.get('sell_price') or '0.00')
+                    except (InvalidOperation, ValueError):
+                        product_obj.harga_jual_online = Decimal('0.00')
+                    product_obj.harga_online_sama = (product_obj.harga_jual_toko == product_obj.harga_jual_online)
+                    product_obj.lacak_inventori = (first_row.get('track_inventory', '1') == '1')
+                    try:
+                        product_obj.qty_stok = Decimal(first_row.get('stock_qty') or '0.00')
+                    except (InvalidOperation, ValueError):
+                        product_obj.qty_stok = Decimal('0.00')
+                    try:
+                        product_obj.stok_minimum = Decimal(first_row.get('low_stock_alert') or '0.00')
+                    except (InvalidOperation, ValueError):
+                        product_obj.stok_minimum = Decimal('0.00')
+                    try:
+                        product_obj.qty_fast_moving = Decimal(first_row.get('qty_fast_moving') or '0.00')
+                    except (InvalidOperation, ValueError):
+                        product_obj.qty_fast_moving = Decimal('0.00')
+                    product_obj.rack = first_row.get('rack') or ""
+                else:
+                    # Bersihkan SKU/barcode agar tidak bentrok
+                    product_obj.sku = None
+                    product_obj.barcode = None
+                    
+                product_obj.save()
+                
+                if is_new:
+                    created_count += 1
+                else:
+                    updated_count += 1
+                    
+                if has_var:
+                    for r in group_rows:
+                        v_name = r.get('variant_names')
+                        if not v_name:
+                            continue
+                            
+                        variant_obj = ProductVariant.objects.filter(product=product_obj, nama_varian=v_name).first()
+                        if not variant_obj:
+                            variant_obj = ProductVariant(product=product_obj, nama_varian=v_name)
+                            
+                        variant_obj.nama_alternatif = r.get('alternative_variant_name') or ""
+                        variant_obj.sku = r.get('sku') or None
+                        variant_obj.barcode = r.get('barcode') or None
+                        try:
+                            variant_obj.harga_beli = Decimal(r.get('buy_price') or '0.00')
+                        except (InvalidOperation, ValueError):
+                            variant_obj.harga_beli = Decimal('0.00')
+                        try:
+                            variant_obj.harga_jual_toko = Decimal(r.get('pos_sell_price') or r.get('sell_price') or '0.00')
+                        except (InvalidOperation, ValueError):
+                            variant_obj.harga_jual_toko = Decimal('0.00')
+                        try:
+                            variant_obj.harga_jual_online = Decimal(r.get('sell_price') or '0.00')
+                        except (InvalidOperation, ValueError):
+                            variant_obj.harga_jual_online = Decimal('0.00')
+                        try:
+                            variant_obj.harga_pasar = Decimal(r.get('market_price') or '0.00')
+                        except (InvalidOperation, ValueError):
+                            variant_obj.harga_pasar = Decimal('0.00')
+                        try:
+                            variant_obj.qty_stok = Decimal(r.get('stock_qty') or '0.00')
+                        except (InvalidOperation, ValueError):
+                            variant_obj.qty_stok = Decimal('0.00')
+                        variant_obj.rack = r.get('rack') or ""
+                        variant_obj.lacak_inventori = (r.get('track_inventory', '1') == '1')
+                        
+                        try:
+                            w_kg = Decimal(r.get('weight_kg') or '0')
+                        except (InvalidOperation, ValueError):
+                            w_kg = Decimal('0')
+                        variant_obj.berat = w_kg * 1000
+                        
+                        variant_obj.save()
+                        
+        return Response({
+            'success': True,
+            'message': f'Produk berhasil diimpor. Baru: {created_count}, Diperbarui: {updated_count}'
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='import-recipes')
+    def import_recipes(self, request):
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({'error': 'File tidak ditemukan / tidak terunggah.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from .models import ProductPrice, BillOfMaterials, BoMItem, InventoryItem
+        
+        try:
+            data = file_obj.read().decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                data = file_obj.read().decode('latin-1')
+            except Exception as e:
+                return Response({'error': f'Gagal membaca file: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+                
+        csv_file = io.StringIO(data)
+        reader = csv.DictReader(csv_file)
+        
+        rows = list(reader)
+        if not rows:
+            return Response({'error': 'File CSV kosong.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        imported_count = 0
+        
+        with transaction.atomic():
+            for row in rows:
+                product_name = row.get('product_name')
+                if not product_name:
+                    continue
+                product_name = product_name.strip()
+                
+                product_variant_name = row.get('product_variant_name')
+                if product_variant_name:
+                    product_variant_name = product_variant_name.strip()
+                    if product_variant_name == '0':
+                        product_variant_name = None
+                else:
+                    product_variant_name = None
+                    
+                # Temukan atau buat ProductPrice
+                product_price_obj = ProductPrice.objects.filter(nama_produk=product_name, material=product_variant_name).first()
+                if not product_price_obj:
+                    if not product_variant_name:
+                        product_price_obj = ProductPrice.objects.filter(nama_produk=product_name).first()
+                    
+                    if not product_price_obj:
+                        product_price_obj = ProductPrice.objects.create(
+                            kategori="Umum",
+                            nama_produk=product_name,
+                            material=product_variant_name,
+                            harga=0
+                        )
+                
+                # Temukan atau buat BillOfMaterials
+                bom_obj, _ = BillOfMaterials.objects.get_or_create(
+                    product=product_price_obj,
+                    defaults={'nama': f"BoM {product_price_obj.nama_produk}" + (f" - {product_price_obj.material}" if product_price_obj.material else "")}
+                )
+                
+                # Temukan atau buat InventoryItem
+                mat_name = row.get('material_product_name')
+                if not mat_name:
+                    continue
+                mat_name = mat_name.strip()
+                
+                mat_var = row.get('material_variant_name')
+                if mat_var:
+                    mat_var = mat_var.strip()
+                    if mat_var == '0':
+                        mat_var = None
+                else:
+                    mat_var = None
+                    
+                full_mat_name = f"{mat_name} - {mat_var}" if mat_var else mat_name
+                
+                inv_item = InventoryItem.objects.filter(nama=full_mat_name).first()
+                if not inv_item:
+                    inv_item = InventoryItem.objects.filter(nama=mat_name).first()
+                    if not inv_item:
+                        inv_item = InventoryItem.objects.create(
+                            nama=full_mat_name,
+                            kategori="Bahan Baku",
+                            satuan=row.get('uom') or "pcs",
+                            stok=0.0
+                        )
+                
+                # Jumlah bahan
+                qty_raw = row.get('qty') or '1.0'
+                try:
+                    qty = float(qty_raw)
+                except (ValueError, TypeError):
+                    qty = 1.0
+                    
+                # Buat atau update BoMItem
+                bom_item_obj, created = BoMItem.objects.get_or_create(
+                    bom=bom_obj,
+                    inventory_item=inv_item,
+                    defaults={'qty_required_per_unit': qty}
+                )
+                if not created:
+                    bom_item_obj.qty_required_per_unit = qty
+                    bom_item_obj.save()
+                    
+                imported_count += 1
+                
+        return Response({
+            'success': True,
+            'message': f'Bahan / Resep berhasil diimpor: {imported_count} baris.'
+        }, status=status.HTTP_200_OK)
+
     def _resolve_stock_owner(self, product, variant_id):
         """Kembalikan (objek yang disimpan qty_stok-nya, instance variant atau None)."""
         if variant_id:

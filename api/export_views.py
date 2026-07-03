@@ -643,3 +643,133 @@ class ExportStockMovementView(APIView):
             return Response({'error': f'Gagal membuat file Excel: {str(e)}'}, status=500)
 
         return response
+
+
+class ExportProductsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not _check_role(request.user):
+            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
+
+        import csv
+        from django.http import HttpResponse
+        from .product_models import Product
+
+        response = HttpResponse(content_type='text/csv; charset=utf-8')
+        response['Content-Disposition'] = f'attachment; filename="products_export_{timezone.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+
+        # Ensure correct UTF-8 BOM encoding for Excel compatibility
+        response.write(u'\ufeff'.encode('utf8'))
+        
+        writer = csv.writer(response)
+        
+        # Headers
+        headers = [
+            "name", "alternative_name", "classification_id", "category",
+            "variant_column_labels", "variant_names", "alternative_variant_name",
+            "variant_view_order", "collections", "brand", "condition_id", "uom",
+            "sku", "barcode", "serial_nos", "description", "buy_price",
+            "sell_price", "pos_sell_price", "market_price", "wholesale_group",
+            "wholesale_price", "pos_sell_price_dynamic", "track_inventory",
+            "stock_qty", "low_stock_alert", "is_out_stock", "weight_kg",
+            "loyalty_points", "comission", "published", "hidden_in_pos",
+            "qty_fast_moving", "rack", "is_always_available", "non_taxable",
+            "customer_comission", "is_customer_comission_percentage", "non_service_charge"
+        ]
+        writer.writerow(headers)
+
+        products = Product.objects.select_related('kategori', 'brand', 'koleksi').prefetch_related('variants').all()
+        
+        for p in products:
+            category_name = p.kategori.nama if p.kategori else ""
+            brand_name = p.brand.nama if p.brand else ""
+            collection_name = p.koleksi.nama if p.koleksi else ""
+            
+            if p.has_variant and p.variants.exists():
+                for idx, v in enumerate(p.variants.all()):
+                    writer.writerow([
+                        p.nama,
+                        p.nama_alternatif or "",
+                        "",  # classification_id
+                        category_name,
+                        "Varian",  # variant_column_labels
+                        v.nama_varian,
+                        v.nama_alternatif or "",
+                        str(idx + 1),  # variant_view_order
+                        collection_name,
+                        brand_name,
+                        "N",  # condition_id
+                        p.satuan or "pcs",
+                        v.sku or "",
+                        v.barcode or "",
+                        "",  # serial_nos
+                        p.deskripsi or "",
+                        str(v.harga_beli),
+                        str(v.harga_jual_online),
+                        str(v.harga_jual_toko),
+                        str(v.harga_pasar),
+                        "",  # wholesale_group
+                        "0",  # wholesale_price
+                        "0",  # pos_sell_price_dynamic
+                        "1" if v.lacak_inventori else "0",
+                        str(v.qty_stok),
+                        str(p.stok_minimum),
+                        "0" if v.qty_stok > 0 else "1",
+                        str(float(v.berat or 0.0) / 1000.0),  # weight_kg
+                        "0",  # loyalty_points
+                        "0",  # commission
+                        "1" if p.is_active else "0",
+                        "0",  # hidden_in_pos
+                        str(p.qty_fast_moving),
+                        v.rack or p.rack or "",
+                        "1" if not v.lacak_inventori else "0",
+                        "0",  # non_taxable
+                        "0",  # customer_comission
+                        "0",  # is_customer_comission_percentage
+                        "0"   # non_service_charge
+                    ])
+            else:
+                writer.writerow([
+                    p.nama,
+                    p.nama_alternatif or "",
+                    "",  # classification_id
+                    category_name,
+                    "",  # variant_column_labels
+                    "",  # variant_names
+                    "",  # alternative_variant_name
+                    "",  # variant_view_order
+                    collection_name,
+                    brand_name,
+                    "N",  # condition_id
+                    p.satuan or "pcs",
+                    p.sku or "",
+                    p.barcode or "",
+                    "",  # serial_nos
+                    p.deskripsi or "",
+                    str(p.harga_beli),
+                    str(p.harga_jual_online),
+                    str(p.harga_jual_toko),
+                    "0",  # market_price
+                    "",  # wholesale_group
+                    "0",  # wholesale_price
+                    "0",  # pos_sell_price_dynamic
+                    "1" if p.lacak_inventori else "0",
+                    str(p.qty_stok),
+                    str(p.stok_minimum),
+                    "0" if p.qty_stok > 0 else "1",
+                    "0",  # weight_kg
+                    "0",  # loyalty_points
+                    "0",  # commission
+                    "1" if p.is_active else "0",
+                    "0",  # hidden_in_pos
+                    str(p.qty_fast_moving),
+                    p.rack or "",
+                    "1" if not p.lacak_inventori else "0",
+                    "0",  # non_taxable
+                    "0",  # customer_comission
+                    "0",  # is_customer_comission_percentage
+                    "0"   # non_service_charge
+                ])
+                
+        return response

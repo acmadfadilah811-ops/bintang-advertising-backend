@@ -66,9 +66,11 @@ class Product(models.Model):
     harga_online_sama = models.BooleanField(default=True)
     
     lacak_inventori = models.BooleanField(default=True)
+    rack = models.CharField(max_length=100, blank=True, default='', help_text="Lokasi rak penyimpanan")
     qty_stok = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     stok_minimum = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Ambang batas Peringatan Sisa Stok")
-    
+    qty_fast_moving = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Ambang batas kualifikasi produk 'fast moving'")
+
     has_variant = models.BooleanField(default=False)
     tersedia_online = models.BooleanField(default=True)
     
@@ -90,10 +92,17 @@ class ProductImage(models.Model):
 class ProductVariant(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='variants')
     nama_varian = models.CharField(max_length=255)
+    nama_alternatif = models.CharField(max_length=255, blank=True, default='')
     sku = models.CharField(max_length=100, blank=True, null=True)
     barcode = models.CharField(max_length=100, blank=True, null=True)
-    harga = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    harga_beli = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    harga_pasar = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    harga_jual_online = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    harga_jual_toko = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    lacak_inventori = models.BooleanField(default=True)
     qty_stok = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    rack = models.CharField(max_length=100, blank=True, default='', help_text="Lokasi rak penyimpanan khusus varian ini")
+    berat = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Berat barang (gram), opsional")
 
     def __str__(self):
         return f"{self.product.nama} - {self.nama_varian}"

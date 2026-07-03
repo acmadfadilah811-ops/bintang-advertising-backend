@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
 from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, EvolutionWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView, KomplainViewSet, ContactStatsView
-from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView, ExportStockMovementView, ExportCustomersView
+from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView, ExportStockMovementView, ExportCustomersView, ExportProductsView
 from . import product_views
 from . import marketing_views
 from . import customer_views
@@ -85,6 +85,7 @@ urlpatterns = [
     path('export/absensi/', ExportAbsensiView.as_view(), name='export-absensi'),
     path('export/staff-performance/', ExportStaffPerformanceView.as_view(), name='export-staff-performance'),
     path('export/stock-movement/', ExportStockMovementView.as_view(), name='export-stock-movement'),
+    path('export/products/', ExportProductsView.as_view(), name='export-products'),
 
     # Reports Endpoints
     path('reports/staff-performance/', StaffPerformanceReportView.as_view(), name='staff-performance-report'),
