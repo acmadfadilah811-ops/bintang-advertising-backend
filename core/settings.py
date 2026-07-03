@@ -35,11 +35,17 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 # Baca dari .env: ALLOWED_HOSTS=bintang-adv.duckdns.org,127.0.0.1,localhost
 _allowed = os.getenv('ALLOWED_HOSTS', '*')
 ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',')] if _allowed != '*' else ['*']
+if 'testserver' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('testserver')
+
 
 # Trusted origins untuk CSRF (wajib untuk HTTPS + DRF)
 CSRF_TRUSTED_ORIGINS = [
     f'https://{h}' for h in ALLOWED_HOSTS
     if h not in ('127.0.0.1', 'localhost', '*')
+] + [
+    'https://brandy-crm-811.web.app',
+    'https://brandy-crm-811.firebaseapp.com',
 ]
 
 
@@ -56,8 +62,10 @@ INSTALLED_APPS = [
     # --- Tambahan Paket Pihak Ketiga ---
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'channels',
+    'drf_spectacular',
     
     # --- Aplikasi Internal Kita ---
     'api',
@@ -97,19 +105,42 @@ TEMPLATES = [
 WSGI_APPLICATION = 'core.wsgi.application'
 
 
-# Database
-# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+# Gunakan SQLite jika DB_ENGINE=sqlite diatur di .env
+DB_ENGINE = os.getenv('DB_ENGINE', 'mysql').lower()
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.getenv('DB_NAME', 'bintang_adv_db'),
-        'USER': os.getenv('DB_USER', 'root'),
-        'PASSWORD': os.getenv('DB_PASSWORD', ''),
-        'HOST': os.getenv('DB_HOST', '127.0.0.1'),
-        'PORT': os.getenv('DB_PORT', '3306'),
+if DB_ENGINE == 'sqlite':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+elif DB_ENGINE in ('postgresql', 'postgres'):
+    db_ssl = os.getenv('DB_SSL', 'False').lower() in ('true', '1', 'yes')
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'bintang_adv_db'),
+            'USER': os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('DB_PASSWORD', ''),
+            'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+            'OPTIONS': {'sslmode': 'require'} if db_ssl else {}
+        }
+    }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.getenv('DB_NAME', 'bintang_adv_db'),
+            'USER': os.getenv('DB_USER', 'root'),
+            'PASSWORD': os.getenv('DB_PASSWORD', ''),
+            'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+            'PORT': os.getenv('DB_PORT', '3306'),
+            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+        }
+    }
 
 
 # Password validation
@@ -192,12 +223,24 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # --- KONFIGURASI TAMBAHAN ---
 
-# Mengizinkan Frontend React (localhost:5173) mengakses API kita
-CORS_ALLOW_ALL_ORIGINS = True # Catatan: Nanti saat produksi ini harus diubah demi keamanan
+# Mengizinkan Frontend React mengakses API kita
+CORS_ALLOW_ALL_ORIGINS = True # Default True untuk dev / backward compatibility, tapi kita batasi jika di production
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://brandy-crm-811.web.app",
+    "https://brandy-crm-811.firebaseapp.com",
+]
+
+# Jika tidak DEBUG (production), matikan CORS_ALLOW_ALL_ORIGINS
+if not DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = False
 
 # Izinkan custom header dari frontend (khususnya untuk bypass ngrok)
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'ngrok-skip-browser-warning',
+    'baggage',        # Dibutuhkan oleh Sentry tracing
+    'sentry-trace',   # Dibutuhkan oleh Sentry tracing
 ]
 
 # --- Kustomisasi Autentikasi ---
@@ -211,22 +254,68 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # --- Pagination Kustom (Hanya aktif jika menyertakan param ?page= atau ?page_size=) ---
+    'DEFAULT_PAGINATION_CLASS': 'api.pagination.OptionalPageNumberPagination',
+    'PAGE_SIZE': 50,
+    # --- Rate Limiting / Throttling ---
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '30/minute',
+    },
+}
+
+# --- Konfigurasi DRF Spectacular (OpenAPI 3.0) ---
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Bintang Advertising CRM API',
+    'DESCRIPTION': 'Dokumentasi interaktif API Bintang Advertising CRM & Kasir.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
 }
 
 # --- Konfigurasi Simple JWT ---
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
-# --- Konfigurasi Django Channels ---
-# Pakai InMemoryChannelLayer untuk development.
-# Ganti ke RedisChannelLayer saat production.
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+# --- Konfigurasi Cache & Channels (Redis in Production) ---
+REDIS_URL = os.getenv('REDIS_URL')
+
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            }
+        }
     }
-}
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [REDIS_URL],
+            },
+        },
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "unique-snowflake",
+        }
+    }
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer"
+        }
+    }
 
 # --- KEAMANAN LAYANAN PRODUKSI (AKAN AKTIF JIKA DEBUG = FALSE) ---
 if not DEBUG:
@@ -245,4 +334,90 @@ if not DEBUG:
     
     # Proteksi browser XSS & content-type sniffing
     SECURE_BROWSER_XSS_FILTER = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+
+
+# ==============================================================================
+# OBSERVABILITAS: STRUCTURED LOGGING
+# ==============================================================================
+LOG_DIR = os.path.join(BASE_DIR, 'logs')
+if not os.path.exists(LOG_DIR):
+    try:
+        os.makedirs(LOG_DIR)
+    except Exception:
+        pass
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        'file': {
+            'level': 'WARNING',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_DIR, 'django.log') if os.path.exists(LOG_DIR) else 'django.log',
+            'maxBytes': 1024 * 1024 * 5,  # 5MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+}
+
+
+# ==============================================================================
+# OBSERVABILITAS: ERROR MONITORING (SENTRY)
+# ==============================================================================
+SENTRY_DSN = os.getenv('SENTRY_DSN')
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.django import DjangoIntegration
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[DjangoIntegration()],
+            traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.2')),
+            send_default_pii=True
+        )
+        print("[INFO] Sentry error monitoring initialized.")
+    except ImportError:
+        print("[WARNING] Sentry SDK not installed. Skipping initialization.")
+
+
+
+
+# ==============================================================================
+# KOMUNIKASI: EMAIL SETTINGS (SMTP / CONSOLE FALLBACK)
+# ==============================================================================
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
+if EMAIL_BACKEND:
+    EMAIL_BACKEND = EMAIL_BACKEND
+else:
+    # Fallback ke console backend agar aman dijalankan tanpa konfigurasi SMTP
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Brandy CRM Security <security@elhayyu.co.id>')

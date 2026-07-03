@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 
 from .views import (
     AbsensiListView,
@@ -13,9 +14,11 @@ from .views import (
     StaffDashboardView,
     TimecardView,
     AttendanceSessionManagerView,
+    NotifyLateStaffView,
     UnlockRequestStaffView,
     UnlockRequestManagerView,
     UnlockRequestActionView,
+    SlipGajiViewSet,
 )
 
 urlpatterns = [
@@ -24,6 +27,7 @@ urlpatterns = [
 
     # Absensi & Sesi Absensi
     path("attendance-session/", AttendanceSessionManagerView.as_view(), name="attendance_session"),
+    path("attendance-session/notify-late/", NotifyLateStaffView.as_view(), name="attendance_session_notify_late"),
     path("absensi/clock-in/", ClockInView.as_view(), name="clock_in"),
     path("absensi/clock-out/", ClockOutView.as_view(), name="clock_out"),
     path("absensi/", AbsensiListView.as_view(), name="absensi_list"),
@@ -45,4 +49,11 @@ urlpatterns = [
     # Info / Pengumuman
     path("info/", AnnouncementView.as_view(), name="announcement"),
     path("info/<int:pk>/", AnnouncementDetailView.as_view(), name="announcement_detail"),
+]
+
+router = DefaultRouter()
+router.register(r"slip-gaji", SlipGajiViewSet, basename="slip-gaji")
+
+urlpatterns += [
+    path("", include(router.urls)),
 ]

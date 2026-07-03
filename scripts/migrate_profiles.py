@@ -34,14 +34,14 @@ def run():
         )
         if created:
             created_count += 1
-            print(f"  ✅ Profile dibuat untuk: {user.username} (role: {role})")
+            print(f"  [SUCCESS] Profile dibuat untuk: {user.username} (role: {role})")
         else:
             already_exist += 1
-            print(f"  ⏭  Profile sudah ada untuk: {user.username}")
+            print(f"  [SKIP] Profile sudah ada untuk: {user.username}")
 
-    print(f"\n✔ Selesai! {created_count} Profile baru dibuat, {already_exist} sudah ada.")
+    print(f"\nSelesai! {created_count} Profile baru dibuat, {already_exist} sudah ada.")
 
 
 if __name__ == "__main__":
-    print("🔄 Membuat Profile untuk semua user lama...\n")
+    print("Membuat Profile untuk semua user lama...\n")
     run()

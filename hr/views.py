@@ -1,15 +1,20 @@
 from django.db.models import Q, Sum
 from django.utils import timezone
+from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.decorators import action
 
 from api.models import JobBoard
 from api.views import IsOwnerOrManager
 
-from .models import Absensi, Kontrak, StaffAnnouncement, DailyAttendanceSession, UnlockRequest, Akun, TransaksiBukuBesar
-from .serializers import AbsensiSerializer, AnnouncementSerializer, KontrakSerializer, AkunSerializer, TransaksiBukuBesarSerializer
+from .models import Absensi, Kontrak, StaffAnnouncement, DailyAttendanceSession, UnlockRequest, Akun, TransaksiBukuBesar, SlipGaji
+from .serializers import AbsensiSerializer, AnnouncementSerializer, KontrakSerializer, AkunSerializer, TransaksiBukuBesarSerializer, SlipGajiSerializer
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -21,31 +26,119 @@ class IsOwnerOrManagerPerm(IsOwnerOrManager):
     pass
 
 
-def sync_attendance_for_date(target_date):
-    """
-    Memastikan semua staff aktif memiliki record absensi pada tanggal tersebut.
-    Jika belum ada, otomatis dibuat dengan status 'alpha' (Tidak Masuk).
-    Untuk tanggal hari ini, hanya dibuat jika batas_maksimal absensi telah terlewati.
-    """
-    from api.models import CustomUser
+def get_or_create_daily_session():
+    import os
+    import json
+    from django.conf import settings
+    from datetime import datetime, timedelta
+    from api.models import SystemConfig
     
     today = timezone.localdate()
-    if target_date > today:
+    sesi = DailyAttendanceSession.objects.filter(tanggal=today).first()
+    if not sesi:
+        # Coba baca dari SystemConfig terlebih dahulu
+        try:
+            jam_masuk_str = SystemConfig.objects.get(key="payroll_jam_masuk").value
+            toleransi_str = SystemConfig.objects.get(key="payroll_toleransi_menit").value
+            toleransi_menit = int(toleransi_str)
+            
+            mulai_time_obj = datetime.strptime(jam_masuk_str, "%H:%M").time()
+            waktu_mulai = timezone.make_aware(datetime.combine(today, mulai_time_obj))
+            batas_maksimal = waktu_mulai + timedelta(minutes=toleransi_menit)
+            
+            sesi = DailyAttendanceSession.objects.create(
+                tanggal=today,
+                waktu_mulai=waktu_mulai,
+                batas_maksimal=batas_maksimal,
+                is_active=True
+            )
+            return sesi
+        except Exception:
+            pass
+
+        # Fallback ke file JSON schedule lama jika SystemConfig belum terkonfigurasi/error
+        config_path = os.path.join(settings.BASE_DIR, "hr_attendance_schedule.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+                
+                if config.get("repeat_daily", False):
+                    mulai_time_obj = datetime.strptime(config["waktu_mulai"], "%H:%M").time()
+                    waktu_mulai = timezone.make_aware(datetime.combine(today, mulai_time_obj))
+                    
+                    batas_time_obj = datetime.strptime(config["batas_maksimal"], "%H:%M").time()
+                    batas_maksimal = timezone.make_aware(datetime.combine(today, batas_time_obj))
+                    
+                    sesi = DailyAttendanceSession.objects.create(
+                        tanggal=today,
+                        waktu_mulai=waktu_mulai,
+                        batas_maksimal=batas_maksimal,
+                        is_active=True
+                    )
+            except Exception as e:
+                logger.error(f"Error auto-creating session from schedule: {e}", exc_info=True)
+    return sesi
+
+
+def sync_attendance_for_range(start_date, end_date):
+    """
+    Memastikan semua staff aktif memiliki record absensi pada range tanggal tersebut.
+    Jika belum ada, otomatis dibuat dengan status 'alpha' (Tidak Masuk) menggunakan bulk_create.
+    """
+    from api.models import CustomUser
+    from datetime import date, timedelta
+    
+    today = timezone.localdate()
+    
+    # Generate list tanggal dari start_date sampai end_date
+    delta = end_date - start_date
+    target_dates = []
+    for i in range(delta.days + 1):
+        target_date = start_date + timedelta(days=i)
+        if target_date > today:
+            continue
+        if target_date == today:
+            session = get_or_create_daily_session()
+            if not session or timezone.now() <= session.batas_maksimal:
+                # Belum melewati batas waktu absen hari ini, abaikan hari ini
+                continue
+        target_dates.append(target_date)
+        
+    if not target_dates:
         return
         
-    if target_date == today:
-        session = DailyAttendanceSession.objects.filter(tanggal=today).first()
-        if not session or timezone.now() <= session.batas_maksimal:
-            # Belum melewati batas waktu absen hari ini
-            return
-            
-    active_staff = CustomUser.objects.filter(is_active=True, role__in=["staff", "manager"])
-    for member in active_staff:
-        Absensi.objects.get_or_create(
-            staff=member,
-            tanggal=target_date,
-            defaults={"status": "alpha"}
-        )
+    active_staff = list(CustomUser.objects.filter(is_active=True, role__in=["staff", "manager"]))
+    if not active_staff:
+        return
+
+    # Ambil semua data absensi yang sudah ada untuk range tanggal ini & staff aktif
+    existing_absensi = set(
+        Absensi.objects.filter(
+            staff__in=active_staff,
+            tanggal__range=(start_date, end_date)
+        ).values_list('staff_id', 'tanggal')
+    )
+
+    # Siapkan list bulk_create
+    to_create = []
+    for target_date in target_dates:
+        for member in active_staff:
+            if (member.id, target_date) not in existing_absensi:
+                to_create.append(
+                    Absensi(
+                        staff=member,
+                        tanggal=target_date,
+                        status="alpha"
+                    )
+                )
+
+    if to_create:
+        Absensi.objects.bulk_create(to_create, ignore_conflicts=True)
+
+
+def sync_attendance_for_date(target_date):
+    sync_attendance_for_range(target_date, target_date)
 
 
 
@@ -66,8 +159,8 @@ class ClockInView(APIView):
         now = timezone.now()
 
         # 1. Cek Sesi Absensi Aktif
-        session = DailyAttendanceSession.objects.filter(tanggal=today, is_active=True).first()
-        if not session:
+        session = get_or_create_daily_session()
+        if not session or not session.is_active:
             return Response(
                 {"detail": "Sesi absensi hari ini belum dibuka oleh Manager/Owner."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -202,8 +295,7 @@ class AbsensiListView(APIView):
             if t_int < today.year or (t_int == today.year and b_int <= today.month):
                 end_day = today.day if (t_int == today.year and b_int == today.month) else last_day
                 from datetime import date
-                for d in range(1, end_day + 1):
-                    sync_attendance_for_date(date(t_int, b_int, d))
+                sync_attendance_for_range(date(t_int, b_int, 1), date(t_int, b_int, end_day))
 
             base_qs = Absensi.objects.filter(tanggal__month=b_int, tanggal__year=t_int)
 
@@ -283,8 +375,7 @@ class TimecardView(APIView):
         if tahun < today.year or (tahun == today.year and bulan <= today.month):
             end_day = today.day if (tahun == today.year and bulan == today.month) else last_day
             from datetime import date
-            for d in range(1, end_day + 1):
-                sync_attendance_for_date(date(tahun, bulan, d))
+            sync_attendance_for_range(date(tahun, bulan, 1), date(tahun, bulan, end_day))
 
         # Tentukan target staff
         if user.role in ("owner", "manager"):
@@ -508,7 +599,7 @@ class StaffDashboardView(APIView):
         absensi_data = (
             AbsensiSerializer(absensi_hari_ini).data
             if absensi_hari_ini
-            else {"status": "belum_absen", "jam_masuk": None, "jam_keluar": None}
+            else {"status": "belum_absen", "jam_masuk": None, "jam_keluar": None, "workspace_unlocked": False}
         )
 
         # --- Timecard Ringkasan Bulan Ini ---
@@ -541,6 +632,10 @@ class StaffDashboardView(APIView):
             | Q(target="personal", staff_personal=user)
         )[:5]
 
+        # --- Total Job Selesai & Gagal ---
+        total_job_selesai = JobBoard.objects.filter(pic_staff=user, status_pekerjaan="selesai").count()
+        total_job_gagal = JobBoard.objects.filter(pic_staff=user, status_pekerjaan="gagal").count()
+
         # --- Job Aktif ---
         job_aktif = JobBoard.objects.filter(
             pic_staff=user, status_pekerjaan__in=["antrean", "dikerjakan"]
@@ -559,7 +654,7 @@ class StaffDashboardView(APIView):
         ]
 
         # --- Status Lock & Sesi Absensi ---
-        sesi_hari_ini = DailyAttendanceSession.objects.filter(tanggal=today).first()
+        sesi_hari_ini = get_or_create_daily_session()
         is_locked = False
         unlock_request = None
         sesi_aktif = sesi_hari_ini is not None and sesi_hari_ini.is_active
@@ -600,6 +695,7 @@ class StaffDashboardView(APIView):
                     "sesi_aktif": sesi_aktif,
                     "batas_maksimal": sesi_hari_ini.batas_maksimal if sesi_hari_ini else None,
                     "unlock_request": unlock_request,
+                    "workspace_unlocked": absensi_hari_ini.workspace_unlocked if absensi_hari_ini else False,
                 },
                 "absensi_hari_ini": absensi_data,
                 "timecard_bulan_ini": {
@@ -613,6 +709,8 @@ class StaffDashboardView(APIView):
                 "pengumuman": AnnouncementSerializer(pengumuman, many=True).data,
                 "job_aktif": job_data,
                 "total_job_aktif": len(job_data),
+                "total_job_selesai": total_job_selesai,
+                "total_job_gagal": total_job_gagal,
             }
         )
 
@@ -628,14 +726,28 @@ class AttendanceSessionManagerView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        today = timezone.localdate()
-        sesi = DailyAttendanceSession.objects.filter(tanggal=today).first()
+        sesi = get_or_create_daily_session()
         if not sesi:
             return Response({"is_active": False, "detail": "Belum ada sesi hari ini."})
+            
+        import os
+        import json
+        from django.conf import settings
+        config_path = os.path.join(settings.BASE_DIR, "hr_attendance_schedule.json")
+        repeat_daily = False
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+                repeat_daily = config.get("repeat_daily", False)
+            except Exception:
+                pass
+
         return Response({
             "is_active": sesi.is_active,
             "waktu_mulai": sesi.waktu_mulai,
             "batas_maksimal": sesi.batas_maksimal,
+            "repeat_daily": repeat_daily,
         })
 
     def post(self, request):
@@ -644,6 +756,7 @@ class AttendanceSessionManagerView(APIView):
         
         batas_waktu_str = request.data.get("batas_maksimal") # Format HH:MM
         waktu_mulai_str = request.data.get("waktu_mulai") # Format HH:MM
+        repeat_daily = request.data.get("repeat_daily", False)
         
         if not batas_waktu_str or not waktu_mulai_str:
             return Response({"detail": "waktu_mulai dan batas_maksimal wajib diisi (HH:MM)."}, status=400)
@@ -661,25 +774,104 @@ class AttendanceSessionManagerView(APIView):
         except ValueError:
             return Response({"detail": "Format waktu salah. Gunakan HH:MM"}, status=400)
 
-        sesi, created = DailyAttendanceSession.objects.get_or_create(
-            tanggal=today,
-            defaults={
-                "waktu_mulai": waktu_mulai,
-                "batas_maksimal": batas_maksimal,
-                "dihidupkan_oleh": request.user,
-                "is_active": True
-            }
-        )
-        if not created:
+        # Simpan config schedule jika repeat_daily=True/False
+        import os
+        import json
+        from django.conf import settings
+        config_path = os.path.join(settings.BASE_DIR, "hr_attendance_schedule.json")
+        try:
+            with open(config_path, "w") as f:
+                json.dump({
+                    "waktu_mulai": waktu_mulai_str,
+                    "batas_maksimal": batas_waktu_str,
+                    "repeat_daily": repeat_daily
+                }, f)
+        except Exception as e:
+            logger.error(f"Error writing attendance schedule json: {e}", exc_info=True)
+
+        sesi = DailyAttendanceSession.objects.filter(tanggal=today).first()
+        if sesi:
             sesi.waktu_mulai = waktu_mulai
             sesi.batas_maksimal = batas_maksimal
             sesi.is_active = True
+            sesi.dihidupkan_oleh = request.user
             sesi.save()
+        else:
+            sesi = DailyAttendanceSession.objects.create(
+                tanggal=today,
+                waktu_mulai=waktu_mulai,
+                batas_maksimal=batas_maksimal,
+                dihidupkan_oleh=request.user,
+                is_active=True
+            )
             
         return Response({
-            "detail": "Sesi absensi berhasil diperbarui.", 
+            "is_active": sesi.is_active,
             "waktu_mulai": sesi.waktu_mulai,
-            "batas_maksimal": sesi.batas_maksimal
+            "batas_maksimal": sesi.batas_maksimal,
+            "repeat_daily": repeat_daily,
+            "detail": "Sesi absensi berhasil diperbarui."
+        })
+
+
+class NotifyLateStaffView(APIView):
+    """
+    POST /api/hr/attendance-session/notify-late/
+    Owner/Manager: Mencari staff yang belum clock-in melewati batas_maksimal
+    dan mengirim notifikasi WA otomatis untuk menanyakan alasan mereka.
+    """
+    permission_classes = [IsOwnerOrManagerPerm]
+
+    def post(self, request):
+        today = timezone.localdate()
+        session = DailyAttendanceSession.objects.filter(tanggal=today).first()
+        if not session or not session.is_active:
+            return Response({"detail": "Tidak ada sesi absensi aktif untuk hari ini."}, status=400)
+            
+        from api.models import CustomUser
+        from hr.models import Absensi, UnlockRequest
+        from api.whatsapp_client import whatsapp_client
+        
+        # Get all active staff
+        active_staff = CustomUser.objects.filter(is_active=True, role='staff')
+        
+        notified_count = 0
+        for staff in active_staff:
+            # Check if they clocked in today
+            absensi = Absensi.objects.filter(staff=staff, tanggal=today).first()
+            has_checked_in = absensi is not None and absensi.status not in ('alpha', 'izin', 'sakit')
+            
+            # If they haven't checked in, they are considered late/absent
+            if not has_checked_in:
+                # Check if we already created an UnlockRequest for them today
+                req, created = UnlockRequest.objects.get_or_create(
+                    staff=staff,
+                    sesi=session,
+                    defaults={
+                        'alasan': 'Belum memberikan alasan (Menunggu balasan WhatsApp)'
+                    }
+                )
+                
+                # Send WhatsApp message
+                if staff.no_wa:
+                    clean_number = staff.no_wa.replace('+', '').replace(' ', '').replace('-', '')
+                    msg = (
+                        f"Halo {staff.get_full_name() or staff.username},\n\n"
+                        f"Anda terdeteksi belum melakukan absensi masuk (Clock-in) untuk hari ini "
+                        f"({today.strftime('%d-%m-%Y')}) hingga batas waktu "
+                        f"{timezone.localtime(session.batas_maksimal).strftime('%H:%M')} WIB.\n\n"
+                        f"Akses akun Anda sementara dikunci. Silakan *balas pesan ini* dengan memberikan "
+                        f"alasan keterlambatan atau ketidakhadiran Anda untuk mengajukan pembukaan akses kepada Manager."
+                    )
+                    try:
+                        whatsapp_client.send_text(clean_number, msg)
+                        notified_count += 1
+                    except Exception as e:
+                        logger.error(f"Gagal mengirim notifikasi absensi ke {staff.username}: {e}")
+                        
+        return Response({
+            "detail": f"Berhasil mengirim notifikasi keterlambatan/absen ke {notified_count} staff.",
+            "notified_count": notified_count
         })
 
 
@@ -691,10 +883,9 @@ class UnlockRequestStaffView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        today = timezone.localdate()
-        sesi = DailyAttendanceSession.objects.filter(tanggal=today, is_active=True).first()
+        sesi = get_or_create_daily_session()
         
-        if not sesi:
+        if not sesi or not sesi.is_active:
             return Response({"detail": "Sesi absensi belum dimulai."}, status=400)
             
         alasan = request.data.get("alasan")
@@ -726,6 +917,7 @@ class UnlockRequestManagerView(APIView):
                 "id": r.id,
                 "staff": r.staff.username,
                 "staff_nama": r.staff.get_full_name(),
+                "staff_no_wa": r.staff.no_wa,
                 "alasan": r.alasan,
                 "waktu_request": r.waktu_request,
                 "status": r.status
@@ -738,20 +930,26 @@ class UnlockRequestActionView(APIView):
     permission_classes = [IsOwnerOrManagerPerm]
     
     def post(self, request, pk, action):
-        req = UnlockRequest.objects.filter(pk=pk).first()
-        if not req:
-            return Response({"detail": "Permintaan tidak ditemukan."}, status=404)
-            
-        if action == "approve":
-            req.status = "approved"
-        elif action == "reject":
-            req.status = "rejected"
-        else:
-            return Response({"detail": "Action tidak valid."}, status=400)
-            
-        req.direspon_oleh = request.user
-        req.waktu_respon = timezone.now()
-        req.save()
+        from django.db import transaction
+        
+        with transaction.atomic():
+            req = UnlockRequest.objects.select_for_update().filter(pk=pk).first()
+            if not req:
+                return Response({"detail": "Permintaan tidak ditemukan."}, status=404)
+                
+            if req.status != "pending":
+                return Response({"detail": f"Permintaan sudah diproses sebelumnya (Status saat ini: {req.status})."}, status=400)
+                
+            if action == "approve":
+                req.status = "approved"
+            elif action == "reject":
+                req.status = "rejected"
+            else:
+                return Response({"detail": "Action tidak valid."}, status=400)
+                
+            req.direspon_oleh = request.user
+            req.waktu_respon = timezone.now()
+            req.save()
         
         return Response({"detail": f"Permintaan berhasil di-{action}.", "status": req.status})
 
@@ -822,8 +1020,16 @@ class BukuBesarView(APIView):
         total_debit = agregat['total_debit'] or 0
         total_kredit = agregat['total_kredit'] or 0
         
-        # Contoh perhitungan saldo awal (Debit - Kredit)
-        saldo_awal = total_debit - total_kredit
+        # Penentuan saldo awal berdasarkan normal balance kategori akun:
+        # Aset & Beban = Debit - Kredit
+        # Kewajiban (Utang), Ekuitas (Modal), Pendapatan = Kredit - Debit
+        kategori_lower = akun.kategori.lower() if akun.kategori else ""
+        is_credit_normal = any(k in kategori_lower for k in ['kewajiban', 'utang', 'ekuitas', 'modal', 'pendapatan', 'revenue'])
+        
+        if is_credit_normal:
+            saldo_awal = total_kredit - total_debit
+        else:
+            saldo_awal = total_debit - total_kredit
 
         # 2. Ambil transaksi pada rentang tanggal
         transaksi = TransaksiBukuBesar.objects.filter(
@@ -836,4 +1042,188 @@ class BukuBesarView(APIView):
             "saldo_awal": saldo_awal,
             "transaksi": TransaksiBukuBesarSerializer(transaksi, many=True).data
         })
+
+
+# ---------------------------------------------------------------------------
+# 9. SLIP GAJI VIEWSET — Penggajian Bulanan Otomatis & Jurnal
+# ---------------------------------------------------------------------------
+class SlipGajiViewSet(viewsets.ModelViewSet):
+    queryset = SlipGaji.objects.select_related("staff", "dibayar_oleh").order_by("-tahun", "-bulan", "staff__username")
+    serializer_class = SlipGajiSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = self.queryset
+        # Staff biasa hanya bisa lihat slip miliknya sendiri
+        if self.request.user.role not in ("owner", "manager"):
+            qs = qs.filter(staff=self.request.user)
+        else:
+            staff_id = self.request.query_params.get("staff_id")
+            if staff_id:
+                qs = qs.filter(staff_id=staff_id)
+        
+        bulan = self.request.query_params.get("bulan")
+        tahun = self.request.query_params.get("tahun")
+        if bulan:
+            qs = qs.filter(bulan=int(bulan))
+        if tahun:
+            qs = qs.filter(tahun=int(tahun))
+        return qs
+
+    @action(detail=False, methods=["post"], url_path="generate")
+    def generate_monthly_payroll(self, request):
+        """
+        POST /api/hr/slip-gaji/generate/
+        Mengambil semua staff aktif, menghitung gaji pokok, insentif job, biaya desain,
+        dan potongan terlambat absen pada bulan/tahun terkait.
+        Format payload: {"bulan": 6, "tahun": 2026}
+        """
+        if request.user.role not in ("owner", "manager"):
+            return Response({"detail": "Akses ditolak."}, status=status.HTTP_403_FORBIDDEN)
+
+        bulan = request.data.get("bulan")
+        tahun = request.data.get("tahun")
+        if not bulan or not tahun:
+            return Response({"detail": "bulan dan tahun wajib diisi."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            bulan = int(bulan)
+            tahun = int(tahun)
+        except ValueError:
+            return Response({"detail": "Format bulan/tahun tidak valid."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from api.models import CustomUser, JobBoard, SystemConfig
+        
+        # Get late penalty setting
+        try:
+            penalty_config = SystemConfig.objects.get(key="biaya_potongan_terlambat").value
+            biaya_potongan_terlambat = int(penalty_config)
+        except Exception:
+            biaya_potongan_terlambat = 20000  # Default 20rb per terlambat
+
+        active_staff = CustomUser.objects.filter(is_active=True).exclude(role="owner")
+        generated_count = 0
+        
+        for member in active_staff:
+            # 1. Gaji Pokok dari Kontrak Aktif
+            kontrak = Kontrak.objects.filter(staff=member, status="aktif").first()
+            gaji_pokok = kontrak.gaji_pokok if kontrak else 0
+
+            # 2. Total Insentif & Biaya Desain dari JobBoard
+            jobs_done = JobBoard.objects.filter(
+                pic_staff=member,
+                status_pekerjaan="selesai",
+                waktu_selesai__month=bulan,
+                waktu_selesai__year=tahun
+            )
+            agg_jobs = jobs_done.aggregate(
+                tot_insentif=Sum("insentif"),
+                tot_desain=Sum("biaya_desain")
+            )
+            total_insentif = agg_jobs["tot_insentif"] or 0
+            total_biaya_desain = agg_jobs["tot_desain"] or 0
+
+            # 3. Potongan Terlambat
+            absensi_qs = Absensi.objects.filter(
+                staff=member,
+                tanggal__month=bulan,
+                tanggal__year=tahun,
+                jam_masuk__isnull=False
+            )
+            
+            late_count = 0
+            for absensi in absensi_qs:
+                sesi = DailyAttendanceSession.objects.filter(tanggal=absensi.tanggal).first()
+                if sesi and absensi.jam_masuk > sesi.batas_maksimal:
+                    late_count += 1
+            
+            potongan_terlambat = late_count * biaya_potongan_terlambat
+
+            # Gaji bersih
+            total_gaji_bersih = max(0, gaji_pokok + total_insentif + total_biaya_desain - potongan_terlambat)
+
+            # Simpan atau update jika status masih draft
+            slip, created = SlipGaji.objects.get_or_create(
+                staff=member,
+                bulan=bulan,
+                tahun=tahun,
+                defaults={
+                    "gaji_pokok": gaji_pokok,
+                    "total_insentif": total_insentif,
+                    "total_biaya_desain": total_biaya_desain,
+                    "potongan_terlambat": potongan_terlambat,
+                    "total_gaji_bersih": total_gaji_bersih,
+                    "status": "draft",
+                }
+            )
+
+            if not created and slip.status == "draft":
+                slip.gaji_pokok = gaji_pokok
+                slip.total_insentif = total_insentif
+                slip.total_biaya_desain = total_biaya_desain
+                slip.potongan_terlambat = potongan_terlambat
+                slip.total_gaji_bersih = total_gaji_bersih
+                slip.save()
+
+            generated_count += 1
+
+        return Response({"detail": f"Berhasil menghitung & memperbarui payroll untuk {generated_count} staff."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="pay")
+    def pay_payroll(self, request, pk=None):
+        """
+        POST /api/hr/slip-gaji/{id}/pay/
+        Membayar slip gaji, menandai status paid, dan memposting jurnal otomatis ke Buku Besar.
+        """
+        if request.user.role not in ("owner", "manager"):
+            return Response({"detail": "Hanya Owner/Manager yang dapat menyetujui pembayaran gaji."}, status=status.HTTP_403_FORBIDDEN)
+
+        slip = self.get_object()
+        if slip.status == "paid":
+            return Response({"detail": "Slip gaji ini sudah dibayar sebelumnya."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update status slip
+        with transaction.atomic():
+            slip.status = "paid"
+            slip.waktu_dibayar = timezone.now()
+            slip.dibayar_oleh = request.user
+            slip.save()
+
+            # Posting Buku Besar otomatis
+            try:
+                akun_beban_gaji, _ = Akun.objects.get_or_create(
+                    kode_akun='5-2000',
+                    defaults={'nama_akun': 'Beban Gaji Karyawan', 'kategori': 'Beban'}
+                )
+                akun_kas_bank, _ = Akun.objects.get_or_create(
+                    kode_akun='1-1001',
+                    defaults={'nama_akun': 'Kas di Bank (Pembayaran Gaji)', 'kategori': 'Aset'}
+                )
+                
+                ref_no = f"SG-{slip.id}"
+                ket_tx = f"Pembayaran Gaji {slip.staff.username} Periode {slip.bulan}/{slip.tahun}"
+                
+                # DEBIT Beban Gaji
+                TransaksiBukuBesar.objects.create(
+                    akun=akun_beban_gaji,
+                    tanggal=timezone.localdate(),
+                    no_referensi=ref_no,
+                    keterangan=ket_tx,
+                    debit=slip.total_gaji_bersih,
+                    kredit=0
+                )
+                
+                # KREDIT Kas/Bank
+                TransaksiBukuBesar.objects.create(
+                    akun=akun_kas_bank,
+                    tanggal=timezone.localdate(),
+                    no_referensi=ref_no,
+                    keterangan=ket_tx,
+                    debit=0,
+                    kredit=slip.total_gaji_bersih
+                )
+            except Exception as e:
+                print(f"Gagal memposting jurnal gaji otomatis: {e}")
+
+        return Response(SlipGajiSerializer(slip).data, status=status.HTTP_200_OK)
 

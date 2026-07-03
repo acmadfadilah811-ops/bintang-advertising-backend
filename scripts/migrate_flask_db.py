@@ -11,7 +11,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 import django
 django.setup()
 
-from api.models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, ProductPrice, AppConfig, FAQ
+from api.models import Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard, InventoryItem, ProductPrice, SystemConfig, FAQ
 
 # Lokasi file database lama
 OLD_DB_PATH = r"d:\buku zis\bintang_advertising_app\app.db"
@@ -80,7 +80,10 @@ def migrate_orders(cursor):
     columns = [col[1] for col in cursor.fetchall()]
     has_gdrive = 'gdrive_link' in columns
     
-    query = f"SELECT id, waktu, nama, nomor_wa, jenis_produk, detail, harga_jual, biaya_bahan, estimasi, status, tim_tugas, pic, catatan_produksi {', gdrive_link' if has_gdrive else ''} FROM pesanan"
+    if has_gdrive:
+        query = "SELECT id, waktu, nama, nomor_wa, jenis_produk, detail, harga_jual, biaya_bahan, estimasi, status, tim_tugas, pic, catatan_produksi, gdrive_link FROM pesanan"
+    else:
+        query = "SELECT id, waktu, nama, nomor_wa, jenis_produk, detail, harga_jual, biaya_bahan, estimasi, status, tim_tugas, pic, catatan_produksi FROM pesanan"
     cursor.execute(query)
     pesanan = cursor.fetchall()
     
@@ -167,31 +170,34 @@ def migrate_others(cursor):
         
     cursor.execute("SELECT key, value FROM config")
     for r in cursor.fetchall():
-        AppConfig.objects.get_or_create(key=r[0], defaults={'value': r[1]})
+        SystemConfig.objects.get_or_create(key=r[0], defaults={'value': r[1]})
 
     cursor.execute("SELECT pertanyaan, jawaban FROM faq")
     for r in cursor.fetchall():
         FAQ.objects.get_or_create(pertanyaan=r[0], defaults={'jawaban': r[1]})
 
 def run():
-    print("⏳ Memulai Proses Migrasi Data...")
+    print("Memulai Proses Migrasi Data...")
     if not os.path.exists(OLD_DB_PATH):
-        print(f"❌ File database lama tidak ditemukan di {OLD_DB_PATH}")
+        print(f"[ERROR] File database lama tidak ditemukan di {OLD_DB_PATH}")
         return
+
+    from django.db import transaction
 
     conn = sqlite3.connect(OLD_DB_PATH)
     cursor = conn.cursor()
 
     try:
-        migrate_master_data()
-        migrate_users(cursor)
-        migrate_orders(cursor)
-        migrate_inventory(cursor)
-        migrate_contacts(cursor)
-        migrate_others(cursor)
-        print("\n✅ SEMUA DATA BERHASIL DIMIGRASI KE MYSQL!")
+        with transaction.atomic():
+            migrate_master_data()
+            migrate_users(cursor)
+            migrate_orders(cursor)
+            migrate_inventory(cursor)
+            migrate_contacts(cursor)
+            migrate_others(cursor)
+        print("\n[SUCCESS] SEMUA DATA BERHASIL DIMIGRASI KE MYSQL!")
     except Exception as e:
-        print(f"\n❌ Terjadi kesalahan: {str(e)}")
+        print(f"\n[ERROR] Terjadi kesalahan: {str(e)}")
     finally:
         conn.close()
 

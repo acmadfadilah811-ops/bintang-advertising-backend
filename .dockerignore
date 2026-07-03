@@ -4,7 +4,6 @@
 .env
 .venv
 .antigravity*
-uv.lock
 db.sqlite3
 __pycache__/
 *.pyc

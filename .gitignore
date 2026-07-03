@@ -11,9 +11,38 @@ wheels/
 
 # Environment variables (JANGAN diupload ke GitHub!)
 .env
+.env.production
+.env.*
+
+# VPS setup script (berisi data sensitif seperti domain dan path)
+setup_vps.sh
 
 # Database (jangan upload sqlite lokal jika ada)
 db.sqlite3
 
 # Media / Uploads
 media/
+
+# Caches & Logs
+.ruff_cache/
+.pytest_cache/
+logs/
+*.log
+
+# Coverage
+.coverage
+htmlcov/
+
+# Backup files (data sensitif, jangan diupload!)
+backups/
+
+# Runtime config files
+hr_attendance_schedule.json
+
+# Local logs/temp files
+cache_history.txt
+customer_messages.txt
+daphne_all_logs.txt
+daphne_grep_logs.txt
+daphne_recent_logs.txt
+nginx_logs.txt

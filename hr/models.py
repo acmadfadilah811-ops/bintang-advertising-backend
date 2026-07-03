@@ -29,6 +29,10 @@ class Absensi(models.Model):
         null=True, blank=True, help_text="Clock-out — diisi saat staff klik tombol keluar."
     )
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="hadir")
+    workspace_unlocked = models.BooleanField(
+        default=False,
+        help_text="Bypass checkout/lock status, owner mengizinkan staff mengakses papan kerja meskipun sudah checkout."
+    )
     catatan = models.TextField(blank=True, default="")
     diverifikasi = models.BooleanField(
         default=False, help_text="Manager menandai kehadiran sudah diverifikasi."
@@ -262,6 +266,58 @@ class TransaksiBukuBesar(models.Model):
 
     class Meta:
         ordering = ['tanggal', 'waktu_input']
+        indexes = [
+            # Query: filter transaksi berdasarkan rentang tanggal (sangat penting untuk laporan bulanan/tahunan)
+            models.Index(fields=['tanggal', 'waktu_input'], name='idx_tx_tanggal_waktu'),
+            # Query: filter transaksi per akun tertentu berdasarkan tanggal
+            models.Index(fields=['akun', 'tanggal'], name='idx_tx_akun_tanggal'),
+            # Query: pencarian berdasarkan nomor referensi (misal ID Order)
+            models.Index(fields=['no_referensi'], name='idx_tx_no_referensi'),
+        ]
 
     def __str__(self):
         return f"{self.tanggal} | {self.akun.nama_akun} | D: {self.debit} | K: {self.kredit}"
+
+
+# ---------------------------------------------------------------------------
+# 10. SLIP GAJI — Penggajian Bulanan Staff Otomatis
+# ---------------------------------------------------------------------------
+
+class SlipGaji(models.Model):
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("paid", "Sudah Dibayar"),
+    ]
+    
+    staff = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="slip_gaji",
+    )
+    bulan = models.IntegerField(help_text="Bulan (1-12)")
+    tahun = models.IntegerField(help_text="Tahun (misal: 2026)")
+    gaji_pokok = models.IntegerField(default=0, help_text="Diambil dari Kontrak saat itu")
+    total_insentif = models.IntegerField(default=0, help_text="Total insentif dari JobBoard")
+    total_biaya_desain = models.IntegerField(default=0, help_text="Total biaya desain dari JobBoard")
+    potongan_terlambat = models.IntegerField(default=0, help_text="Potongan karena keterlambatan absen")
+    total_gaji_bersih = models.IntegerField(default=0, help_text="Total gaji bersih yang dibayarkan")
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default="draft")
+    catatan = models.TextField(blank=True, default="")
+    waktu_dibuat = models.DateTimeField(auto_now_add=True)
+    waktu_dibayar = models.DateTimeField(null=True, blank=True)
+    dibayar_oleh = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="slip_gaji_dibayar",
+    )
+
+    class Meta:
+        db_table = "slip_gaji"
+        unique_together = [["staff", "bulan", "tahun"]]
+        ordering = ["-tahun", "-bulan", "staff"]
+
+    def __str__(self):
+        return f"Slip Gaji {self.staff.username} — {self.bulan}/{self.tahun} ({self.get_status_display()})"
+

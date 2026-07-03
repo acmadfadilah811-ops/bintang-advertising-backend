@@ -14,7 +14,7 @@ j = JobBoard.objects.all().delete()
 i = OrderItem.objects.all().delete()
 o = Order.objects.all().delete()
 
-print("✅ Database berhasil direset!")
+print("[SUCCESS] Database berhasil direset!")
 print(f"   - JobBoard  dihapus: {j[0]} record")
 print(f"   - OrderItem dihapus: {i[0]} record")
 print(f"   - Order     dihapus: {o[0]} record")

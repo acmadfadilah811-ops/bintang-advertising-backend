@@ -1,8 +1,11 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, BusinessSettingsView
-from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView
+from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, EvolutionWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView, KomplainViewSet, ContactStatsView
+from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView, ExportStockMovementView, ExportCustomersView
+from . import product_views
+from . import marketing_views
+from . import customer_views
 
 router = DefaultRouter()
 
@@ -18,9 +21,54 @@ router.register(r'inventory', views.InventoryItemViewSet, basename='inventory')
 router.register(r'product-prices', views.ProductPriceViewSet)
 router.register(r'app-config', views.SystemConfigViewSet)
 router.register(r'faq', views.FAQViewSet)
+router.register(r'komplain', views.KomplainViewSet, basename='komplain')
+router.register(r'customer-activities', views.CustomerActivityViewSet, basename='customer-activity')
+router.register(r'bom', views.BillOfMaterialsViewSet, basename='bom')
+router.register(r'bom-items', views.BoMItemViewSet, basename='bom-item')
+router.register(r'shift-timing', views.ShiftTimingViewSet, basename='shift-timing')
+router.register(r'pos-antrian-device', views.POSAntrianDeviceViewSet, basename='pos-antrian-device')
+router.register(r'saldo-kas-harian', views.SaldoKasHarianViewSet, basename='saldo-kas-harian')
+router.register(r'ringkasan-shift', views.RingkasanShiftViewSet, basename='ringkasan-shift')
+
+# Product & Inventory Phase 1
+router.register(r'product-categories', product_views.ProductCategoryViewSet, basename='product-category')
+router.register(r'brands', product_views.BrandViewSet, basename='brand')
+router.register(r'special-types', product_views.SpecialTypeViewSet, basename='special-type')
+router.register(r'collections', product_views.CollectionViewSet, basename='collection')
+router.register(r'products', product_views.ProductViewSet, basename='product')
+router.register(r'product-images', product_views.ProductImageViewSet, basename='product-image')
+router.register(r'product-variants', product_views.ProductVariantViewSet, basename='product-variant')
+router.register(r'product-packages', product_views.ProductPackageViewSet, basename='product-package')
+router.register(r'addons', product_views.AddonViewSet, basename='addon')
+router.register(r'specifications', product_views.SpecificationViewSet, basename='specification')
+router.register(r'product-stock-movements', product_views.ProductStockMovementViewSet, basename='product-stock-movement')
+router.register(r'stock-in-documents', product_views.StockInDocumentViewSet, basename='stock-in-document')
+router.register(r'stock-out-documents', product_views.StockOutDocumentViewSet, basename='stock-out-document')
+router.register(r'stock-production-documents', product_views.StockProductionDocumentViewSet, basename='stock-production-document')
+router.register(r'stock-opname-documents', product_views.StockOpnameDocumentViewSet, basename='stock-opname-document')
+
+# Marketing (Voucher & Diskon)
+router.register(r'sales-discounts', marketing_views.SalesDiscountViewSet, basename='sales-discount')
+router.register(r'discount-coupons', marketing_views.DiscountCouponViewSet, basename='discount-coupon')
+router.register(r'pos-promotions', marketing_views.POSPromotionViewSet, basename='pos-promotion')
+
+# Pelanggan & Supplier
+router.register(r'customer-groups', customer_views.CustomerGroupViewSet, basename='customer-group')
+router.register(r'customers', customer_views.CustomerViewSet, basename='customer')
+router.register(r'customer-notes', customer_views.CustomerNoteViewSet, basename='customer-note')
+router.register(r'customer-note-entries', customer_views.CustomerNoteEntryViewSet, basename='customer-note-entry')
+router.register(r'customer-note-documents', customer_views.CustomerNoteDocumentViewSet, basename='customer-note-document')
+router.register(r'customer-note-tags', customer_views.CustomerNoteTagViewSet, basename='customer-note-tag')
+router.register(r'customer-reviews', customer_views.CustomerReviewViewSet, basename='customer-review')
+router.register(r'suppliers', customer_views.SupplierViewSet, basename='supplier')
+
+# POS Cashier Terminal
+from . import pos_views
+router.register(r'pos/sales', pos_views.POSSaleViewSet, basename='pos-sale')
 
 
 urlpatterns = [
+    path('contacts/stats/', ContactStatsView.as_view(), name='contact-stats'),
     path('', include(router.urls)),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
     path('auth/create-user/', CreateUserView.as_view(), name='create_user'),
@@ -33,7 +81,13 @@ urlpatterns = [
     path('export/inventory/', ExportInventoryView.as_view(), name='export-inventory'),
     path('export/jobs/', ExportJobsView.as_view(), name='export-jobs'),
     path('export/contacts/', ExportContactsView.as_view(), name='export-contacts'),
+    path('export/customers/', ExportCustomersView.as_view(), name='export-customers'),
     path('export/absensi/', ExportAbsensiView.as_view(), name='export-absensi'),
+    path('export/staff-performance/', ExportStaffPerformanceView.as_view(), name='export-staff-performance'),
+    path('export/stock-movement/', ExportStockMovementView.as_view(), name='export-stock-movement'),
+
+    # Reports Endpoints
+    path('reports/staff-performance/', StaffPerformanceReportView.as_view(), name='staff-performance-report'),
 
     # Explicit restock URL — standalone APIView, tidak pakai @action ViewSet
     path('inventory/<str:pk>/restock/', InventoryRestockView.as_view(), name='inventory-restock'),
@@ -41,6 +95,26 @@ urlpatterns = [
     # Webhook Bot WA (Fonnte)
     path('webhook/fonnte/', FonnteWebhookView.as_view(), name='webhook-fonnte'),
 
+    # Webhook Bot WA (Evolution API)
+    path('webhook/evolution/', EvolutionWebhookView.as_view(), name='webhook-evolution'),
+
     # Business Settings (mirip OrgSettings di Django CRM)
     path('business-settings/', BusinessSettingsView.as_view(), name='business-settings'),
+    
+    # WhatsApp Chat Integration
+    path('whatsapp/status/', views.WhatsAppStatusView.as_view(), name='whatsapp-status'),
+    path('whatsapp/chats/', views.WhatsAppChatsView.as_view(), name='whatsapp-chats'),
+    path('whatsapp/messages/', views.WhatsAppMessagesView.as_view(), name='whatsapp-messages'),
+    path('whatsapp/send/', views.WhatsAppSendMessageView.as_view(), name='whatsapp-send'),
+    path('whatsapp/send-media/', views.WhatsAppSendMediaView.as_view(), name='whatsapp-send-media'),
+
+    # Client Error Logging
+    path('log-client-error/', views.ClientLogView.as_view(), name='log-client-error'),
+
+    # Public upload design susulan
+    path('public/get-order-details/', views.PublicOrderDetailsView.as_view(), name='public-get-order-details'),
+    path('public/submit-design/', views.PublicSubmitDesignView.as_view(), name='public-submit-design'),
+
+    # Health check
+    path('health/', HealthCheckView.as_view(), name='health-check'),
 ]

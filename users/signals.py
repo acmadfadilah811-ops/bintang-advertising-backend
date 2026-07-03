@@ -20,7 +20,7 @@ def auto_create_profile(sender, instance, created, **kwargs):
         user=instance,
         defaults={
             "is_organization_admin": role == "owner",
-            "has_production_access": role in ("manager", "staff"),
-            "has_finance_access": role in ("owner", "manager"),
+            "has_production_access": role in ("manager", "staff", "admin"),
+            "has_finance_access": role in ("owner", "manager", "admin"),
         },
     )
