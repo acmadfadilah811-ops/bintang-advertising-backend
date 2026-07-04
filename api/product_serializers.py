@@ -95,6 +95,7 @@ class StockInDocumentItemSerializer(serializers.ModelSerializer):
     product_nama = serializers.ReadOnlyField(source='product.nama')
     product_sku = serializers.ReadOnlyField(source='product.sku')
     product_satuan = serializers.ReadOnlyField(source='product.satuan')
+    variant_nama = serializers.ReadOnlyField(source='variant.nama_varian')
 
     class Meta:
         model = StockInDocumentItem

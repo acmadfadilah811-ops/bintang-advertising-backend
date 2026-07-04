@@ -685,6 +685,24 @@ class ProductViewSet(viewsets.ModelViewSet):
         """POST /api/products/{id}/stock-in/ — Stok Masuk (qty, harga_beli opsional, catatan, tanggal)."""
         return self._apply_stock_movement(request, pk, 'masuk')
 
+    @action(detail=True, methods=['get'], url_path='stock-in-history')
+    def stock_in_history(self, request, pk=None):
+        """GET /api/products/{id}/stock-in-history/ — Ambil dokumen stok masuk untuk produk ini."""
+        product = self.get_object()
+        items = StockInDocumentItem.objects.filter(product=product).select_related('document', 'variant').order_by('-document__created_at')
+        data = []
+        for item in items:
+            data.append({
+                'id': item.id,
+                'nomor': item.document.nomor or f"StockIn-{item.document.id}",
+                'created_at': item.document.created_at.isoformat() if item.document.created_at else (item.document.tanggal.isoformat() if item.document.tanggal else None),
+                'supplier': item.document.supplier or '',
+                'variant_nama': item.variant.nama_varian if item.variant else '',
+                'qty': float(item.qty),
+                'harga_beli': float(item.harga_beli),
+            })
+        return Response(data)
+
     @action(detail=True, methods=['post'], url_path='stock-out')
     def stock_out(self, request, pk=None):
         """POST /api/products/{id}/stock-out/ — Stok Keluar (qty, catatan, tanggal); ditolak jika stok jadi minus."""
