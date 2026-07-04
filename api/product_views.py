@@ -149,6 +149,26 @@ class ProductViewSet(viewsets.ModelViewSet):
         stok_minimum = data.get('stok_minimum', original.stok_minimum)
         qty_fast_moving = data.get('qty_fast_moving', original.qty_fast_moving)
         
+        # Optional detail fields
+        sku = data.get('sku', None)
+        barcode = data.get('barcode', None)
+        koleksi_id = data.get('koleksi_id', None)
+        brand_id = data.get('brand_id', None)
+        kondisi = data.get('kondisi', original.kondisi)
+        deskripsi = data.get('deskripsi', original.deskripsi)
+        catatan = data.get('catatan', original.catatan)
+        harga_dinamis = data.get('harga_dinamis', original.harga_dinamis)
+        satuan = data.get('satuan', original.satuan)
+        butuh_pengiriman = data.get('butuh_pengiriman', original.butuh_pengiriman)
+        berat = data.get('berat', original.berat)
+        bebas_pajak = data.get('bebas_pajak', original.bebas_pajak)
+        bebas_biaya_layanan = data.get('bebas_biaya_layanan', original.bebas_biaya_layanan)
+        tersedia_online = data.get('tersedia_online', original.tersedia_online)
+        tanggal_tersedia_online = data.get('tanggal_tersedia_online', original.tanggal_tersedia_online)
+        tidak_tersedia_offline_pos = data.get('tidak_tersedia_offline_pos', original.tidak_tersedia_offline_pos)
+        meta_keywords = data.get('meta_keywords', original.meta_keywords)
+        meta_description = data.get('meta_description', original.meta_description)
+        
         copy_photo = data.get('copy_photo', False)
         copy_variant = data.get('copy_variant', False)
         copy_tiers = data.get('copy_tiers', False)
@@ -160,14 +180,14 @@ class ProductViewSet(viewsets.ModelViewSet):
                 nama=nama,
                 nama_alternatif=nama_alternatif,
                 klasifikasi=original.klasifikasi,
-                kondisi=original.kondisi,
-                bebas_pajak=original.bebas_pajak,
-                bebas_biaya_layanan=original.bebas_biaya_layanan,
+                kondisi=kondisi,
+                bebas_pajak=bebas_pajak,
+                bebas_biaya_layanan=bebas_biaya_layanan,
                 kategori_id=kategori_id if kategori_id else (original.kategori.id if original.kategori else None),
-                brand=original.brand,
-                koleksi=original.koleksi,
+                brand_id=brand_id if brand_id else (original.brand.id if original.brand else None),
+                koleksi_id=koleksi_id if koleksi_id else (original.koleksi.id if original.koleksi else None),
                 tipe_special=original.tipe_special,
-                satuan=original.satuan,
+                satuan=satuan,
                 price_type=original.price_type,
                 tiers=original.tiers if copy_tiers else None,
                 harga_beli=original.harga_beli,
@@ -175,7 +195,7 @@ class ProductViewSet(viewsets.ModelViewSet):
                 harga_jual_toko=original.harga_jual_toko,
                 harga_jual_online=harga_jual_online,
                 harga_online_sama=harga_online_sama,
-                harga_dinamis=original.harga_dinamis,
+                harga_dinamis=harga_dinamis,
                 komisi=original.komisi,
                 minimal_pesanan=original.minimal_pesanan,
                 maksimal_pesanan=original.maksimal_pesanan,
@@ -185,10 +205,10 @@ class ProductViewSet(viewsets.ModelViewSet):
                 stok_minimum=stok_minimum,
                 qty_fast_moving=qty_fast_moving,
                 has_variant=original.has_variant if copy_variant else False,
-                tersedia_online=original.tersedia_online,
-                tanggal_tersedia_online=original.tanggal_tersedia_online,
-                tidak_tersedia_offline_pos=original.tidak_tersedia_offline_pos,
-                butuh_pengiriman=original.butuh_pengiriman,
+                tersedia_online=tersedia_online,
+                tanggal_tersedia_online=tanggal_tersedia_online if tanggal_tersedia_online else None,
+                tidak_tersedia_offline_pos=tidak_tersedia_offline_pos,
+                butuh_pengiriman=butuh_pengiriman,
                 pesanan_no_seri=original.pesanan_no_seri,
                 kategori_unggulan=original.kategori_unggulan,
                 kategori_sale=original.kategori_sale,
@@ -197,28 +217,48 @@ class ProductViewSet(viewsets.ModelViewSet):
                 kategori_populer=original.kategori_populer,
                 kategori_bahan_mentah=original.kategori_bahan_mentah,
                 material=original.material,
-                berat=original.berat,
-                deskripsi=original.deskripsi,
-                catatan=original.catatan,
-                meta_keywords=original.meta_keywords,
-                meta_description=original.meta_description,
+                berat=berat,
+                deskripsi=deskripsi,
+                catatan=catatan,
+                meta_keywords=meta_keywords,
+                meta_description=meta_description,
                 is_active=original.is_active
             )
             
-            # Generate unique SKU / Barcode for the copy if needed, or append suffix/leave empty
-            if original.sku:
+            # SKU handling
+            final_sku = sku if sku else None
+            if final_sku:
+                new_product.sku = final_sku
+                if Product.objects.filter(sku=new_product.sku).exists():
+                    new_product.sku = f"{final_sku}-COPY"
+                    counter = 1
+                    while Product.objects.filter(sku=new_product.sku).exists():
+                        new_product.sku = f"{final_sku}-COPY{counter}"
+                        counter += 1
+            elif original.sku:
                 new_product.sku = f"{original.sku}-COPY"
-                # Check uniqueness
                 counter = 1
                 while Product.objects.filter(sku=new_product.sku).exists():
                     new_product.sku = f"{original.sku}-COPY{counter}"
                     counter += 1
-            if original.barcode:
+            
+            # Barcode handling
+            final_barcode = barcode if barcode else None
+            if final_barcode:
+                new_product.barcode = final_barcode
+                if Product.objects.filter(barcode=new_product.barcode).exists():
+                    new_product.barcode = f"{final_barcode}-COPY"
+                    counter = 1
+                    while Product.objects.filter(barcode=new_product.barcode).exists():
+                        new_product.barcode = f"{final_barcode}-COPY{counter}"
+                        counter += 1
+            elif original.barcode:
                 new_product.barcode = f"{original.barcode}-COPY"
                 counter = 1
                 while Product.objects.filter(barcode=new_product.barcode).exists():
                     new_product.barcode = f"{original.barcode}-COPY{counter}"
                     counter += 1
+            
             new_product.save()
 
             # Copy photos
