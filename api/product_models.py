@@ -46,37 +46,67 @@ class Product(models.Model):
         ('per_m2', 'Per M2'),
     ]
 
+    KONDISI_CHOICES = [
+        ('Baru', 'Baru'),
+        ('Bekas', 'Bekas'),
+    ]
+
     nama = models.CharField(max_length=255)
     nama_alternatif = models.CharField(max_length=255, blank=True, null=True)
+    klasifikasi = models.CharField(max_length=100, blank=True, default='Others')
+    kondisi = models.CharField(max_length=10, choices=KONDISI_CHOICES, default='Baru')
+    bebas_pajak = models.BooleanField(default=False)
+    bebas_biaya_layanan = models.BooleanField(default=False)
     kategori = models.ForeignKey(ProductCategory, on_delete=models.SET_NULL, null=True, related_name='products')
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     koleksi = models.ForeignKey(Collection, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     tipe_special = models.ForeignKey(SpecialType, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
-    
+
     sku = models.CharField(max_length=100, blank=True, null=True, unique=True)
     barcode = models.CharField(max_length=100, blank=True, null=True, unique=True)
     satuan = models.CharField(max_length=50, default='pcs')
-    
+
     price_type = models.CharField(max_length=50, choices=PRICE_TYPE_CHOICES, default='flat')
     tiers = models.JSONField(blank=True, null=True, help_text="Format: [{'min_qty': 1, 'price': 10000}, ...]")
-    
+
     harga_beli = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    harga_pasar = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     harga_jual_toko = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     harga_jual_online = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     harga_online_sama = models.BooleanField(default=True)
-    
+    harga_dinamis = models.BooleanField(default=False, help_text="Harga jual di toko bersifat dinamis (mengikuti varian)")
+    komisi = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    minimal_pesanan = models.PositiveIntegerField(default=1)
+    maksimal_pesanan = models.PositiveIntegerField(default=0, help_text="0 = tidak dibatasi")
+
     lacak_inventori = models.BooleanField(default=True)
     rack = models.CharField(max_length=100, blank=True, default='', help_text="Lokasi rak penyimpanan")
     qty_stok = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    on_hold_qty = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Qty stok yang sedang ditahan/dipesan")
     stok_minimum = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Ambang batas Peringatan Sisa Stok")
     qty_fast_moving = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Ambang batas kualifikasi produk 'fast moving'")
 
     has_variant = models.BooleanField(default=False)
     tersedia_online = models.BooleanField(default=True)
-    
+    tanggal_tersedia_online = models.DateField(null=True, blank=True)
+    tidak_tersedia_offline_pos = models.BooleanField(default=False, help_text="Sembunyikan dari POS")
+    butuh_pengiriman = models.BooleanField(default=True)
+    pesanan_no_seri = models.BooleanField(default=False, help_text="Pesanan disertai pengisian No Seri/IMEI")
+
+    kategori_unggulan = models.BooleanField(default=False)
+    kategori_sale = models.BooleanField(default=False)
+    kategori_preorder = models.BooleanField(default=False)
+    kategori_rilis_terbaru = models.BooleanField(default=False)
+    kategori_populer = models.BooleanField(default=False)
+    kategori_bahan_mentah = models.BooleanField(default=False)
+
     material = models.CharField(max_length=255, blank=True, null=True)
+    berat = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Berat produk (kg)")
     deskripsi = models.TextField(blank=True, null=True)
-    
+    catatan = models.TextField(blank=True, default='')
+    meta_keywords = models.CharField(max_length=255, blank=True, default='')
+    meta_description = models.TextField(blank=True, default='')
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -56,7 +56,8 @@ class ProductSerializer(serializers.ModelSerializer):
     specifications = ProductSpecValueSerializer(many=True, read_only=True)
     kategori_nama = serializers.ReadOnlyField(source='kategori.nama')
     brand_nama = serializers.ReadOnlyField(source='brand.nama')
-    
+    koleksi_nama = serializers.ReadOnlyField(source='koleksi.nama')
+
     class Meta:
         model = Product
         fields = '__all__'
