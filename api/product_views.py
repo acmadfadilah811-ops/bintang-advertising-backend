@@ -29,6 +29,7 @@ from .product_serializers import (
     StockProductionDocumentSerializer, StockProductionDocumentItemSerializer,
     StockOpnameDocumentSerializer, StockOpnameDocumentItemSerializer
 )
+from .models import BillOfMaterials, BoMItem
 
 
 def _to_decimal(raw, field_name):
@@ -130,6 +131,157 @@ class ProductViewSet(viewsets.ModelViewSet):
         if search:
             queryset = queryset.filter(nama__icontains=search)
         return queryset
+
+    @action(detail=True, methods=['post'], url_path='copy')
+    def copy_product(self, request, pk=None):
+        original = self.get_object()
+        data = request.data
+        
+        # Extract form parameters
+        nama = data.get('nama', original.nama)
+        nama_alternatif = data.get('nama_alternatif', original.nama_alternatif)
+        kategori_id = data.get('kategori_id', None)
+        harga_jual_online = data.get('harga_jual_online', original.harga_jual_online)
+        harga_online_sama = data.get('harga_online_sama', original.harga_online_sama)
+        lacak_inventori = data.get('lacak_inventori', original.lacak_inventori)
+        rack = data.get('rack', original.rack)
+        qty_stok = data.get('qty_stok', 0.00)
+        stok_minimum = data.get('stok_minimum', original.stok_minimum)
+        qty_fast_moving = data.get('qty_fast_moving', original.qty_fast_moving)
+        
+        copy_photo = data.get('copy_photo', False)
+        copy_variant = data.get('copy_variant', False)
+        copy_tiers = data.get('copy_tiers', False)
+        copy_bom = data.get('copy_bom', False)
+        
+        with transaction.atomic():
+            # Create the duplicated product
+            new_product = Product.objects.create(
+                nama=nama,
+                nama_alternatif=nama_alternatif,
+                klasifikasi=original.klasifikasi,
+                kondisi=original.kondisi,
+                bebas_pajak=original.bebas_pajak,
+                bebas_biaya_layanan=original.bebas_biaya_layanan,
+                kategori_id=kategori_id if kategori_id else (original.kategori.id if original.kategori else None),
+                brand=original.brand,
+                koleksi=original.koleksi,
+                tipe_special=original.tipe_special,
+                satuan=original.satuan,
+                price_type=original.price_type,
+                tiers=original.tiers if copy_tiers else None,
+                harga_beli=original.harga_beli,
+                harga_pasar=original.harga_pasar,
+                harga_jual_toko=original.harga_jual_toko,
+                harga_jual_online=harga_jual_online,
+                harga_online_sama=harga_online_sama,
+                harga_dinamis=original.harga_dinamis,
+                komisi=original.komisi,
+                minimal_pesanan=original.minimal_pesanan,
+                maksimal_pesanan=original.maksimal_pesanan,
+                lacak_inventori=lacak_inventori,
+                rack=rack,
+                qty_stok=qty_stok,
+                stok_minimum=stok_minimum,
+                qty_fast_moving=qty_fast_moving,
+                has_variant=original.has_variant if copy_variant else False,
+                tersedia_online=original.tersedia_online,
+                tanggal_tersedia_online=original.tanggal_tersedia_online,
+                tidak_tersedia_offline_pos=original.tidak_tersedia_offline_pos,
+                butuh_pengiriman=original.butuh_pengiriman,
+                pesanan_no_seri=original.pesanan_no_seri,
+                kategori_unggulan=original.kategori_unggulan,
+                kategori_sale=original.kategori_sale,
+                kategori_preorder=original.kategori_preorder,
+                kategori_rilis_terbaru=original.kategori_rilis_terbaru,
+                kategori_populer=original.kategori_populer,
+                kategori_bahan_mentah=original.kategori_bahan_mentah,
+                material=original.material,
+                berat=original.berat,
+                deskripsi=original.deskripsi,
+                catatan=original.catatan,
+                meta_keywords=original.meta_keywords,
+                meta_description=original.meta_description,
+                is_active=original.is_active
+            )
+            
+            # Generate unique SKU / Barcode for the copy if needed, or append suffix/leave empty
+            if original.sku:
+                new_product.sku = f"{original.sku}-COPY"
+                # Check uniqueness
+                counter = 1
+                while Product.objects.filter(sku=new_product.sku).exists():
+                    new_product.sku = f"{original.sku}-COPY{counter}"
+                    counter += 1
+            if original.barcode:
+                new_product.barcode = f"{original.barcode}-COPY"
+                counter = 1
+                while Product.objects.filter(barcode=new_product.barcode).exists():
+                    new_product.barcode = f"{original.barcode}-COPY{counter}"
+                    counter += 1
+            new_product.save()
+
+            # Copy photos
+            if copy_photo:
+                for img in original.images.all():
+                    ProductImage.objects.create(
+                        product=new_product,
+                        image=img.image,
+                        is_primary=img.is_primary
+                    )
+            
+            # Copy variants
+            if copy_variant and original.has_variant:
+                for var in original.variants.all():
+                    # Create new variant
+                    new_var = ProductVariant.objects.create(
+                        product=new_product,
+                        nama_varian=var.nama_varian,
+                        sku=f"{var.sku}-COPY" if var.sku else None,
+                        barcode=f"{var.barcode}-COPY" if var.barcode else None,
+                        harga_beli=var.harga_beli,
+                        harga_jual_toko=var.harga_jual_toko,
+                        harga_jual_online=var.harga_jual_online,
+                        lacak_inventori=lacak_inventori,
+                        rack=rack if rack else var.rack,
+                        qty_stok=qty_stok if not var.lacak_inventori else 0.00,
+                        stok_minimum=var.stok_minimum,
+                        qty_fast_moving=var.qty_fast_moving,
+                        is_active=var.is_active
+                    )
+                    # Uniqueness checks for variant sku/barcode
+                    if new_var.sku:
+                        counter = 1
+                        while ProductVariant.objects.filter(sku=new_var.sku).exists():
+                            new_var.sku = f"{var.sku}-COPY{counter}"
+                            counter += 1
+                    if new_var.barcode:
+                        counter = 1
+                        while ProductVariant.objects.filter(barcode=new_var.barcode).exists():
+                            new_var.barcode = f"{var.barcode}-COPY{counter}"
+                            counter += 1
+                    new_var.save()
+            
+            # Copy BOM (Bill of Materials) / Recipes
+            if copy_bom:
+                for bom in BillOfMaterials.objects.filter(product=original):
+                    new_bom = BillOfMaterials.objects.create(
+                        product=new_product,
+                        nama=f"{bom.nama} (Copy)",
+                        deskripsi=bom.deskripsi,
+                        porsi_output=bom.porsi_output,
+                        is_active=bom.is_active
+                    )
+                    for item in bom.items.all():
+                        BoMItem.objects.create(
+                            bom=new_bom,
+                            inventory_item=item.inventory_item,
+                            qty_dibutuhkan=item.qty_dibutuhkan,
+                            satuan=item.satuan
+                        )
+            
+        serializer = self.get_serializer(new_product)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'], url_path='import-products')
     def import_products(self, request):
