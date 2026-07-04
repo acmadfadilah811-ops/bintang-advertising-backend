@@ -137,10 +137,21 @@ class ProductViewSet(viewsets.ModelViewSet):
         original = self.get_object()
         data = request.data
         
+        # Helper to parse FK IDs robustly
+        def _resolve_fk_id(key, default_val):
+            if key in data:
+                val = data.get(key)
+                if val is None or str(val).strip() == '' or str(val).lower() == 'null':
+                    return None
+                try:
+                    return int(val)
+                except (ValueError, TypeError):
+                    return None
+            return default_val
+
         # Extract form parameters
         nama = data.get('nama', original.nama)
         nama_alternatif = data.get('nama_alternatif', original.nama_alternatif)
-        kategori_id = data.get('kategori_id', None)
         harga_jual_online = data.get('harga_jual_online', original.harga_jual_online)
         harga_online_sama = data.get('harga_online_sama', original.harga_online_sama)
         lacak_inventori = data.get('lacak_inventori', original.lacak_inventori)
@@ -152,8 +163,6 @@ class ProductViewSet(viewsets.ModelViewSet):
         # Optional detail fields
         sku = data.get('sku', None)
         barcode = data.get('barcode', None)
-        koleksi_id = data.get('koleksi_id', None)
-        brand_id = data.get('brand_id', None)
         kondisi = data.get('kondisi', original.kondisi)
         deskripsi = data.get('deskripsi', original.deskripsi)
         catatan = data.get('catatan', original.catatan)
@@ -169,6 +178,10 @@ class ProductViewSet(viewsets.ModelViewSet):
         meta_keywords = data.get('meta_keywords', original.meta_keywords)
         meta_description = data.get('meta_description', original.meta_description)
         
+        kategori_id = _resolve_fk_id('kategori_id', original.kategori.id if original.kategori else None)
+        brand_id = _resolve_fk_id('brand_id', original.brand.id if original.brand else None)
+        koleksi_id = _resolve_fk_id('koleksi_id', original.koleksi.id if original.koleksi else None)
+        
         copy_photo = data.get('copy_photo', False)
         copy_variant = data.get('copy_variant', False)
         copy_tiers = data.get('copy_tiers', False)
@@ -183,9 +196,9 @@ class ProductViewSet(viewsets.ModelViewSet):
                 kondisi=kondisi,
                 bebas_pajak=bebas_pajak,
                 bebas_biaya_layanan=bebas_biaya_layanan,
-                kategori_id=kategori_id if kategori_id else (original.kategori.id if original.kategori else None),
-                brand_id=brand_id if brand_id else (original.brand.id if original.brand else None),
-                koleksi_id=koleksi_id if koleksi_id else (original.koleksi.id if original.koleksi else None),
+                kategori_id=kategori_id,
+                brand_id=brand_id,
+                koleksi_id=koleksi_id,
                 tipe_special=original.tipe_special,
                 satuan=satuan,
                 price_type=original.price_type,
