@@ -46,3 +46,9 @@ daphne_all_logs.txt
 daphne_grep_logs.txt
 daphne_recent_logs.txt
 nginx_logs.txt
+
+# Local scripts/scratch
+scratch/
+test_import_export.py
+vps_redeploy.py
+

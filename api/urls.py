@@ -41,6 +41,7 @@ router.register(r'product-variants', product_views.ProductVariantViewSet, basena
 router.register(r'product-packages', product_views.ProductPackageViewSet, basename='product-package')
 router.register(r'addons', product_views.AddonViewSet, basename='addon')
 router.register(r'specifications', product_views.SpecificationViewSet, basename='specification')
+router.register(r'product-spec-values', product_views.ProductSpecValueViewSet, basename='product-spec-value')
 router.register(r'product-stock-movements', product_views.ProductStockMovementViewSet, basename='product-stock-movement')
 router.register(r'stock-in-documents', product_views.StockInDocumentViewSet, basename='stock-in-document')
 router.register(r'stock-out-documents', product_views.StockOutDocumentViewSet, basename='stock-out-document')

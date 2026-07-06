@@ -76,6 +76,7 @@ class Product(models.Model):
     harga_online_sama = models.BooleanField(default=True)
     harga_dinamis = models.BooleanField(default=False, help_text="Harga jual di toko bersifat dinamis (mengikuti varian)")
     komisi = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    komisi_is_persen = models.BooleanField(default=False, help_text="True = komisi dihitung sebagai %, False = nominal IDR")
     minimal_pesanan = models.PositiveIntegerField(default=1)
     maksimal_pesanan = models.PositiveIntegerField(default=0, help_text="0 = tidak dibatasi")
 
@@ -106,6 +107,11 @@ class Product(models.Model):
     catatan = models.TextField(blank=True, default='')
     meta_keywords = models.CharField(max_length=255, blank=True, default='')
     meta_description = models.TextField(blank=True, default='')
+    related_product_ids = models.JSONField(default=list, blank=True, help_text="List of related product IDs")
+    serial_numbers = models.JSONField(default=list, blank=True, help_text="List of serial numbers: [{'id': '1', 'variant': 'All', 'no_seri': '1234'}]")
+    uom_enabled = models.BooleanField(default=False)
+    uom_settings = models.JSONField(default=dict, blank=True)
+    uom_units = models.JSONField(default=list, blank=True)
 
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -133,6 +139,13 @@ class ProductVariant(models.Model):
     qty_stok = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     rack = models.CharField(max_length=100, blank=True, default='', help_text="Lokasi rak penyimpanan khusus varian ini")
     berat = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Berat barang (gram), opsional")
+    foto = models.ImageField(upload_to='variant_photos/', blank=True, null=True)
+    loyalty_points = models.IntegerField(default=0)
+    komisi = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    komisi_is_persen = models.BooleanField(default=False)
+    habis_stok = models.BooleanField(default=False)
+    pilihan_default = models.BooleanField(default=False)
+    qty_fast_moving = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
     def __str__(self):
         return f"{self.product.nama} - {self.nama_varian}"
@@ -153,6 +166,14 @@ class ProductPackage(models.Model):
     periode_selesai = models.DateTimeField(blank=True, null=True)
     loyalty_points = models.IntegerField(default=0)
     satuan = models.CharField(max_length=50, blank=True, default='', help_text="uom")
+    butuh_pengiriman = models.BooleanField(default=True)
+    bebas_pajak = models.BooleanField(default=False)
+    bebas_biaya_layanan = models.BooleanField(default=False)
+    tampil_pos = models.BooleanField(default=True)
+    habis_stok = models.BooleanField(default=False)
+    seo_keywords = models.CharField(max_length=255, blank=True, null=True)
+    seo_description = models.TextField(blank=True, null=True)
+    foto = models.ImageField(upload_to='package_photos/', blank=True, null=True)
 
     def __str__(self):
         return self.nama
@@ -160,6 +181,7 @@ class ProductPackage(models.Model):
 class ProductPackageItem(models.Model):
     paket = models.ForeignKey(ProductPackage, on_delete=models.CASCADE, related_name='items')
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    variant = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL, null=True, blank=True)
     qty = models.IntegerField(default=1)
 
 class Addon(models.Model):
@@ -167,6 +189,10 @@ class Addon(models.Model):
     harga = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     is_active = models.BooleanField(default=True)
     applies_to = models.ManyToManyField(Product, blank=True, related_name='addons')
+    applies_to_categories = models.ManyToManyField(ProductCategory, blank=True, related_name='addons')
+    linked_product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name='addon_stok_links')
+    linked_variant = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL, null=True, blank=True, related_name='addon_stok_links')
+    linked_qty = models.DecimalField(max_digits=10, decimal_places=2, default=1.00)
 
     def __str__(self):
         return self.nama
@@ -367,3 +393,16 @@ class StockOpnameDocumentItem(models.Model):
 
     def __str__(self):
         return f"{self.document.nomor} - {self.product.nama} ({self.stok_sistem} -> {self.stok_aktual})"
+
+class ProductActivityLog(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='activity_logs')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    aksi = models.CharField(max_length=255)
+    catatan = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.product.nama} - {self.aksi} ({self.created_at:%Y-%m-%d %H:%M})"

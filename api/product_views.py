@@ -14,15 +14,15 @@ from rest_framework.response import Response
 
 from .product_models import (
     ProductCategory, Brand, SpecialType, Collection,
-    Product, ProductVariant, ProductPackage, ProductPackageItem, Addon, Specification,
+    Product, ProductVariant, ProductPackage, ProductPackageItem, Addon, Specification, ProductSpecValue,
     ProductStockMovement, ProductImage, StockInDocument, StockInDocumentItem,
     StockOutDocument, StockOutDocumentItem, StockProductionDocument, StockProductionDocumentItem,
-    StockOpnameDocument, StockOpnameDocumentItem
+    StockOpnameDocument, StockOpnameDocumentItem, ProductActivityLog
 )
 from .product_serializers import (
     ProductCategorySerializer, BrandSerializer, SpecialTypeSerializer,
     CollectionSerializer, ProductSerializer, ProductVariantSerializer,
-    ProductPackageSerializer, AddonSerializer, SpecificationSerializer,
+    ProductPackageSerializer, AddonSerializer, SpecificationSerializer, ProductSpecValueSerializer,
     ProductStockMovementSerializer, ProductImageSerializer,
     StockInDocumentSerializer, StockInDocumentItemSerializer,
     StockOutDocumentSerializer, StockOutDocumentItemSerializer,
@@ -131,6 +131,44 @@ class ProductViewSet(viewsets.ModelViewSet):
         if search:
             queryset = queryset.filter(nama__icontains=search)
         return queryset
+
+    def perform_create(self, serializer):
+        product = serializer.save()
+        ProductActivityLog.objects.create(
+            product=product,
+            user=self.request.user,
+            aksi="Menambahkan produk",
+            catatan=f"Produk '{product.nama}' berhasil dibuat."
+        )
+
+    def perform_update(self, serializer):
+        old_product = self.get_object()
+        
+        old_tersedia_online = old_product.tersedia_online
+        old_tidak_tersedia_offline = old_product.tidak_tersedia_offline_pos
+        old_harga_jual = old_product.harga_jual_toko
+        
+        product = serializer.save()
+        
+        changes = []
+        if old_tersedia_online != product.tersedia_online:
+            status_str = "Tersedia" if product.tersedia_online else "Tidak Tersedia"
+            changes.append(f"Mengubah ketersediaan online menjadi {status_str}")
+        if old_tidak_tersedia_offline != product.tidak_tersedia_offline_pos:
+            status_str = "Tidak Tersedia" if product.tidak_tersedia_offline_pos else "Tersedia"
+            changes.append(f"Mengubah ketersediaan offline (POS) menjadi {status_str}")
+        if old_harga_jual != product.harga_jual_toko:
+            changes.append(f"Mengubah harga jual dari Rp. {old_harga_jual:,.2f} menjadi Rp. {product.harga_jual_toko:,.2f}".replace(",", "."))
+            
+        if not changes:
+            changes.append("Memperbarui detail produk")
+            
+        for change in changes:
+            ProductActivityLog.objects.create(
+                product=product,
+                user=self.request.user,
+                aksi=change
+            )
 
     @action(detail=True, methods=['post'], url_path='copy')
     def copy_product(self, request, pk=None):
@@ -689,17 +727,163 @@ class ProductViewSet(viewsets.ModelViewSet):
     def stock_in_history(self, request, pk=None):
         """GET /api/products/{id}/stock-in-history/ — Ambil dokumen stok masuk untuk produk ini."""
         product = self.get_object()
-        items = StockInDocumentItem.objects.filter(product=product).select_related('document', 'variant').order_by('-document__created_at')
+        variant_id = request.query_params.get('variant')
+        items = StockInDocumentItem.objects.filter(product=product)
+        if variant_id:
+            items = items.filter(variant_id=variant_id)
+            
+        if not items.exists():
+            variants = product.variants.all()
+            if variants.exists():
+                created_any = False
+                for v in variants:
+                    v_qty = float(v.qty_stok or 0)
+                    if v_qty > 0:
+                        # Check if a StockInDocumentItem already exists for this variant
+                        if not StockInDocumentItem.objects.filter(product=product, variant=v).exists():
+                            # nomor harus unik per dokumen (unique=True) — satu dokumen per varian,
+                            # ditampilkan kembali sebagai "ADD-PRODUCT" di response
+                            doc = StockInDocument.objects.create(
+                                nomor=f"ADD-PRODUCT-{product.id}-V{v.id}",
+                                tanggal=product.created_at.date() if product.created_at else timezone.now().date(),
+                                catatan=f"Stok awal varian {v.nama_varian}",
+                                status="selesai"
+                            )
+                            StockInDocumentItem.objects.create(
+                                document=doc,
+                                product=product,
+                                variant=v,
+                                harga_beli=float(v.harga_beli or product.harga_beli or 0),
+                                qty=v_qty,
+                                rak=""
+                            )
+                            created_any = True
+                if created_any:
+                    items = StockInDocumentItem.objects.filter(product=product)
+                    if variant_id:
+                        items = items.filter(variant_id=variant_id)
+            else:
+                qty_stok = float(product.qty_stok or 0)
+                harga_beli = float(product.harga_beli or 0)
+                if qty_stok > 0:
+                    doc = StockInDocument.objects.create(
+                        nomor=f"ADD-PRODUCT-{product.id}",
+                        tanggal=product.created_at.date() if product.created_at else timezone.now().date(),
+                        catatan="Stok awal produk",
+                        status="selesai"
+                    )
+                    StockInDocumentItem.objects.create(
+                        document=doc,
+                        product=product,
+                        variant=None,
+                        harga_beli=harga_beli,
+                        qty=qty_stok,
+                        rak=""
+                    )
+                    items = StockInDocumentItem.objects.filter(product=product)
+                    if variant_id:
+                        items = items.filter(variant_id=variant_id)
+
+        items = items.select_related('document', 'variant').order_by('-document__tanggal', '-document__created_at')
+        
         data = []
         for item in items:
+            qty = float(item.qty)
+            # In a real FIFO system, we track sisa_qty. For simplicity, we fallback to qty.
+            # If the product/variant is marked as stok kosong, we can simulate sisa_qty = 0
+            sisa_qty = qty
+            qty_keluar = 0.0
+            
+            doc_nomor = item.document.nomor or f"StockIn-{item.document.id}"
+            if doc_nomor.startswith('ADD-PRODUCT'):
+                doc_nomor = 'ADD-PRODUCT'
             data.append({
                 'id': item.id,
-                'nomor': item.document.nomor or f"StockIn-{item.document.id}",
+                'nomor': doc_nomor,
                 'created_at': item.document.created_at.isoformat() if item.document.created_at else (item.document.tanggal.isoformat() if item.document.tanggal else None),
+                'tanggal': item.document.tanggal.isoformat() if item.document.tanggal else None,
                 'supplier': item.document.supplier or '',
                 'variant_nama': item.variant.nama_varian if item.variant else '',
-                'qty': float(item.qty),
+                'variant_id': item.variant.id if item.variant else None,
+                'qty': qty,
+                'qty_keluar': qty_keluar,
+                'sisa_qty': sisa_qty,
                 'harga_beli': float(item.harga_beli),
+                'rak': item.rak or '',
+            })
+        return Response(data)
+
+    @action(detail=True, methods=['post'], url_path='update-stock-in-item')
+    def update_stock_in_item(self, request, pk=None):
+        """POST /api/products/{id}/update-stock-in-item/ — Edit harga_beli, rak, tanggal untuk item stok masuk tertentu."""
+        item_id = request.data.get('item_id')
+        harga_beli = request.data.get('harga_beli')
+        rak = request.data.get('rak')
+        tanggal = request.data.get('tanggal')
+        
+        if not item_id:
+            return Response({'error': 'item_id wajib diisi'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        item = get_object_or_404(StockInDocumentItem, id=item_id, product_id=pk)
+        doc_nomor = item.document.nomor or f"StockIn-{item.document.id}"
+        if doc_nomor.startswith('ADD-PRODUCT'):
+            doc_nomor = 'ADD-PRODUCT'
+
+        if harga_beli is not None:
+            try:
+                old_hb = float(item.harga_beli)
+                new_hb = float(_to_decimal(harga_beli, 'harga_beli'))
+                if old_hb != new_hb:
+                    item.harga_beli = new_hb
+                    ProductActivityLog.objects.create(
+                        product=item.product,
+                        user=request.user,
+                        aksi=f"Mengubah harga beli batch {doc_nomor} dari Rp. {old_hb:,.2f} menjadi Rp. {new_hb:,.2f}".replace(",", ".")
+                    )
+            except ValueError as e:
+                return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if rak is not None:
+            old_rak = item.rak or ''
+            new_rak = str(rak).strip()
+            if old_rak != new_rak:
+                item.rak = new_rak
+                ProductActivityLog.objects.create(
+                    product=item.product,
+                    user=request.user,
+                    aksi=f"Mengubah rak batch {doc_nomor} menjadi '{new_rak}'"
+                )
+        item.save()
+        
+        if tanggal:
+            doc = item.document
+            old_tgl = str(doc.tanggal)
+            if old_tgl != str(tanggal):
+                doc.tanggal = tanggal
+                doc.save()
+                ProductActivityLog.objects.create(
+                    product=item.product,
+                    user=request.user,
+                    aksi=f"Mengubah tanggal batch {doc_nomor} menjadi {tanggal}"
+                )
+            
+        return Response({'success': True})
+
+    @action(detail=True, methods=['get'], url_path='activity-log')
+    def activity_log(self, request, pk=None):
+        """GET /api/products/{id}/activity-log/ — Ambil log aktivitas untuk produk ini."""
+        product = self.get_object()
+        logs = ProductActivityLog.objects.filter(product=product).select_related('user').order_by('-created_at')
+        data = []
+        for log in logs:
+            display_user = 'System'
+            if log.user:
+                display_user = log.user.username
+            data.append({
+                'id': log.id,
+                'tanggal': log.created_at.isoformat() if log.created_at else None,
+                'user': display_user,
+                'aksi': log.aksi,
+                'catatan': log.catatan,
             })
         return Response(data)
 
@@ -861,6 +1045,11 @@ class AddonViewSet(viewsets.ModelViewSet):
 class SpecificationViewSet(viewsets.ModelViewSet):
     queryset = Specification.objects.all().order_by('nama')
     serializer_class = SpecificationSerializer
+    permission_classes = [IsAuthenticated]
+
+class ProductSpecValueViewSet(viewsets.ModelViewSet):
+    queryset = ProductSpecValue.objects.all().select_related('product', 'specification')
+    serializer_class = ProductSpecValueSerializer
     permission_classes = [IsAuthenticated]
 
 class ProductStockMovementViewSet(viewsets.ReadOnlyModelViewSet):

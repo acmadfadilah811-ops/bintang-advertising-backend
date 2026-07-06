@@ -3249,6 +3249,57 @@ class BillOfMaterialsViewSet(viewsets.ModelViewSet):
     serializer_class = BillOfMaterialsSerializer
     permission_classes = [IsOwnerOrManager]
 
+    def get_queryset(self):
+        queryset = self.queryset
+        product_name = self.request.query_params.get('product_name')
+        if product_name:
+            queryset = queryset.filter(product__nama_produk=product_name)
+        material = self.request.query_params.get('material')
+        if material is not None:
+            if material == '' or material.lower() == 'null':
+                queryset = queryset.filter(product__material__isnull=True) | queryset.filter(product__material='')
+            else:
+                queryset = queryset.filter(product__material=material)
+        return queryset
+
+    @action(detail=False, methods=['post'], url_path='get-or-create-for-product')
+    def get_or_create_for_product(self, request):
+        product_name = request.data.get('product_name')
+        if not product_name:
+            return Response({'error': 'product_name wajib diisi'}, status=status.HTTP_400_BAD_REQUEST)
+        product_name = product_name.strip()
+        
+        material = request.data.get('material')
+        if material:
+            material = material.strip()
+            if material == '0' or material.lower() == 'null':
+                material = None
+        else:
+            material = None
+            
+        with transaction.atomic():
+            # Find or create ProductPrice
+            product_price_obj = ProductPrice.objects.filter(nama_produk=product_name, material=material).first()
+            if not product_price_obj:
+                if not material:
+                    product_price_obj = ProductPrice.objects.filter(nama_produk=product_name).first()
+                if not product_price_obj:
+                    product_price_obj = ProductPrice.objects.create(
+                        kategori="Umum",
+                        nama_produk=product_name,
+                        material=material,
+                        harga=0
+                    )
+            
+            # Find or create BillOfMaterials
+            bom_obj, created = BillOfMaterials.objects.get_or_create(
+                product=product_price_obj,
+                defaults={'nama': f"BoM {product_price_obj.nama_produk}" + (f" - {product_price_obj.material}" if product_price_obj.material else "")}
+            )
+            
+        serializer = self.get_serializer(bom_obj)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 class BoMItemViewSet(viewsets.ModelViewSet):
     queryset = BoMItem.objects.select_related('bom', 'inventory_item').all()
