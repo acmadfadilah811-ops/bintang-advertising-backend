@@ -1313,7 +1313,7 @@ class StockInDocumentViewSet(viewsets.ModelViewSet):
                 if not product and product_name:
                     product = Product.objects.filter(nama__iexact=product_name).first()
                 if not product:
-                    errors.append(f"Baris {idx}: produk '{product_name or sku}' tidak ditemukan.")
+                    errors.append(f"Produk {sku or ''} - {product_name or ''} in row {idx - 2} tidak ditemukan")
                     continue
 
                 try:
