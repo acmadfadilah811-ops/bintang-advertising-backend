@@ -11,7 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken, UntypedToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from api.models import CustomUser
-from api.views import IsOwnerOrManager
+from api.permissions import IsOwnerOrManager
 
 from .models import Profile, SecurityAuditLog, SessionToken
 from .serializers import (

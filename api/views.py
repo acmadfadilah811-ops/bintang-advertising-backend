@@ -40,23 +40,12 @@ from .whatsapp_client import whatsapp_client
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------
-# CUSTOM PERMISSION — Hanya Owner atau Manager
+# IMPORT CUSTOM PERMISSIONS
 # ---------------------------------------------------------
-class IsOwnerOrManager(BasePermission):
-    def has_permission(self, request, view):
-        return bool(
-            request.user and
-            request.user.is_authenticated and
-            getattr(request.user, 'role', '') in ['owner', 'manager', 'admin', 'kasir']
-        )
-
-# ---------------------------------------------------------
-# CUSTOM PERMISSION — Harus Clock In (Untuk Staff)
-# ---------------------------------------------------------
-class IsClockedIn(BasePermission):
-    def has_permission(self, request, view):
-        # TEMPORARY BYPASS: Selalu True untuk pengetesan/review log Papan Kerja
-        return True
+from .permissions import (
+    IsOwnerOrManager, IsClockedIn, IsOwnerManagerOrAdmin,
+    IsOwnerManagerAdminOrKasir, IsOwnerManagerAdminOrReadOnly
+)
 
 class DivisiViewSet(viewsets.ModelViewSet):
     queryset = Divisi.objects.all()

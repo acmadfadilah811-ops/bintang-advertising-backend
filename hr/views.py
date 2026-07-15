@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from rest_framework.decorators import action
 
 from api.models import JobBoard
-from api.views import IsOwnerOrManager
+from api.permissions import IsOwnerOrManager, IsStrictOwnerOrManager
 
 from .models import Absensi, Kontrak, StaffAnnouncement, DailyAttendanceSession, UnlockRequest, Akun, TransaksiBukuBesar, SlipGaji
 from .serializers import AbsensiSerializer, AnnouncementSerializer, KontrakSerializer, AkunSerializer, TransaksiBukuBesarSerializer, SlipGajiSerializer
