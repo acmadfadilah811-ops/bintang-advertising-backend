@@ -11,7 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken, UntypedToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from api.models import CustomUser
-from api.permissions import IsOwnerOrManager
+from api.permissions import IsOwnerOrManager, IsStrictOwnerOrManager
 
 from .models import Profile, SecurityAuditLog, SessionToken
 from .serializers import (
@@ -458,23 +458,9 @@ class StaffOnlineView(APIView):
 class AuditLogView(APIView):
     """GET /api/security/audit-log/ — Riwayat event keamanan."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStrictOwnerOrManager]
 
     def get(self, request):
-        if request.user.role != "owner":
-            SecurityAuditLog.objects.create(
-                user=request.user,
-                event="PERMISSION_DENIED",
-                ip_address=_get_client_ip(request),
-                user_agent=request.META.get("HTTP_USER_AGENT", ""),
-                keterangan="Akses audit log ditolak",
-                berhasil=False,
-            )
-            return Response(
-                {"detail": "Hanya Owner yang bisa mengakses audit log."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         logs = SecurityAuditLog.objects.all()
 
         # Filter opsional
@@ -497,15 +483,9 @@ class AuditLogView(APIView):
 class SessionListView(APIView):
     """GET /api/security/sessions/ — Semua sesi JWT aktif (Owner only)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStrictOwnerOrManager]
 
     def get(self, request):
-        if request.user.role != "owner":
-            return Response(
-                {"detail": "Hanya Owner yang bisa melihat semua sesi."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         sessions = SessionToken.objects.filter(is_active=True).select_related("user")
         serializer = SessionTokenSerializer(sessions, many=True)
         return Response(serializer.data)
@@ -514,15 +494,9 @@ class SessionListView(APIView):
 class SessionRevokeView(APIView):
     """DELETE /api/security/sessions/{id}/ — Paksa logout satu sesi."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStrictOwnerOrManager]
 
     def delete(self, request, pk):
-        if request.user.role != "owner":
-            return Response(
-                {"detail": "Hanya Owner yang bisa mencabut sesi."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         session = SessionToken.objects.filter(pk=pk, is_active=True).first()
         if not session:
             return Response(
