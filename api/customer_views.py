@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from api.permissions import IsOwnerManagerAdminOrReadOnly
 
 from .customer_models import (
     CustomerGroup, Customer, CustomerNote, CustomerNoteEntry, CustomerNoteDocument,
@@ -45,7 +46,7 @@ class CustomerGroupViewSet(ToggleStatusMixin, viewsets.ModelViewSet):
     """Tipe Pelanggan: Pelanggan & Supplier > Tipe Pelanggan."""
     queryset = CustomerGroup.objects.all()
     serializer_class = CustomerGroupSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def perform_create(self, serializer):
         serializer.save(dibuat_oleh=self.request.user)
@@ -211,7 +212,7 @@ class SupplierViewSet(ToggleStatusMixin, viewsets.ModelViewSet):
     """Supplier: Pelanggan & Supplier > Supplier."""
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def perform_create(self, serializer):
         serializer.save(dibuat_oleh=self.request.user)

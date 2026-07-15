@@ -2,6 +2,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from api.permissions import IsOwnerManagerAdminOrReadOnly
 
 from .marketing_models import SalesDiscount, DiscountCoupon, POSPromotion
 from .marketing_serializers import (
@@ -13,7 +14,7 @@ class SalesDiscountViewSet(viewsets.ModelViewSet):
     """Diskon Penjualan: Marketing > Voucher & Diskon > Diskon Penjualan (khusus Toko Online)."""
     queryset = SalesDiscount.objects.all()
     serializer_class = SalesDiscountSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def perform_create(self, serializer):
         serializer.save(dibuat_oleh=self.request.user)
@@ -30,7 +31,7 @@ class DiscountCouponViewSet(viewsets.ModelViewSet):
     """Kupon Diskon: Marketing > Voucher & Diskon > Kupon Diskon."""
     queryset = DiscountCoupon.objects.all()
     serializer_class = DiscountCouponSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def perform_create(self, serializer):
         serializer.save(dibuat_oleh=self.request.user)
@@ -47,7 +48,7 @@ class POSPromotionViewSet(viewsets.ModelViewSet):
     """Promosi (POS): Marketing > Voucher & Diskon > Promosi (POS) — tipe BX/DQ/DA/FI."""
     queryset = POSPromotion.objects.all()
     serializer_class = POSPromotionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def perform_create(self, serializer):
         serializer.save(dibuat_oleh=self.request.user)
