@@ -40,8 +40,8 @@ class POSSaleViewSet(viewsets.ModelViewSet):
                 now = timezone.now()
                 nomor = f"POS-{now.strftime('%Y%m%d%H%M%S')}-{random.randint(1000, 9999)}"
                 
-                # Cari shift yang sedang aktif (waktu_tutup null)
-                shift = SaldoKasHarian.objects.filter(waktu_tutup__isnull=True).last()
+                # Cari shift yang sedang aktif (kas_akhir null)
+                shift = SaldoKasHarian.objects.filter(kas_akhir__isnull=True).last()
                 
                 # Buat header penjualan
                 subtotal = request.data.get('subtotal', 0)
