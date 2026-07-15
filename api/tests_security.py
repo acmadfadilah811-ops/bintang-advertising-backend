@@ -2,7 +2,7 @@ from rest_framework.test import APITestCase
 from rest_framework import status
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from hr.models import Absensi, Akun
+from hr.models import Absensi, Akun, Kontrak
 from api.models import Divisi, TahapProses, Order, OrderItem, JobBoard, SaldoKasHarian, RingkasanShift
 from api.product_models import Product, ProductVariant, ProductCategory
 import datetime
@@ -264,3 +264,236 @@ class SecurityPermissionTestCase(APITestCase):
         # Check that the stock is reduced by 2
         self.assertEqual(float(self.product.qty_stok), 8.00)
         self.assertEqual(float(self.variant.qty_stok), 3.00)
+
+    def test_kasir_cannot_export_data(self):
+        """
+        Memverifikasi bahwa role kasir diblokir (403 Forbidden) di seluruh endpoint export.
+        """
+        export_urls = [
+            "/api/export/orders/",
+            "/api/export/inventory/",
+            "/api/export/jobs/",
+            "/api/export/contacts/",
+            "/api/export/customers/",
+            "/api/export/absensi/",
+            "/api/export/staff-performance/",
+            "/api/export/stock-movement/",
+            "/api/export/products/",
+        ]
+        
+        # Test as Kasir -> 403 Forbidden
+        self.client.force_authenticate(user=self.kasir)
+        for url in export_urls:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Endpoint {url} tidak diblokir untuk Kasir")
+            
+        # Test as Owner -> should not be 403 (e.g. 200 or 201 or spreadsheet download)
+        self.client.force_authenticate(user=self.owner)
+        for url in export_urls:
+            response = self.client.get(url)
+            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Endpoint {url} diblokir untuk Owner")
+
+    def test_staff_cannot_modify_restricted_settings(self):
+        """
+        Memverifikasi bahwa staff tidak bisa mengubah data diskon, kupon, promo POS, supplier, tipe pelanggan, shift timings, dll.
+        """
+        self.client.force_authenticate(user=self.staff)
+        
+        # 1. Sales Discount
+        response = self.client.post("/api/sales-discounts/", {"nama": "Promo Merdeka"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # 2. Coupon
+        response = self.client.post("/api/discount-coupons/", {"nama": "Kupon Baru"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # 3. POS Promotion
+        response = self.client.post("/api/pos-promotions/", {"nama": "Promo POS"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # 4. Customer Group
+        response = self.client.post("/api/customer-groups/", {"name": "Grup Baru"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # 5. Supplier
+        response = self.client.post("/api/suppliers/", {"name": "Supplier Baru"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_staff_cannot_read_contact_stats(self):
+        """
+        Memverifikasi bahwa staff dan kasir diblokir saat memanggil statistik pelanggan/piutang (ContactStatsView).
+        """
+        self.client.force_authenticate(user=self.staff)
+        response = self.client.get("/api/contacts/stats/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        self.client.force_authenticate(user=self.kasir)
+        response = self.client.get("/api/contacts/stats/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # Owner can read
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get("/api/contacts/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_staff_cannot_read_audit_logs_and_sessions(self):
+        """
+        Memverifikasi bahwa staff/kasir diblokir saat memanggil API log audit dan kelola sesi aktif.
+        """
+        for user in [self.staff, self.kasir]:
+            self.client.force_authenticate(user=user)
+            self.assertEqual(self.client.get("/api/security/audit-log/").status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(self.client.get("/api/security/sessions/").status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(self.client.delete("/api/security/sessions/1/").status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_webhook_fail_closed_without_secrets(self):
+        """
+        Memverifikasi bahwa webhook Evolution, Fonnte, dan error logger fail-closed (500)
+        jika env var secret masing-masing tidak dikonfigurasi.
+        """
+        import os
+        from unittest import mock
+        
+        # Simpan env vars asli
+        orig_evo = os.getenv("EVOLUTION_API_KEY")
+        orig_fonnte = os.getenv("FONNTE_WEBHOOK_SECRET")
+        orig_client = os.getenv("CLIENT_LOG_SECRET")
+        
+        try:
+            # Hapus env vars agar kosong/tidak diset
+            if "EVOLUTION_API_KEY" in os.environ: del os.environ["EVOLUTION_API_KEY"]
+            if "FONNTE_WEBHOOK_SECRET" in os.environ: del os.environ["FONNTE_WEBHOOK_SECRET"]
+            if "CLIENT_LOG_SECRET" in os.environ: del os.environ["CLIENT_LOG_SECRET"]
+            
+            # 1. Evolution webhook fail closed
+            response = self.client.post("/api/webhook/evolution/", {}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+            self.assertIn("Evolution API key not configured", response.data["error"])
+            
+            # 2. Fonnte webhook fail closed
+            response = self.client.post("/api/webhook/fonnte/", {}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+            self.assertIn("Webhook secret not configured", response.data["error"])
+            
+            # 3. Client log error fail closed
+            response = self.client.post("/api/log-client-error/", {}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+            self.assertIn("Client log secret not configured", response.data["error"])
+            
+        finally:
+            # Kembalikan env vars asli
+            if orig_evo: os.environ["EVOLUTION_API_KEY"] = orig_evo
+            if orig_fonnte: os.environ["FONNTE_WEBHOOK_SECRET"] = orig_fonnte
+            if orig_client: os.environ["CLIENT_LOG_SECRET"] = orig_client
+
+    def test_webhook_and_logger_authentication_success_and_fail(self):
+        """
+        Memverifikasi autentikasi webhook Evolution, Fonnte, dan error logger.
+        """
+        import os
+        from unittest import mock
+        
+        with mock.patch.dict(os.environ, {
+            "EVOLUTION_API_KEY": "ValidEvoKey",
+            "FONNTE_WEBHOOK_SECRET": "ValidFonnteSecret",
+            "CLIENT_LOG_SECRET": "ValidClientSecret"
+        }):
+            # Test Evolution Webhook
+            # Gagal - token salah
+            response = self.client.post("/api/webhook/evolution/", {}, HTTP_APIKEY="WrongKey")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            # Sukses (tapi bad request / empty payload, yang penting lewat auth / not 401/500)
+            with mock.patch("api.views.logger"):
+                response = self.client.post("/api/webhook/evolution/", {}, HTTP_APIKEY="ValidEvoKey")
+                self.assertNotEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+                self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            # Test Fonnte Webhook
+            # Gagal - token salah
+            response = self.client.post("/api/webhook/fonnte/?secret=WrongSecret", {})
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            # Sukses
+            response = self.client.post("/api/webhook/fonnte/?secret=ValidFonnteSecret", {})
+            self.assertNotEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            # Test Client Logger
+            # Gagal - token salah
+            response = self.client.post("/api/log-client-error/", {}, HTTP_X_CLIENT_LOG_AUTH="WrongSecret")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            # Sukses
+            response = self.client.post("/api/log-client-error/", {"error": "Test crash"}, HTTP_X_CLIENT_LOG_AUTH="ValidClientSecret")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_dynamic_scoping_attendance_timecard_contracts(self):
+        """
+        Memverifikasi bahwa AbsensiListView, TimecardView, dan KontrakView benar-benar
+        men-scope data per-user ketika diakses oleh staff biasa.
+        """
+        # Buat staff lain
+        staff_other = User.objects.create_user(username="staff_other", password="password123", role="staff", divisi=self.divisi)
+        
+        # 1. Absensi data
+        today = timezone.localdate()
+        abs_self = Absensi.objects.create(staff=self.staff, tanggal=today, jam_masuk=timezone.now())
+        abs_other = Absensi.objects.create(staff=staff_other, tanggal=today, jam_masuk=timezone.now())
+        
+        # 2. Kontrak data
+        kontrak_self = Kontrak.objects.create(
+            staff=self.staff,
+            nomor_kontrak="K-1",
+            tipe="tetap",
+            tanggal_mulai=today,
+            gaji_pokok=5000000,
+            status="aktif"
+        )
+        kontrak_other = Kontrak.objects.create(
+            staff=staff_other,
+            nomor_kontrak="K-2",
+            tipe="tetap",
+            tanggal_mulai=today,
+            gaji_pokok=6000000,
+            status="aktif"
+        )
+
+        # A. UJI COBA SEBAGAI STAFF BIASA
+        self.client.force_authenticate(user=self.staff)
+        
+        # Absensi
+        response = self.client.get(f"/api/hr/absensi/?tanggal={today}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Hanya boleh melihat absensi dirinya sendiri
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["staff"], self.staff.id)
+        
+        # Timecard
+        response = self.client.get(f"/api/hr/timecard/?bulan={today.month}&tahun={today.year}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Hanya boleh melihat timecard miliknya sendiri
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["staff_id"], self.staff.id)
+        
+        # Kontrak
+        response = self.client.get("/api/hr/kontrak/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Hanya boleh melihat kontrak miliknya sendiri
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["id"], kontrak_self.id)
+
+        # B. UJI COBA SEBAGAI OWNER (Bisa lihat semua)
+        self.client.force_authenticate(user=self.owner)
+        
+        # Absensi
+        response = self.client.get(f"/api/hr/absensi/?tanggal={today}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+        
+        # Timecard
+        response = self.client.get(f"/api/hr/timecard/?bulan={today.month}&tahun={today.year}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(len(response.data) >= 2)
+        
+        # Kontrak
+        response = self.client.get("/api/hr/kontrak/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
