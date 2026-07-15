@@ -50,17 +50,17 @@ from .permissions import (
 class DivisiViewSet(viewsets.ModelViewSet):
     queryset = Divisi.objects.all()
     serializer_class = DivisiSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class TahapProsesViewSet(viewsets.ModelViewSet):
     queryset = TahapProses.objects.all()
     serializer_class = TahapProsesSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class ShiftTimingViewSet(viewsets.ModelViewSet):
     queryset = ShiftTiming.objects.all()
     serializer_class = ShiftTimingSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class CustomUserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
@@ -293,7 +293,7 @@ class ContactViewSet(viewsets.ModelViewSet):
 # ---------------------------------------------------------
 class InventoryItemViewSet(viewsets.ModelViewSet):
     serializer_class   = InventoryItemSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def get_queryset(self):
         qs = InventoryItem.objects.prefetch_related('history').order_by('kategori', 'nama')
@@ -340,7 +340,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
 # ---------------------------------------------------------
 class InventoryRestockView(APIView):
     """POST /api/inventory/<pk>/restock/ — Tambah/kurangi stok dan catat history."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerOrAdmin]
 
     def post(self, request, pk):
         delta_raw  = request.data.get('delta')
@@ -1307,7 +1307,7 @@ class JobBoardViewSet(viewsets.ModelViewSet):
 class ProductPriceViewSet(viewsets.ModelViewSet):
     queryset = ProductPrice.objects.all()
     serializer_class = ProductPriceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     @action(detail=False, methods=['post'], url_path='seed')
     def seed_prices(self, request):
@@ -1384,12 +1384,12 @@ class ProductPriceViewSet(viewsets.ModelViewSet):
 class SystemConfigViewSet(viewsets.ModelViewSet):
     queryset = SystemConfig.objects.all()
     serializer_class = SystemConfigSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class FAQViewSet(viewsets.ModelViewSet):
     queryset = FAQ.objects.all()
     serializer_class = FAQSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 
 # ---------------------------------------------------------
@@ -1431,7 +1431,7 @@ class BusinessSettingsView(APIView):
 # CONTACT STATS VIEW — Standalone APIView untuk statistik pelanggan
 # ---------------------------------------------------------
 class ContactStatsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
         from django.db.models import Sum, Count
@@ -1908,6 +1908,17 @@ class FonnteWebhookView(APIView):
         return Response({'replies': []}, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
+        # Validasi Shared Secret Token (fail-closed jika tidak dikonfigurasi)
+        expected_secret = os.getenv("FONNTE_WEBHOOK_SECRET")
+        if not expected_secret:
+            logger.error("FONNTE_WEBHOOK_SECRET is not configured. Webhook is closed.")
+            return Response({'error': 'Webhook secret not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        token = request.query_params.get("secret") or request.headers.get("X-Fonnte-Secret")
+        if not token or token != expected_secret:
+            logger.warning(f"Unauthorized Webhook Fonnte call with token: {token}")
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+
         from .wa_logic import (
             menunggu_nama,
             simpan_ke_memori, cek_tracking, cek_harga, cek_rules_awal,
@@ -2319,13 +2330,17 @@ class EvolutionWebhookView(APIView):
 
         data = request.data
 
-        # 1. Validasi API Key
+        # 1. Validasi API Key (fail-closed jika tidak dikonfigurasi)
+        expected_key = os.getenv("EVOLUTION_API_KEY")
+        if not expected_key:
+            logger.error("EVOLUTION_API_KEY is not configured. Webhook is closed.")
+            return Response({'error': 'Evolution API key not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         from django.utils.crypto import constant_time_compare
         auth_key = request.headers.get("apikey") or request.headers.get("Authorization", "")
-        expected_key = os.getenv("EVOLUTION_API_KEY", "LocalTestingApiKey123")
         
         is_valid = False
-        if auth_key and expected_key:
+        if auth_key:
             if constant_time_compare(auth_key, expected_key):
                 is_valid = True
             elif auth_key.startswith("Bearer ") and constant_time_compare(auth_key, f"Bearer {expected_key}"):
@@ -3378,7 +3393,7 @@ class WhatsAppChatsView(APIView):
     GET /api/whatsapp/chats/
     Retrieves all active chats from the WhatsApp Gateway (Evolution API).
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrKasir]
 
     def get(self, request):
         chats = whatsapp_client.get_chats()
@@ -3390,7 +3405,7 @@ class WhatsAppMessagesView(APIView):
     GET /api/whatsapp/messages/?number=628xx
     Retrieves message history for a specific number from Evolution API.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrKasir]
 
     def get(self, request):
         number = request.query_params.get('number')
@@ -3407,7 +3422,7 @@ class WhatsAppSendMessageView(APIView):
     POST /api/whatsapp/send/
     Sends a WhatsApp message manually to a contact.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrKasir]
 
     def post(self, request):
         number = request.data.get('number')
@@ -3436,7 +3451,7 @@ class WhatsAppSendMediaView(APIView):
       - number: string
       - caption: string (optional)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrKasir]
 
     def post(self, request):
         import mimetypes
@@ -3518,9 +3533,13 @@ class ClientLogView(APIView):
     throttle_classes = [AnonRateThrottle]
 
     def post(self, request):
-        # Basic pre-shared header token auth check
+        # Basic pre-shared header token auth check (fail-closed jika tidak dikonfigurasi)
+        expected_secret = os.getenv("CLIENT_LOG_SECRET")
+        if not expected_secret:
+            logger.error("CLIENT_LOG_SECRET is not configured. Client logging is disabled.")
+            return Response({"error": "Client log secret not configured"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
         auth_header = request.headers.get("X-Client-Log-Auth")
-        expected_secret = os.getenv("CLIENT_LOG_SECRET", "BintangClientLogSecretKey123")
         if not auth_header or auth_header != expected_secret:
             logger.warning(f"Unauthorized call to ClientLogView from IP: {request.META.get('REMOTE_ADDR')}")
             return Response({"error": "Unauthorized"}, status=401)
@@ -3672,7 +3691,7 @@ class PublicSubmitDesignView(APIView):
 class POSAntrianDeviceViewSet(viewsets.ModelViewSet):
     queryset = POSAntrianDevice.objects.all().order_by('id')
     serializer_class = POSAntrianDeviceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 
 class SaldoKasHarianViewSet(viewsets.ModelViewSet):
