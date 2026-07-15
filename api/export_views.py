@@ -3,6 +3,7 @@ import logging
 from django.http import HttpResponse
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from api.permissions import IsOwnerOrManager
 from rest_framework.response import Response
 from .models import Order, InventoryItem, JobBoard, Contact
 from .customer_models import Customer
@@ -10,22 +11,10 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-# FIX: Konstanta role agar tidak ada typo string hardcoded di setiap view
-ALLOWED_ROLES = ('owner', 'manager')
-
-
-def _check_role(user):
-    """Kembalikan True jika user punya akses export."""
-    return user.role in ALLOWED_ROLES
-
-
 class ExportContactsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        if not _check_role(request.user):
-            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
-
         response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = f'attachment; filename="pelanggan_{timezone.now().strftime("%Y%m%d")}.xlsx"'
 
@@ -76,12 +65,9 @@ class ExportContactsView(APIView):
 
 class ExportCustomersView(APIView):
     """GET /api/export/customers/ — ekspor data Customer (Pelanggan & Supplier > Pelanggan)."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        if not _check_role(request.user):
-            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
-
         response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = f'attachment; filename="daftar_pelanggan_{timezone.now().strftime("%Y%m%d")}.xlsx"'
 
@@ -130,12 +116,9 @@ class ExportCustomersView(APIView):
 
 
 class ExportOrdersView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        if not _check_role(request.user):
-            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
-
         start_date_str = request.query_params.get('start_date')
         end_date_str = request.query_params.get('end_date')
 
@@ -218,12 +201,9 @@ class ExportOrdersView(APIView):
 
 
 class ExportInventoryView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        if not _check_role(request.user):
-            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
-
         response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = f'attachment; filename="inventory_{timezone.now().strftime("%Y%m%d")}.xlsx"'
 
@@ -272,12 +252,9 @@ class ExportInventoryView(APIView):
 
 
 class ExportJobsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        if not _check_role(request.user):
-            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
-
         response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = f'attachment; filename="jobs_{timezone.now().strftime("%Y%m%d")}.xlsx"'
 
@@ -317,12 +294,9 @@ class ExportJobsView(APIView):
         return response
 
 class ExportAbsensiView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        if not _check_role(request.user):
-            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
-
         tanggal = request.query_params.get("tanggal")
         if not tanggal:
             tanggal = timezone.localdate().strftime("%Y-%m-%d")
@@ -366,12 +340,9 @@ class ExportStaffPerformanceView(APIView):
     GET /api/export/staff-performance/?range=bulan_ini&type=global&divisi=...&staff_id=...
     Mengekspor laporan detail kinerja (global/divisi/staff) ke Excel.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        if not _check_role(request.user):
-            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
-
         time_range = request.query_params.get('range', 'bulan_ini')
         export_type = request.query_params.get('type', 'global')  # 'global', 'divisi', 'staff'
         divisi_name = request.query_params.get('divisi', '')
@@ -483,7 +454,7 @@ class ExportStaffPerformanceView(APIView):
 
 
 class ExportStockMovementView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
         start_date_str = request.query_params.get('start_date')
@@ -646,12 +617,9 @@ class ExportStockMovementView(APIView):
 
 
 class ExportProductsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        if not _check_role(request.user):
-            return Response({'error': 'Akses ditolak. Khusus Boss dan Manager.'}, status=403)
-
         import csv
         from django.http import HttpResponse
         from .product_models import Product
