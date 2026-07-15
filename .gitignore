@@ -54,4 +54,5 @@ vps_redeploy.py
 
 
 # Artefak hasil audit keamanan (jangan di-commit)
-laporan_keamanan.html
+laporan_*.html
+
