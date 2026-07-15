@@ -964,7 +964,7 @@ class AkunViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = Akun.objects.all().order_by('kode_akun')
     serializer_class = AkunSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
 
 class TransaksiBukuBesarViewSet(viewsets.ModelViewSet):
@@ -982,7 +982,7 @@ class BukuBesarView(APIView):
     """
     GET /api/finance/buku-besar/?akun_id=...&start_date=...&end_date=...
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
         akun_id = request.query_params.get("akun_id")
@@ -1050,7 +1050,10 @@ class BukuBesarView(APIView):
 class SlipGajiViewSet(viewsets.ModelViewSet):
     queryset = SlipGaji.objects.select_related("staff", "dibayar_oleh").order_by("-tahun", "-bulan", "staff__username")
     serializer_class = SlipGajiSerializer
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsStrictOwnerOrManager()]
 
     def get_queryset(self):
         qs = self.queryset

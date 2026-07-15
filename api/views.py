@@ -65,7 +65,11 @@ class ShiftTimingViewSet(viewsets.ModelViewSet):
 class CustomUserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = CustomUserSerializer
-    permission_classes = [IsAuthenticated]
+    
+    def get_permissions(self):
+        if self.action == 'me':
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsOwnerManagerOrAdmin()]
 
     def check_permissions(self, request):
         super().check_permissions(request)
@@ -3674,10 +3678,12 @@ class POSAntrianDeviceViewSet(viewsets.ModelViewSet):
 class SaldoKasHarianViewSet(viewsets.ModelViewSet):
     queryset = SaldoKasHarian.objects.all().order_by('-tanggal', '-id')
     serializer_class = SaldoKasHarianSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwnerManagerAdminOrKasir]
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        if self.request.user.role == 'kasir':
+            queryset = queryset.filter(kasir=self.request.user)
         tanggal = self.request.query_params.get('tanggal')
         if tanggal:
             queryset = queryset.filter(tanggal=tanggal)
@@ -3696,10 +3702,12 @@ class SaldoKasHarianViewSet(viewsets.ModelViewSet):
 class RingkasanShiftViewSet(viewsets.ModelViewSet):
     queryset = RingkasanShift.objects.all().order_by('-tanggal', '-mulai')
     serializer_class = RingkasanShiftSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwnerManagerAdminOrKasir]
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        if self.request.user.role == 'kasir':
+            queryset = queryset.filter(kasir=self.request.user)
         
         tanggal_mulai = self.request.query_params.get('tanggal_mulai')
         tanggal_akhir = self.request.query_params.get('tanggal_akhir')

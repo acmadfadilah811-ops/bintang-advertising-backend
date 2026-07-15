@@ -10,6 +10,7 @@ from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from api.permissions import IsOwnerManagerAdminOrReadOnly
 from rest_framework.response import Response
 
 from .product_models import (
@@ -100,27 +101,27 @@ def _parse_date_ddmmyyyy(raw):
 class ProductCategoryViewSet(viewsets.ModelViewSet):
     queryset = ProductCategory.objects.all().order_by('urutan')
     serializer_class = ProductCategorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class BrandViewSet(viewsets.ModelViewSet):
     queryset = Brand.objects.all().order_by('nama')
     serializer_class = BrandSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class SpecialTypeViewSet(viewsets.ModelViewSet):
     queryset = SpecialType.objects.all().order_by('urutan')
     serializer_class = SpecialTypeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class CollectionViewSet(viewsets.ModelViewSet):
     queryset = Collection.objects.all().order_by('nama')
     serializer_class = CollectionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by('-created_at')
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -935,7 +936,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 class ProductImageViewSet(viewsets.ModelViewSet):
     queryset = ProductImage.objects.all().order_by('-is_primary', 'id')
     serializer_class = ProductImageSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -947,12 +948,12 @@ class ProductImageViewSet(viewsets.ModelViewSet):
 class ProductVariantViewSet(viewsets.ModelViewSet):
     queryset = ProductVariant.objects.all().order_by('product__nama', 'nama_varian')
     serializer_class = ProductVariantSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class ProductPackageViewSet(viewsets.ModelViewSet):
     queryset = ProductPackage.objects.all().order_by('nama')
     serializer_class = ProductPackageSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     @action(detail=False, methods=['post'], url_path='import-csv')
     def import_csv(self, request):
@@ -1040,23 +1041,23 @@ class ProductPackageViewSet(viewsets.ModelViewSet):
 class AddonViewSet(viewsets.ModelViewSet):
     queryset = Addon.objects.all().order_by('nama')
     serializer_class = AddonSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class SpecificationViewSet(viewsets.ModelViewSet):
     queryset = Specification.objects.all().order_by('nama')
     serializer_class = SpecificationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class ProductSpecValueViewSet(viewsets.ModelViewSet):
     queryset = ProductSpecValue.objects.all().select_related('product', 'specification')
     serializer_class = ProductSpecValueSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class ProductStockMovementViewSet(viewsets.ReadOnlyModelViewSet):
     """Riwayat/Pergerakan Stok — dibuat lewat action stock-in/stock-out/stock-opname di ProductViewSet."""
     queryset = ProductStockMovement.objects.all().select_related('product', 'variant', 'user')
     serializer_class = ProductStockMovementSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -1227,7 +1228,7 @@ class StockInDocumentViewSet(viewsets.ModelViewSet):
     """Dokumen Stok Masuk: header + banyak item, status draft -> selesai/batal."""
     queryset = StockInDocument.objects.all().prefetch_related('items__product').select_related('dibuat_oleh')
     serializer_class = StockInDocumentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def perform_create(self, serializer):
         today = timezone.now().date()
@@ -1419,7 +1420,7 @@ class StockOutDocumentViewSet(viewsets.ModelViewSet):
     """Dokumen Stok Keluar: header + banyak item, status draft -> selesai/batal."""
     queryset = StockOutDocument.objects.all().prefetch_related('items__product').select_related('dibuat_oleh')
     serializer_class = StockOutDocumentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def perform_create(self, serializer):
         today = timezone.now().date()
@@ -1612,7 +1613,7 @@ class StockProductionDocumentViewSet(viewsets.ModelViewSet):
     Sesuai template resmi Olsera: hanya menambah stok produk jadi (tanpa penyerapan bahan baku)."""
     queryset = StockProductionDocument.objects.all().prefetch_related('items__product').select_related('dibuat_oleh')
     serializer_class = StockProductionDocumentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def perform_create(self, serializer):
         today = timezone.now().date()
@@ -1783,7 +1784,7 @@ class StockOpnameDocumentViewSet(viewsets.ModelViewSet):
     Posting menimpa qty_stok produk dengan qty aktual hasil hitung fisik (bukan menambah/mengurangi)."""
     queryset = StockOpnameDocument.objects.all().prefetch_related('items__product').select_related('dibuat_oleh')
     serializer_class = StockOpnameDocumentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
     def perform_create(self, serializer):
         today = timezone.now().date()
