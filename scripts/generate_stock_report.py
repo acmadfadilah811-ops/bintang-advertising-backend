@@ -1,10 +1,15 @@
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import django
-import datetime
-import openpyxl
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
+
+import datetime
+import openpyxl
+
+
 
 from api.product_models import Product, ProductVariant, ProductStockMovement
 from django.utils.dateparse import parse_date

@@ -25,8 +25,9 @@ import logging
 # ---------------------------------------------------------------------------
 # Setup Django Environment
 # ---------------------------------------------------------------------------
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
+
 
 try:
     django.setup()

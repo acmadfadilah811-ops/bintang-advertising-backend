@@ -1,7 +1,11 @@
 #!/bin/bash
 
+# Pindah ke root directory proyek (satu tingkat di atas folder script)
+cd "$(dirname "$0")/.."
+
 # Script ini otomatis mendeteksi virtualenv, menjalankan Django check --deploy, 
 # serta memasang dan menjalankan Ruff (linter) & Bandit (security scanner).
+
 
 echo "=========================================================="
 echo "      Memulai Audit Keamanan & Kualitas Backend Django    "

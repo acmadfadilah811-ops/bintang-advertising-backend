@@ -3,10 +3,13 @@
 Script reset: hapus semua data Order, OrderItem, JobBoard
 Jalankan: uv run python reset_data.py
 """
-import django
 import os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'bintang_project.settings')
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+import django
 django.setup()
+
 
 from api.models import JobBoard, OrderItem, Order
 
