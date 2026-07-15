@@ -52,3 +52,6 @@ scratch/
 test_import_export.py
 vps_redeploy.py
 
+
+# Artefak hasil audit keamanan (jangan di-commit)
+laporan_keamanan.html
