@@ -22,6 +22,10 @@ from .config import (
 from .dashboard import (
     DashboardView
 )
+from .users import (
+    CustomUserViewSet, CreateUserView
+)
+
 
 
 
