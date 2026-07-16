@@ -4,6 +4,7 @@ from . import views
 from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, EvolutionWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView, KomplainViewSet, ContactStatsView
 from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView, ExportStockMovementView, ExportCustomersView, ExportProductsView
 from . import product_views
+from . import production_views
 from . import marketing_views
 from . import customer_views
 
@@ -46,6 +47,8 @@ router.register(r'product-stock-movements', product_views.ProductStockMovementVi
 router.register(r'stock-in-documents', product_views.StockInDocumentViewSet, basename='stock-in-document')
 router.register(r'stock-out-documents', product_views.StockOutDocumentViewSet, basename='stock-out-document')
 router.register(r'stock-production-documents', product_views.StockProductionDocumentViewSet, basename='stock-production-document')
+router.register(r'production-costs', production_views.ProductionCostViewSet, basename='production-cost')
+router.register(r'stock-production-costs', production_views.StockProductionDocumentCostViewSet, basename='stock-production-cost')
 router.register(r'stock-opname-documents', product_views.StockOpnameDocumentViewSet, basename='stock-opname-document')
 
 # Marketing (Voucher & Diskon)

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 from .product_models import (
     ProductCategory, Brand, SpecialType, Collection,
@@ -258,11 +260,24 @@ class StockProductionDocumentItemSerializer(serializers.ModelSerializer):
 class StockProductionDocumentSerializer(serializers.ModelSerializer):
     items = StockProductionDocumentItemSerializer(many=True, read_only=True)
     dibuat_oleh_nama = serializers.ReadOnlyField(source='dibuat_oleh.username')
+    biaya = serializers.SerializerMethodField()
+    total_biaya = serializers.SerializerMethodField()
 
     class Meta:
         model = StockProductionDocument
         fields = '__all__'
         read_only_fields = ['nomor', 'status', 'dibuat_oleh']
+
+    def get_biaya(self, obj):
+        # Diimpor di dalam method untuk menghindari circular import
+        # (production_serializers -> production_models -> api.models).
+        from .production_serializers import StockProductionDocumentCostSerializer
+        return StockProductionDocumentCostSerializer(obj.biaya.all(), many=True).data
+
+    def get_total_biaya(self, obj):
+        # Jumlah dari BIAYA dokumen — bukan dari item. Item adalah produk &
+        # qty, bukan uang.
+        return sum((b.nilai for b in obj.biaya.all()), Decimal('0'))
 
 
 class StockOpnameDocumentItemSerializer(serializers.ModelSerializer):
