@@ -32,6 +32,12 @@ from .product_serializers import (
 )
 from .models import BillOfMaterials, BoMItem
 
+# Batas baris per import CSV. Tanpa batas, satu file besar diproses dalam satu
+# transaction.atomic() dan berisiko timeout / lock tabel produk berkepanjangan.
+# Harus sama dengan CSV_MAX_ROWS di frontend (StockInPage.jsx) supaya user tidak
+# ditolak server setelah pratinjau terlanjur menyatakan aman.
+CSV_IMPORT_MAX_ROWS = 200
+
 
 def _to_decimal(raw, field_name):
     try:
@@ -1286,13 +1292,19 @@ class StockInDocumentViewSet(viewsets.ModelViewSet):
         except UnicodeDecodeError:
             return Response({'error': 'File harus berupa CSV berformat teks (UTF-8).'}, status=status.HTTP_400_BAD_REQUEST)
 
-        reader = csv.DictReader(io.StringIO(decoded))
+        rows = list(csv.DictReader(io.StringIO(decoded)))
+        if len(rows) > CSV_IMPORT_MAX_ROWS:
+            return Response(
+                {'error': f'Maksimal {CSV_IMPORT_MAX_ROWS} baris per import — file ini berisi {len(rows)} baris.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         created_items = []
         errors = []
         supplier_name = None
 
         with transaction.atomic():
-            for idx, row in enumerate(reader, start=2):  # baris 1 = header
+            for idx, row in enumerate(rows, start=2):  # baris 1 = header
                 # Cocokkan header case-insensitive; template resmi Olsera pakai
                 # snake_case huruf kecil (product,variant,sku,supplier,qty,new_buy_price,rack)
                 row_lower = _csv_row_lower(row)
