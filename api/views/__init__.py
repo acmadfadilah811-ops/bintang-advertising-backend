@@ -19,6 +19,10 @@ from .contacts import (
 from .config import (
     SystemConfigViewSet, FAQViewSet, BusinessSettingsView
 )
+from .dashboard import (
+    DashboardView
+)
+
 
 
 
