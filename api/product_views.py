@@ -1978,9 +1978,14 @@ class StockOpnameDocumentViewSet(viewsets.ModelViewSet):
                         errors.append(f"Varian id {variant_id} tidak ditemukan untuk produk '{product.nama}'.")
                         continue
 
+                # Rak melekat di produk/varian (Produk > Lacak Inventori), bukan
+                # diketik per item opname — jadi diwarisi dari 'owner' seperti
+                # halnya stok_sistem. Tanpa ini kolom Rack di layar opname selalu
+                # '-' walau rak produknya sudah diisi.
                 item = StockOpnameDocumentItem.objects.create(
                     document=document, product=product, variant=variant,
-                    jam_opname=jam_opname, stok_sistem=owner.qty_stok, stok_aktual=0,
+                    jam_opname=jam_opname, rak=owner.rack,
+                    stok_sistem=owner.qty_stok, stok_aktual=0,
                 )
                 created_items.append(item)
 
