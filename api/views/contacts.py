@@ -3,11 +3,14 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Sum, Count, Max, Avg, OuterRef, Subquery
+from django.db.models import Sum, Count, Max, Avg, OuterRef, Subquery, Q
 from django.db.models.functions import Coalesce
+from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.utils import timezone
 
-from ..models import Contact, Order
-from ..serializers import ContactSerializer
+from ..models import Contact, Order, KomplainOrder, KomplainLog, CustomerActivity
+from ..serializers import ContactSerializer, KomplainOrderSerializer, CustomerActivitySerializer
 from ..permissions import IsOwnerOrManager
 
 class ContactViewSet(viewsets.ModelViewSet):
@@ -165,3 +168,122 @@ class ContactStatsView(APIView):
             'total_piutang': total_piutang,
             'top_customers': ContactSerializer(top_customers, many=True).data,
         })
+
+
+class KomplainViewSet(viewsets.ModelViewSet):
+    serializer_class = KomplainOrderSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = KomplainOrder.objects.select_related(
+            'order', 'dicatat_oleh', 'ditangani_oleh'
+        ).prefetch_related('logs')
+        # Filter by status if provided
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        # Filter by order_id if provided
+        order_id = self.request.query_params.get('order')
+        if order_id:
+            qs = qs.filter(order_id=order_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(dicatat_oleh=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='resolve')
+    def resolve(self, request, pk=None):
+        """Manager menyelesaikan komplain dengan menetapkan resolusi."""
+        if request.user.role not in ['owner', 'manager']:
+            return Response({'error': 'Hanya Owner/Manager yang dapat menyelesaikan komplain.'}, status=403)
+
+        komplain = get_object_or_404(KomplainOrder, pk=pk)
+        resolusi = request.data.get('resolusi')
+        catatan  = request.data.get('catatan_resolusi', '')
+        status_baru = request.data.get('status', 'selesai')
+
+        if not resolusi:
+            return Response({'error': 'Field resolusi wajib diisi.'}, status=400)
+
+        with transaction.atomic():
+            komplain.resolusi         = resolusi
+            komplain.catatan_resolusi = catatan
+            komplain.status           = status_baru
+            komplain.ditangani_oleh   = request.user
+            if status_baru == 'selesai':
+                komplain.waktu_selesai = timezone.now()
+            komplain.save()
+
+            KomplainLog.objects.create(
+                komplain=komplain,
+                user=request.user,
+                status_baru=status_baru,
+                catatan=f"Resolusi: {resolusi}. {catatan}".strip(),
+            )
+
+        return Response(KomplainOrderSerializer(komplain).data)
+
+    @action(detail=True, methods=['post'], url_path='update-status')
+    def update_status(self, request, pk=None):
+        """Update status komplain dan tambahkan log entry."""
+        komplain = get_object_or_404(KomplainOrder, pk=pk)
+        status_baru = request.data.get('status')
+        catatan     = request.data.get('catatan', '')
+
+        if not status_baru:
+            return Response({'error': 'Field status wajib diisi.'}, status=400)
+
+        valid_statuses = [s[0] for s in KomplainOrder.STATUS_CHOICES]
+        if status_baru not in valid_statuses:
+            return Response({'error': f'Status tidak valid. Pilihan: {valid_statuses}'}, status=400)
+
+        with transaction.atomic():
+            komplain.status = status_baru
+            if status_baru == 'selesai':
+                komplain.waktu_selesai = timezone.now()
+            komplain.save()
+
+            KomplainLog.objects.create(
+                komplain=komplain,
+                user=request.user,
+                status_baru=status_baru,
+                catatan=catatan,
+            )
+
+        return Response(KomplainOrderSerializer(komplain).data)
+
+
+class CustomerActivityViewSet(viewsets.ModelViewSet):
+    queryset = CustomerActivity.objects.select_related('order', 'pic').order_by('waktu_jatuh_tempo')
+    serializer_class = CustomerActivitySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = self.queryset
+        order_id = self.request.query_params.get('order')
+        if order_id:
+            qs = qs.filter(order_id=order_id)
+        
+        selesai_filter = self.request.query_params.get('selesai')
+        if selesai_filter == 'true':
+            qs = qs.filter(selesai=True)
+        elif selesai_filter == 'false':
+            qs = qs.filter(selesai=False)
+
+        # Staff hanya melihat task miliknya
+        if self.request.user.role == 'staff':
+            qs = qs.filter(pic=self.request.user)
+
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(pic=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='complete')
+    def complete(self, request, pk=None):
+        activity = self.get_object()
+        activity.selesai = True
+        activity.waktu_selesai = timezone.now()
+        activity.save()
+        return Response(CustomerActivitySerializer(activity).data)
+

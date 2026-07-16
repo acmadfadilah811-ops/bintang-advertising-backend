@@ -7,9 +7,15 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db import transaction
 
-from ..models import InventoryItem, RestockHistory
-from ..serializers import InventoryItemSerializer
-from ..permissions import IsOwnerManagerAdminOrReadOnly, IsOwnerManagerOrAdmin
+import os
+import json
+from rest_framework.decorators import action
+
+from ..models import InventoryItem, RestockHistory, ProductPrice, BillOfMaterials, BoMItem
+from ..serializers import (
+    InventoryItemSerializer, ProductPriceSerializer, BillOfMaterialsSerializer, BoMItemSerializer
+)
+from ..permissions import IsOwnerManagerAdminOrReadOnly, IsOwnerManagerOrAdmin, IsOwnerOrManager
 from hr.models import Akun, TransaksiBukuBesar
 
 logger = logging.getLogger(__name__)
@@ -149,3 +155,144 @@ class InventoryRestockView(APIView):
             'nama':     item.nama,
             'stok_baru': stok_akhir,
         }, status=status.HTTP_200_OK)
+
+
+class ProductPriceViewSet(viewsets.ModelViewSet):
+    queryset = ProductPrice.objects.all()
+    serializer_class = ProductPriceSerializer
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
+
+    @action(detail=False, methods=['post'], url_path='seed')
+    def seed_prices(self, request):
+        from django.conf import settings
+        
+        path = os.path.join(settings.BASE_DIR, '..', 'bintang_advertising_app', 'data', 'db_harga.json')
+        if not os.path.exists(path):
+            path = os.path.join(settings.BASE_DIR, 'db_harga.json')
+            
+        if not os.path.exists(path):
+            return Response({"detail": "File db_harga.json tidak ditemukan."}, status=status.HTTP_404_NOT_FOUND)
+            
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        # Hapus data lama
+        ProductPrice.objects.all().delete()
+        
+        created_count = 0
+        for cat_key, cat_val in data.items():
+            for prod_name, prod_val in cat_val.items():
+                if isinstance(prod_val, str):
+                    clean_price = int(float(prod_val.replace('.', '')))
+                    ProductPrice.objects.create(
+                        kategori=cat_key,
+                        nama_produk=prod_name,
+                        harga=clean_price,
+                        price_type='flat'
+                    )
+                    created_count += 1
+                elif isinstance(prod_val, dict):
+                    keys = list(prod_val.keys())
+                    is_qty_tier = any('lbr' in k.lower() or 'pcs' in k.lower() or 'box' in k.lower() or '>' in k.lower() for k in keys)
+                    
+                    if is_qty_tier:
+                        cleaned_tiers = {}
+                        for tk, tv in prod_val.items():
+                            cleaned_tiers[tk] = int(float(tv.replace('.', '')))
+                        ProductPrice.objects.create(
+                            kategori=cat_key,
+                            nama_produk=prod_name,
+                            price_type='tiered',
+                            tiers=cleaned_tiers
+                        )
+                        created_count += 1
+                    else:
+                        for mat_name, mat_val in prod_val.items():
+                            if isinstance(mat_val, str):
+                                clean_price = int(float(mat_val.replace('.', '')))
+                                ProductPrice.objects.create(
+                                    kategori=cat_key,
+                                    nama_produk=prod_name,
+                                    material=mat_name,
+                                    harga=clean_price,
+                                    price_type='flat'
+                                )
+                                created_count += 1
+                            elif isinstance(mat_val, dict):
+                                cleaned_tiers = {}
+                                for tk, tv in mat_val.items():
+                                    cleaned_tiers[tk] = int(float(tv.replace('.', '')))
+                                ProductPrice.objects.create(
+                                    kategori=cat_key,
+                                    nama_produk=prod_name,
+                                    material=mat_name,
+                                    price_type='tiered',
+                                    tiers=cleaned_tiers
+                                )
+                                created_count += 1
+                                
+        return Response({"detail": f"Berhasil mengimpor {created_count} produk dari db_harga.json."})
+
+
+class BillOfMaterialsViewSet(viewsets.ModelViewSet):
+    queryset = BillOfMaterials.objects.select_related('product').prefetch_related('items__inventory_item').all()
+    serializer_class = BillOfMaterialsSerializer
+    permission_classes = [IsOwnerOrManager]
+
+    def get_queryset(self):
+        queryset = self.queryset
+        product_name = self.request.query_params.get('product_name')
+        if product_name:
+            queryset = queryset.filter(product__nama_produk=product_name)
+        material = self.request.query_params.get('material')
+        if material is not None:
+            if material == '' or material.lower() == 'null':
+                queryset = queryset.filter(product__material__isnull=True) | queryset.filter(product__material='')
+            else:
+                queryset = queryset.filter(product__material=material)
+        return queryset
+
+    @action(detail=False, methods=['post'], url_path='get-or-create-for-product')
+    def get_or_create_for_product(self, request):
+        product_name = request.data.get('product_name')
+        if not product_name:
+            return Response({'error': 'product_name wajib diisi'}, status=status.HTTP_400_BAD_REQUEST)
+        product_name = product_name.strip()
+        
+        material = request.data.get('material')
+        if material:
+            material = material.strip()
+            if material == '0' or material.lower() == 'null':
+                material = None
+        else:
+            material = None
+            
+        with transaction.atomic():
+            # Find or create ProductPrice
+            product_price_obj = ProductPrice.objects.filter(nama_produk=product_name, material=material).first()
+            if not product_price_obj:
+                if not material:
+                    product_price_obj = ProductPrice.objects.filter(nama_produk=product_name).first()
+                if not product_price_obj:
+                    product_price_obj = ProductPrice.objects.create(
+                        kategori="Umum",
+                        nama_produk=product_name,
+                        material=material,
+                        harga=0
+                    )
+            
+            # Find or create BillOfMaterials
+            bom_obj, created = BillOfMaterials.objects.get_or_create(
+                product=product_price_obj,
+                defaults={'nama': f"BoM {product_price_obj.nama_produk}" + (f" - {product_price_obj.material}" if product_price_obj.material else "")}
+            )
+            
+        serializer = self.get_serializer(bom_obj)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class BoMItemViewSet(viewsets.ModelViewSet):
+    queryset = BoMItem.objects.select_related('bom', 'inventory_item').all()
+    serializer_class = BoMItemSerializer
+    permission_classes = [IsOwnerOrManager]
+

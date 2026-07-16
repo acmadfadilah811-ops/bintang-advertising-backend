@@ -12,8 +12,8 @@ from django.shortcuts import get_object_or_404
 from ..models import (
     JobBoard, CustomUser, TahapProses, OrderActivityLog, InventoryItem, RestockHistory, ProductPrice, BillOfMaterials, BoMItem
 )
-from ..serializers import JobBoardSerializer
-from ..permissions import IsClockedIn
+from ..serializers import JobBoardSerializer, TahapProsesSerializer
+from ..permissions import IsClockedIn, IsOwnerManagerAdminOrReadOnly
 
 from .inventory import record_material_consumption_to_general_ledger
 
@@ -495,3 +495,10 @@ class JobBoardViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
+
+
+class TahapProsesViewSet(viewsets.ModelViewSet):
+    queryset = TahapProses.objects.all()
+    serializer_class = TahapProsesSerializer
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
+
