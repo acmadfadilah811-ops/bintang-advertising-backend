@@ -800,3 +800,6 @@ from .marketing_models import *
 
 # Import new models from customer_models
 from .customer_models import *
+
+# Import new models from production_models
+from .production_models import *
