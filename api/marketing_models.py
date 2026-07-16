@@ -93,7 +93,7 @@ class POSPromotion(models.Model):
     tipe_promosi = models.CharField(max_length=5, choices=TIPE_PROMOSI_CHOICES, default='BX')
     combine_qty = models.BooleanField(default=True)
     combine_qty_value = models.IntegerField(default=1)
-    produk = models.CharField(max_length=255, blank=True, default='')
+    produk_qty = models.JSONField(default=list, blank=True)
     grup_produk = models.CharField(max_length=255, blank=True, default='')
     paket_produk = models.CharField(max_length=255, blank=True, default='')
     brand = models.CharField(max_length=255, blank=True, default='')
