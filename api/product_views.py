@@ -36,9 +36,10 @@ from .customer_models import Supplier
 
 # Batas baris per import CSV. Tanpa batas, satu file besar diproses dalam satu
 # transaction.atomic() dan berisiko timeout / lock tabel produk berkepanjangan.
-# Harus sama dengan CSV_MAX_ROWS di frontend (StockInPage.jsx) supaya user tidak
-# ditolak server setelah pratinjau terlanjur menyatakan aman.
-CSV_IMPORT_MAX_ROWS = 200
+# Angkanya mengikuti Olsera dan harus sama dengan maxRows di frontend supaya user
+# tidak ditolak server setelah pratinjau terlanjur menyatakan aman.
+CSV_IMPORT_MAX_ROWS = 200            # Stok Masuk
+CSV_IMPORT_MAX_ROWS_STOCK_OUT = 500  # Stok Keluar
 
 
 def _to_decimal(raw, field_name):
@@ -1537,13 +1538,22 @@ class StockOutDocumentViewSet(viewsets.ModelViewSet):
         except UnicodeDecodeError:
             return Response({'error': 'File harus berupa CSV berformat teks (UTF-8).'}, status=status.HTTP_400_BAD_REQUEST)
 
-        reader = csv.DictReader(io.StringIO(decoded))
+        # Olsera membatasi import Stok Keluar di 500 baris (Stok Masuk 200).
+        # Sebelumnya di sini tidak ada batas sama sekali: seluruh file diproses
+        # dalam satu transaction.atomic() tanpa plafon.
+        rows = list(csv.DictReader(io.StringIO(decoded)))
+        if len(rows) > CSV_IMPORT_MAX_ROWS_STOCK_OUT:
+            return Response(
+                {'error': f'Maksimal {CSV_IMPORT_MAX_ROWS_STOCK_OUT} baris per import — file ini berisi {len(rows)} baris.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         created_items = []
         errors = []
         to_store_url_id = None
 
         with transaction.atomic():
-            for idx, row in enumerate(reader, start=2):  # baris 1 = header
+            for idx, row in enumerate(rows, start=2):  # baris 1 = header
                 row_lower = _csv_row_lower(row)
 
                 product_name = _csv_cell(row_lower, 'product')

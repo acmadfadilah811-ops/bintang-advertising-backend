@@ -1,11 +1,12 @@
-"""Test import CSV Stok Masuk.
+"""Test import CSV Stok Masuk & Stok Keluar.
 
-Dua aturan yang diuji di sini:
+Aturan yang diuji di sini:
 1. Supplier yang ditulis di CSV harus sudah terdaftar di master Supplier
-   (mengikuti perilaku Olsera). Kolom kosong tetap boleh.
-2. Jumlah baris dibatasi CSV_IMPORT_MAX_ROWS.
+   (mengikuti perilaku Olsera). Kolom kosong tetap boleh. — Stok Masuk
+2. Jumlah baris dibatasi: 200 untuk Stok Masuk, 500 untuk Stok Keluar,
+   mengikuti Olsera.
 
-Keduanya harus menolak SEBELUM item apa pun dibuat — bukan setengah jalan.
+Semuanya harus menolak SEBELUM item apa pun dibuat — bukan setengah jalan.
 """
 
 from django.contrib.auth import get_user_model
@@ -14,16 +15,24 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from api.customer_models import Supplier
-from api.product_models import Product, ProductCategory, StockInDocument
+from api.product_models import (
+    Product, ProductCategory, StockInDocument, StockOutDocument,
+)
 
 User = get_user_model()
 
 CSV_HEADER = 'product,variant,sku,supplier,qty,new_buy_price,rack'
+CSV_HEADER_KELUAR = 'to_store_url_id,product,variant,sku,qty'
 
 
 def csv_file(*baris):
     isi = '\n'.join([CSV_HEADER, *baris])
     return SimpleUploadedFile('stok-masuk.csv', isi.encode('utf-8'), content_type='text/csv')
+
+
+def csv_file_keluar(*baris):
+    isi = '\n'.join([CSV_HEADER_KELUAR, *baris])
+    return SimpleUploadedFile('stok-keluar.csv', isi.encode('utf-8'), content_type='text/csv')
 
 
 class StockInImportCsvTest(APITestCase):
@@ -101,3 +110,57 @@ class StockInImportCsvTest(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('200', res.data['error'])
         self.assertEqual(StockInDocument.objects.get(id=doc_id).items.count(), 0)
+
+
+class StockOutImportCsvTest(APITestCase):
+    """Stok Keluar dibatasi 500 baris (Olsera). Sebelumnya tidak ada batas sama
+    sekali: seluruh file diproses dalam satu transaction.atomic() tanpa plafon."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner_import_keluar', password='password123', role='owner'
+        )
+        self.client.force_authenticate(user=self.owner)
+
+        self.kategori = ProductCategory.objects.create(nama='Banner', key='banner')
+        self.produk = Product.objects.create(
+            nama='Spanduk Flexi',
+            kategori=self.kategori,
+            sku='BNR-280',
+            qty_stok=10000,
+            lacak_inventori=True,
+        )
+
+    def _buat_draft(self):
+        res = self.client.post(
+            '/api/stock-out-documents/',
+            {'tanggal': '2026-07-16', 'catatan': 'test', 'alasan': 'transfer'},
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        return res.data['id']
+
+    def _import(self, doc_id, berkas):
+        return self.client.post(
+            f'/api/stock-out-documents/{doc_id}/import-csv/',
+            {'file': berkas},
+            format='multipart',
+        )
+
+    def test_melebihi_batas_baris_ditolak(self):
+        doc_id = self._buat_draft()
+        baris = [',Spanduk Flexi,,BNR-280,1'] * 501
+        res = self._import(doc_id, csv_file_keluar(*baris))
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('500', res.data['error'])
+        # Ditolak di depan: tidak boleh ada item yang terlanjur dibuat.
+        self.assertEqual(StockOutDocument.objects.get(id=doc_id).items.count(), 0)
+
+    def test_tepat_di_batas_diterima(self):
+        # Menjaga batasnya tetap '>' dan bukan '>=' — 500 harus lolos.
+        doc_id = self._buat_draft()
+        baris = [',Spanduk Flexi,,BNR-280,1'] * 500
+        res = self._import(doc_id, csv_file_keluar(*baris))
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(res.data['created']), 500)
