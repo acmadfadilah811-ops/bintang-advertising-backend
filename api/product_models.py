@@ -294,14 +294,24 @@ class StockOutDocument(models.Model):
         ('batal', 'Batal'),
     ]
     REASON_CHOICES = [
+        # 'manual' & 'transfer' dipertahankan: sudah dipakai dokumen lama, dan
+        # 'transfer' adalah alur tersendiri (transfer_ke / to_store_url_id di
+        # Olsera). Keduanya sengaja TIDAK ditawarkan di dropdown alasan.
         ('manual', 'Manual'),
         ('transfer', 'Transfer Toko'),
+        # Daftar alasan Olsera, sesuai urutan di layarnya.
+        ('rusak', 'Rusak'),
+        ('kadaluarsa', 'Kadaluarsa'),
+        ('refund', 'Pengembalian dana (refund)'),
+        ('kelebihan_stok', 'Jumlah stock kelebihan'),
+        ('lainnya', 'Alasan lainnya'),
     ]
 
     nomor = models.CharField(max_length=50, unique=True, blank=True)
     tanggal = models.DateField()
     catatan = models.TextField(blank=True, default='')
     alasan = models.CharField(max_length=20, choices=REASON_CHOICES, default='manual')
+    alasan_lainnya = models.CharField(max_length=255, blank=True, default='', help_text="Teks bebas; wajib diisi saat alasan='lainnya', diabaikan untuk alasan lain")
     transfer_ke = models.CharField(max_length=255, blank=True, default='', help_text="Tujuan transfer toko (to_store_url_id di Olsera)")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_out_documents')

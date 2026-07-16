@@ -245,6 +245,27 @@ class StockOutDocumentSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['nomor', 'status', 'dibuat_oleh']
 
+    def validate(self, attrs):
+        """'Alasan lainnya' tanpa teks tidak menjelaskan apa pun — ditolak.
+        Sebaliknya, teks bebas sisa pilihan sebelumnya dibuang, supaya tidak ada
+        dokumen ber-alasan 'Rusak' yang diam-diam masih menyimpan keterangan lama."""
+        # PATCH parsial: pakai nilai tersimpan bila field-nya tidak ikut dikirim.
+        alasan = attrs.get('alasan', getattr(self.instance, 'alasan', None))
+        if 'alasan_lainnya' in attrs:
+            teks = (attrs.get('alasan_lainnya') or '').strip()
+        else:
+            teks = (getattr(self.instance, 'alasan_lainnya', '') or '').strip()
+
+        if alasan == 'lainnya':
+            if not teks:
+                raise serializers.ValidationError(
+                    {'alasan_lainnya': 'Wajib diisi saat memilih "Alasan lainnya".'}
+                )
+            attrs['alasan_lainnya'] = teks
+        elif alasan is not None:
+            attrs['alasan_lainnya'] = ''
+        return attrs
+
 
 class StockProductionDocumentItemSerializer(serializers.ModelSerializer):
     product_nama = serializers.ReadOnlyField(source='product.nama')
