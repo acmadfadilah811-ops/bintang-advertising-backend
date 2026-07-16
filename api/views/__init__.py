@@ -25,6 +25,10 @@ from .dashboard import (
 from .users import (
     CustomUserViewSet, CreateUserView
 )
+from .pos import (
+    POSAntrianDeviceViewSet, SaldoKasHarianViewSet, RingkasanShiftViewSet
+)
+
 
 
 
