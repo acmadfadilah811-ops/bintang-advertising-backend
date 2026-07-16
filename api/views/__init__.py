@@ -16,6 +16,10 @@ from .inventory import (
 from .contacts import (
     ContactViewSet, ContactStatsView
 )
+from .config import (
+    SystemConfigViewSet, FAQViewSet, BusinessSettingsView
+)
+
 
 
 
