@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
+from django.db.models.functions import Lower
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -31,6 +32,7 @@ from .product_serializers import (
     StockOpnameDocumentSerializer, StockOpnameDocumentItemSerializer
 )
 from .models import BillOfMaterials, BoMItem
+from .customer_models import Supplier
 
 # Batas baris per import CSV. Tanpa batas, satu file besar diproses dalam satu
 # transaction.atomic() dan berisiko timeout / lock tabel produk berkepanjangan.
@@ -1298,6 +1300,35 @@ class StockInDocumentViewSet(viewsets.ModelViewSet):
                 {'error': f'Maksimal {CSV_IMPORT_MAX_ROWS} baris per import — file ini berisi {len(rows)} baris.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Supplier pada CSV harus sudah terdaftar di master Supplier — mengikuti
+        # perilaku Olsera yang menolak import bila supplier belum ada. Kolom
+        # supplier boleh KOSONG (template resmi pun mencontohkan baris tanpa
+        # supplier); yang ditolak hanya nama yang diisi tapi tidak dikenal.
+        # Dicek di depan supaya import ditolak utuh sebelum ada yang dibuat,
+        # bukan setengah jalan.
+        nama_supplier_csv = {
+            _csv_cell(_csv_row_lower(row), 'supplier') for row in rows
+        }
+        nama_supplier_csv = {nama for nama in nama_supplier_csv if nama}
+        if nama_supplier_csv:
+            terdaftar = set(
+                Supplier.objects
+                .annotate(nama_lower=Lower('nama'))
+                .filter(nama_lower__in=[n.lower() for n in nama_supplier_csv])
+                .values_list('nama_lower', flat=True)
+            )
+            tidak_dikenal = sorted(
+                n for n in nama_supplier_csv if n.lower() not in terdaftar
+            )
+            if tidak_dikenal:
+                return Response(
+                    {'error': 'Supplier belum terdaftar: '
+                              + ', '.join(f'"{n}"' for n in tidak_dikenal)
+                              + '. Tambahkan dulu lewat menu Pelanggan & Supplier, '
+                                'atau kosongkan kolom supplier.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         created_items = []
         errors = []
