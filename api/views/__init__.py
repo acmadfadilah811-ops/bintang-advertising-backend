@@ -7,4 +7,8 @@ from .whatsapp import (
 from .orders import (
     OrderViewSet, AssignOrderView, OrderItemViewSet, ForwardJobView
 )
+from .jobs import (
+    JobBoardViewSet, JobMaterialDeductView, deduct_job_materials_if_needed
+)
+
 

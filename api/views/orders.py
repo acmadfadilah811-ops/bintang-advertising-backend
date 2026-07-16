@@ -19,8 +19,7 @@ from ..permissions import IsOwnerOrManager, IsClockedIn
 from hr.models import Akun, TransaksiBukuBesar
 from users.models import SecurityAuditLog
 
-# Imported from legacy for now; will be moved to jobs.py later
-from api.views.legacy import deduct_job_materials_if_needed
+from .jobs import deduct_job_materials_if_needed
 
 logger = logging.getLogger(__name__)
 
