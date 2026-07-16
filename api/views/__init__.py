@@ -13,6 +13,10 @@ from .jobs import (
 from .inventory import (
     InventoryItemViewSet, InventoryRestockView, record_material_consumption_to_general_ledger
 )
+from .contacts import (
+    ContactViewSet, ContactStatsView
+)
+
 
 
 
