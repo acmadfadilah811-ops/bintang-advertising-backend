@@ -1170,6 +1170,18 @@ class WhatsAppStatusView(APIView):
     permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
+        from ..whatsapp_client import whatsapp_client
+        if whatsapp_client._is_offline():
+            return Response({
+                "state": "offline",
+                "connected": False,
+                "owner_jid": None,
+                "qr_base64": None,
+                "pairing_code": None,
+                "instance_name": os.getenv("EVOLUTION_INSTANCE_NAME", "bintang_instance"),
+                "detail": "WhatsApp integration is offline or disabled."
+            })
+
         import requests as req_lib
         base_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080").rstrip('/')
         api_key  = os.getenv("EVOLUTION_API_KEY", "LocalTestingApiKey123")

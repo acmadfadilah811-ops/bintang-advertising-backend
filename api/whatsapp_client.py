@@ -15,17 +15,39 @@ class EvolutionAPIClient:
         self.base_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080").rstrip('/')
         self.api_key = os.getenv("EVOLUTION_API_KEY", "LocalTestingApiKey123")
         self.instance_name = os.getenv("EVOLUTION_INSTANCE_NAME", "bintang_instance")
+        self.disabled = os.getenv("DISABLE_WHATSAPP", "false").lower() == "true"
         
         self.headers = {
             "Content-Type": "application/json",
             "apikey": self.api_key
         }
+        self._last_fail = 0
+
+    def _is_offline(self):
+        if self.disabled:
+            return True
+        if time.time() - self._last_fail < 300:
+            return True
+        return False
+
+    def _mark_failed(self):
+        logger.warning("Evolution API connection failed. Marking client offline for 5 minutes.")
+        self._last_fail = time.time()
+
+    def send_text(self, number, text):
+        """
+        Alias for compatibility with hr/views.py
+        """
+        return self.send_text_message(number, text)
 
     def send_text_message(self, number, text):
         """
         Sends a plain text message to a WhatsApp number.
         Includes outbound deduplication (anti-loop) checking.
         """
+        if self._is_offline():
+            return None
+
         if '@' in number:
             clean_number = number
         else:
@@ -53,11 +75,15 @@ class EvolutionAPIClient:
         
         try:
             logger.info(f"Sending WA text to {clean_number} via Evolution API...")
-            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            response = requests.post(url, json=payload, headers=self.headers, timeout=5)
             response.raise_for_status()
             res_json = response.json()
             logger.info(f"Evolution API Send Response: {res_json}")
             return res_json
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            logger.error(f"Evolution API connection failed/timed out: {e}")
+            self._mark_failed()
+            return None
         except Exception as e:
             logger.error(f"Error sending WhatsApp message: {e}", exc_info=True)
             return None
@@ -67,6 +93,9 @@ class EvolutionAPIClient:
         Sets presence status for a number.
         status: 'composing' (typing), 'recording' (recording audio), 'paused' (stop typing/recording)
         """
+        if self._is_offline():
+            return None
+
         if '@' in number:
             clean_number = number
         else:
@@ -80,9 +109,13 @@ class EvolutionAPIClient:
         }
         
         try:
-            response = requests.post(url, json=payload, headers=self.headers, timeout=5)
+            response = requests.post(url, json=payload, headers=self.headers, timeout=3)
             response.raise_for_status()
             return response.json()
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            logger.error(f"Evolution API presence failed/timed out: {e}")
+            self._mark_failed()
+            return None
         except Exception as e:
             logger.warning(f"Failed to set WhatsApp presence: {e}")
             return None
@@ -92,6 +125,9 @@ class EvolutionAPIClient:
         Retrieves recent chats/conversations for the WhatsApp instance.
         Limited to `limit` most recent chats to prevent performance issues at scale.
         """
+        if self._is_offline():
+            return []
+
         url = f"{self.base_url}/chat/findChats/{self.instance_name}"
         try:
             logger.info("Fetching chats from Evolution API...")
@@ -99,7 +135,7 @@ class EvolutionAPIClient:
                 url,
                 json={"page": 1, "limit": limit},
                 headers=self.headers,
-                timeout=10
+                timeout=5
             )
             response.raise_for_status()
             data = response.json()
@@ -109,6 +145,10 @@ class EvolutionAPIClient:
             if isinstance(data, dict):
                 return data.get("chats") or data.get("records") or []
             return []
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            logger.error(f"Evolution API get_chats failed/timed out: {e}")
+            self._mark_failed()
+            return []
         except Exception as e:
             logger.error(f"Error fetching WhatsApp chats: {e}", exc_info=True)
             return []
@@ -117,6 +157,9 @@ class EvolutionAPIClient:
         """
         Retrieves message history for a specific WhatsApp contact.
         """
+        if self._is_offline():
+            return []
+
         if '@' in number:
             remote_jid = number
             clean_number = number.split('@')[0]
@@ -136,7 +179,7 @@ class EvolutionAPIClient:
         }
         try:
             logger.info(f"Fetching messages for {clean_number} ({remote_jid}) from Evolution API...")
-            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            response = requests.post(url, json=payload, headers=self.headers, timeout=5)
             response.raise_for_status()
             res_data = response.json()
             if isinstance(res_data, dict):
@@ -156,6 +199,10 @@ class EvolutionAPIClient:
             if isinstance(res_data, list):
                 return res_data
             return []
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            logger.error(f"Evolution API get_messages failed/timed out: {e}")
+            self._mark_failed()
+            return []
         except Exception as e:
             logger.error(f"Error fetching WhatsApp messages for {clean_number}: {e}", exc_info=True)
             return []
@@ -164,6 +211,9 @@ class EvolutionAPIClient:
         """
         Sends a media message (image, video, document, audio) to a WhatsApp number.
         """
+        if self._is_offline():
+            return None
+
         if '@' in number:
             clean_number = number
         else:
@@ -181,9 +231,13 @@ class EvolutionAPIClient:
         
         try:
             logger.info(f"Sending WA media ({media_type}) to {clean_number} via Evolution API...")
-            response = requests.post(url, json=payload, headers=self.headers, timeout=20)
+            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
             response.raise_for_status()
             return response.json()
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            logger.error(f"Evolution API send_media failed/timed out: {e}")
+            self._mark_failed()
+            return None
         except Exception as e:
             logger.error(f"Error sending WhatsApp media message: {e}", exc_info=True)
             return None
