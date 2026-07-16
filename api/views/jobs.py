@@ -15,8 +15,7 @@ from ..models import (
 from ..serializers import JobBoardSerializer
 from ..permissions import IsClockedIn
 
-# Imported from legacy for now; will be moved to inventory.py later
-from api.views.legacy import record_material_consumption_to_general_ledger
+from .inventory import record_material_consumption_to_general_ledger
 
 logger = logging.getLogger(__name__)
 
