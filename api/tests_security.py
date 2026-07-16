@@ -403,7 +403,7 @@ class SecurityPermissionTestCase(APITestCase):
             response = self.client.post("/api/webhook/evolution/", {}, HTTP_APIKEY="WrongKey")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             # Sukses (tapi bad request / empty payload, yang penting lewat auth / not 401/500)
-            with mock.patch("api.views.logger"):
+            with mock.patch("api.views.whatsapp.logger"):
                 response = self.client.post("/api/webhook/evolution/", {}, HTTP_APIKEY="ValidEvoKey")
                 self.assertNotEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
                 self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
