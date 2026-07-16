@@ -52,6 +52,14 @@ class BiayaProduksiTest(APITestCase):
         })
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_akun_boleh_kosong(self):
+        # Olsera melabelinya "Akun terkait (Opsional)". Memaksa akun akan
+        # mengunci user yang belum menyiapkan daftar akun sama sekali.
+        res = self.client.post('/api/production-costs/', {'nama': 'Lembur', 'nilai': '10000'})
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(res.data['akun'])
+        self.assertIsNone(res.data['akun_nama'])
+
     def test_master_tidak_perlu_endpoint_akun_untuk_menampilkan_nama(self):
         # Nama akun ikut di payload, jadi frontend tak perlu memanggil
         # /api/finance/akun/ (yang ditolak untuk staff/kasir).

@@ -21,11 +21,14 @@ class ProductionCost(models.Model):
         max_digits=12, decimal_places=2, default=0,
         help_text="Nilai default. Bisa ditimpa per dokumen produksi.",
     )
+    # Opsional — Olsera pun melabelinya "Akun terkait (Opsional)". Memaksa
+    # akun akan mengunci user yang belum menyiapkan daftar akun sama sekali.
     # PROTECT: akun yang sudah dipakai biaya produksi tidak boleh terhapus
     # begitu saja — itu akan memutus jejak ke buku besar.
     akun = models.ForeignKey(
         'hr.Akun', on_delete=models.PROTECT, related_name='production_costs',
-        help_text="Akun buku besar terkait, mis. Beban Listrik.",
+        null=True, blank=True,
+        help_text="Akun buku besar terkait, mis. Beban Listrik. Opsional.",
     )
 
     class Meta:

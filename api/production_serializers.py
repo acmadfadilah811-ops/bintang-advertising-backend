@@ -13,18 +13,30 @@ class ProductionCostSerializer(serializers.ModelSerializer):
     # hanya untuk menampilkan nama akun. Endpoint akun dibatasi
     # IsOwnerOrManager (hr/views.py), jadi staff/kasir akan kena 403 kalau
     # halaman ini memanggilnya saat dimuat.
-    akun_kode = serializers.ReadOnlyField(source='akun.kode_akun')
-    akun_nama = serializers.ReadOnlyField(source='akun.nama_akun')
+    # SerializerMethodField, bukan ReadOnlyField(source='akun.kode_akun'):
+    # kalau akun kosong (boleh, karena opsional), ReadOnlyField dengan source
+    # bertitik MENGHILANGKAN key-nya dari payload alih-alih mengirim null —
+    # frontend jadi menerima undefined. Ada test untuk ini.
+    akun_kode = serializers.SerializerMethodField()
+    akun_nama = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductionCost
         fields = ['id', 'nama', 'nilai', 'akun', 'akun_kode', 'akun_nama']
 
+    def get_akun_kode(self, obj):
+        return obj.akun.kode_akun if obj.akun else None
+
+    def get_akun_nama(self, obj):
+        return obj.akun.nama_akun if obj.akun else None
+
 
 class StockProductionDocumentCostSerializer(serializers.ModelSerializer):
     production_cost_nama = serializers.ReadOnlyField(source='production_cost.nama')
-    akun_kode = serializers.ReadOnlyField(source='production_cost.akun.kode_akun')
-    akun_nama = serializers.ReadOnlyField(source='production_cost.akun.nama_akun')
+    # Sama seperti di ProductionCostSerializer: akun opsional, jadi key-nya
+    # harus tetap ada bernilai null — bukan hilang dari payload.
+    akun_kode = serializers.SerializerMethodField()
+    akun_nama = serializers.SerializerMethodField()
 
     class Meta:
         model = StockProductionDocumentCost
@@ -32,6 +44,14 @@ class StockProductionDocumentCostSerializer(serializers.ModelSerializer):
             'id', 'document', 'production_cost', 'production_cost_nama',
             'akun_kode', 'akun_nama', 'nilai',
         ]
+
+    def get_akun_kode(self, obj):
+        akun = obj.production_cost.akun
+        return akun.kode_akun if akun else None
+
+    def get_akun_nama(self, obj):
+        akun = obj.production_cost.akun
+        return akun.nama_akun if akun else None
 
     def validate(self, attrs):
         # Dokumen yang sudah diposting/dibatalkan tidak boleh diutak-atik —
