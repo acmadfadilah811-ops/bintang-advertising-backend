@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404
 import uuid
 import re as _re
 import logging
-from .models import (
+from ..models import (
 
     Divisi, TahapProses, CustomUser, Contact, Order, OrderItem, JobBoard,
     InventoryItem, RestockHistory, ProductPrice, SystemConfig, FAQ,
@@ -19,7 +19,7 @@ from .models import (
     BillOfMaterials, BoMItem, ShiftTiming, POSAntrianDevice, SaldoKasHarian,
     RingkasanShift
 )
-from .serializers import (
+from ..serializers import (
     DivisiSerializer, TahapProsesSerializer, CustomUserSerializer,
     ContactSerializer, OrderSerializer, OrderItemSerializer, JobBoardSerializer,
     InventoryItemSerializer, ProductPriceSerializer, SystemConfigSerializer, FAQSerializer,
@@ -35,14 +35,14 @@ from django.db.models import OuterRef, Subquery, Max
 from django.db.models.functions import Coalesce
 from hr.models import Akun, TransaksiBukuBesar
 from users.models import SecurityAuditLog
-from .whatsapp_client import whatsapp_client
+from ..whatsapp_client import whatsapp_client
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------
 # IMPORT CUSTOM PERMISSIONS
 # ---------------------------------------------------------
-from .permissions import (
+from ..permissions import (
     IsOwnerOrManager, IsClockedIn, IsOwnerManagerOrAdmin,
     IsOwnerManagerAdminOrKasir, IsOwnerManagerAdminOrReadOnly
 )
@@ -439,7 +439,7 @@ def deduct_job_materials_if_needed(job, user):
     Jika BoM tidak ditemukan untuk produk/bahan terkait, fallback ke input manual di catatan_staff.
     Juga mencatat konsumsi bahan ke Buku Besar (HPP).
     """
-    from .models import InventoryItem, RestockHistory, ProductPrice, BillOfMaterials, BoMItem
+    from ..models import InventoryItem, RestockHistory, ProductPrice, BillOfMaterials, BoMItem
     
     marker = f"Job #{job.id}"
     if RestockHistory.objects.filter(keterangan__icontains=marker).exists():
@@ -907,7 +907,7 @@ class AssignOrderView(APIView):
         # Ambil tahap jika ada
         if tahap_id:
             try:
-                from .models import TahapProses as TahapModel
+                from ..models import TahapProses as TahapModel
                 tahap = TahapModel.objects.get(pk=tahap_id)
             except Exception as e:
                 logger.warning(f"Gagal mengambil TahapProses dengan id {tahap_id}: {e}")
@@ -1453,7 +1453,7 @@ class ContactStatsView(APIView):
             if total_customers > 0 else 0
         )
         
-        from .serializers import ContactSerializer
+        from ..serializers import ContactSerializer
         return Response({
             'total_customers': total_customers,
             'total_revenue': total_revenue,
@@ -1620,7 +1620,7 @@ class CreateUserView(APIView):
             first_name=first_name,
         )
         if divisi:
-            from .models import Divisi as DivisiModel
+            from ..models import Divisi as DivisiModel
             try:
                 user.divisi = DivisiModel.objects.get(pk=divisi)
             except DivisiModel.DoesNotExist:
@@ -1919,7 +1919,7 @@ class FonnteWebhookView(APIView):
             logger.warning(f"Unauthorized Webhook Fonnte call with token: {token}")
             return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        from .wa_logic import (
+        from ..wa_logic import (
             menunggu_nama,
             simpan_ke_memori, cek_tracking, cek_harga, cek_rules_awal,
             cek_database_faq, tanya_ai_finishing, ekstrak_nama_dari_pesan,
@@ -2321,7 +2321,7 @@ class EvolutionWebhookView(APIView):
     throttle_classes = [AnonRateThrottle]
 
     def post(self, request, *args, **kwargs):
-        from .wa_logic import (
+        from ..wa_logic import (
             menunggu_nama,
             simpan_ke_memori, cek_tracking, cek_harga, cek_rules_awal,
             cek_database_faq, tanya_ai_finishing, ekstrak_nama_dari_pesan,
@@ -2490,7 +2490,7 @@ class EvolutionWebhookView(APIView):
             return Response({'status': 'handover_mode_active'}, status=status.HTTP_200_OK)
 
         # Cek jika ada custom welcome / override response di SystemConfig
-        from .models import SystemConfig
+        from ..models import SystemConfig
         try:
             custom_response = SystemConfig.objects.get(key='custom_bot_response').value
             if custom_response and custom_response.strip():
