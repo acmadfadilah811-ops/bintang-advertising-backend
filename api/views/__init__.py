@@ -4,3 +4,7 @@ from .whatsapp import (
     WhatsAppChatsView, WhatsAppMessagesView, WhatsAppSendMessageView,
     WhatsAppSendMediaView
 )
+from .orders import (
+    OrderViewSet, AssignOrderView, OrderItemViewSet, ForwardJobView
+)
+
