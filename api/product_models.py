@@ -261,7 +261,7 @@ class StockInDocument(models.Model):
     nomor = models.CharField(max_length=50, unique=True, blank=True)
     tanggal = models.DateField()
     catatan = models.TextField(blank=True, default='')
-    nama_penerima = models.CharField(max_length=255, blank=True, default='', help_text="Nama staf yang menerima barang (Info Penerimaan di Olsera)")
+    nama_penerima = models.CharField(max_length=255, blank=True, default='', help_text="Nama staf yang menerima barang")
     supplier = models.CharField(max_length=255, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_in_documents')
@@ -280,7 +280,7 @@ class StockInDocumentItem(models.Model):
     variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, null=True, blank=True, related_name='stock_in_items')
     harga_beli = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     qty = models.DecimalField(max_digits=10, decimal_places=2)
-    rak = models.CharField(max_length=100, blank=True, default='', help_text="Lokasi rak/gudang (kolom 'rack' di template import Olsera)")
+    rak = models.CharField(max_length=100, blank=True, default='', help_text="Lokasi rak/gudang (kolom 'rack' di template import)")
 
     def __str__(self):
         return f"{self.document.nomor} - {self.product.nama} x{self.qty}"
@@ -312,7 +312,7 @@ class StockOutDocument(models.Model):
     catatan = models.TextField(blank=True, default='')
     alasan = models.CharField(max_length=20, choices=REASON_CHOICES, default='manual')
     alasan_lainnya = models.CharField(max_length=255, blank=True, default='', help_text="Teks bebas; wajib diisi saat alasan='lainnya', diabaikan untuk alasan lain")
-    transfer_ke = models.CharField(max_length=255, blank=True, default='', help_text="Tujuan transfer toko (to_store_url_id di Olsera)")
+    transfer_ke = models.CharField(max_length=255, blank=True, default='', help_text="Tujuan transfer toko (kolom 'to_store_url_id' di template import)")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_out_documents')
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -396,8 +396,8 @@ class StockOpnameDocumentItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_opname_items')
     variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, null=True, blank=True, related_name='stock_opname_items')
     jam_opname = models.CharField(max_length=20, blank=True, default='', help_text="Jam hitung fisik dilakukan (dokumentasi saja)")
-    rak = models.CharField(max_length=100, blank=True, default='', help_text="Lokasi rak (kolom 'rack' di template import Olsera)")
-    tanggal_kadaluwarsa = models.DateField(null=True, blank=True, help_text="Tgl Kadaluwarsa (opsional, kolom di layar detail Olsera)")
+    rak = models.CharField(max_length=100, blank=True, default='', help_text="Lokasi rak (kolom 'rack' di template import)")
+    tanggal_kadaluwarsa = models.DateField(null=True, blank=True, help_text="Tgl Kadaluwarsa (opsional)")
     stok_sistem = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Snapshot qty_stok saat produk ditambahkan ke opname")
     stok_aktual = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Hasil hitung fisik (per baris/rak; produk sama bisa muncul >1 baris)")
 
