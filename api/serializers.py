@@ -226,12 +226,24 @@ class OrderItemSerializer(serializers.ModelSerializer):
         return instance
 
 class OrderActivityLogSerializer(serializers.ModelSerializer):
-    user_nama = serializers.ReadOnlyField(source='user.username')
+    # SerializerMethodField, BUKAN ReadOnlyField(source='user.username'): kalau
+    # akun pembuat log dihapus (user=SET_NULL → None), source berujung None
+    # membuat DRF MEMBUANG field-nya dari JSON, bukan mengirim null. Frontend
+    # lalu kehilangan nama & email dan menambalnya dengan alamat hardcoded.
+    # Method field menjamin key-nya selalu ada, bernilai None saat user kosong.
+    user_nama = serializers.SerializerMethodField()
+    user_email = serializers.SerializerMethodField()
     waktu_formatted = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderActivityLog
-        fields = ['id', 'user', 'user_nama', 'tindakan', 'keterangan', 'waktu', 'waktu_formatted']
+        fields = ['id', 'user', 'user_nama', 'user_email', 'tindakan', 'keterangan', 'waktu', 'waktu_formatted']
+
+    def get_user_nama(self, obj):
+        return obj.user.username if obj.user else None
+
+    def get_user_email(self, obj):
+        return obj.user.email if obj.user else None
 
     def get_waktu_formatted(self, obj):
         return obj.waktu.strftime('%Y-%m-%d %H:%M:%S')

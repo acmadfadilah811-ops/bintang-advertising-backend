@@ -218,11 +218,17 @@ class StockInDocumentItemSerializer(serializers.ModelSerializer):
 class StockInDocumentSerializer(serializers.ModelSerializer):
     items = StockInDocumentItemSerializer(many=True, read_only=True)
     dibuat_oleh_nama = serializers.ReadOnlyField(source='dibuat_oleh.username')
+    # Email pembuat, untuk kartu Log di layar detail pembelian. Method field agar
+    # tetap mengirim null (bukan membuang field) saat akun pembuat sudah dihapus.
+    dibuat_oleh_email = serializers.SerializerMethodField()
 
     class Meta:
         model = StockInDocument
         fields = '__all__'
         read_only_fields = ['nomor', 'status', 'dibuat_oleh']
+
+    def get_dibuat_oleh_email(self, obj):
+        return obj.dibuat_oleh.email if obj.dibuat_oleh else None
 
 
 class StockOutDocumentItemSerializer(serializers.ModelSerializer):
