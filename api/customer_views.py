@@ -126,6 +126,13 @@ class CustomerViewSet(ToggleStatusMixin, viewsets.ModelViewSet):
                     tanggal_lahir=_parsed_date(row.get('dob')),
                     tanggal_berakhir=_parsed_date(row.get('expiry_date')),
                     bekukan=_truthy(row.get('is_frozen')),
+                    # Template Olsera tidak punya kolom country/province. Keduanya
+                    # tetap dibaca kalau ada (template kita boleh menambahkannya),
+                    # dan `negara` jatuh ke 'Indonesia' — default yang sama dengan
+                    # form Tambah. Tanpa ini pelanggan hasil import ber-negara
+                    # kosong sementara yang diketik manual ber-'Indonesia'.
+                    negara=(row.get('country') or '').strip() or 'Indonesia',
+                    provinsi=(row.get('province') or '').strip(),
                     kota=(row.get('city') or '').strip(),
                     kecamatan=(row.get('subdistrict') or '').strip(),
                     nama_perusahaan=(row.get('company') or '').strip(),
