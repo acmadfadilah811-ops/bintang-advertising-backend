@@ -1,13 +1,19 @@
 import uuid
 import logging
+import csv
+import io
+import datetime
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q, Count, Sum
+from django.http import HttpResponse
+
 
 from ..models import (
     Order, OrderItem, JobBoard, CustomUser, Contact, OrderActivityLog, TahapProses
@@ -224,6 +230,199 @@ class OrderViewSet(viewsets.ModelViewSet):
             'batal': status_map.get('batal', 0),
         })
 
+    @action(detail=True, methods=['get'], url_path='print-return')
+    def print_return(self, request, pk=None):
+        """
+        GET /api/orders/{order_id}/print-return/
+        Generate HTML untuk print/download PDF pengembalian pesanan.
+        """
+        try:
+            order = self.get_object()
+        except Order.DoesNotExist:
+            return Response({'error': 'Order tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Parse return info dari catatan_pelanggan
+        def get_return_info(catatan):
+            if not catatan:
+                return None
+            import re
+            match = re.search(
+                r'\[PENGEMBALIAN - Tanggal:\s*([^\s,]+),\s*Status:\s*([^,]*),\s*Catatan:\s*([^\]]*)\]',
+                catatan
+            ) or re.search(
+                r'\[PENGEMBALIAN - Tanggal:\s*([^\s,]+),\s*Catatan:\s*([^\]]*)\]',
+                catatan
+            )
+            if match:
+                if len(match.groups()) == 3:
+                    return {'tanggal': match.group(1), 'status': match.group(2), 'catatan': match.group(3)}
+                return {'tanggal': match.group(1), 'status': 'Tunda', 'catatan': match.group(2)}
+            return None
+
+        return_info = get_return_info(order.catatan_pelanggan)
+        if not return_info:
+            return Response({'error': 'Data pengembalian tidak ditemukan.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Ambil nama akun yang membuat order (dari activity_logs)
+        creator_name = 'System'
+        create_log = order.activity_logs.filter(tindakan='CREATE_ORDER').first()
+        if create_log and create_log.user:
+            creator_name = create_log.user.username
+
+        # Generate return ID (SR format)
+        order_time = order.waktu
+        return_id = f"SR{order_time.strftime('%y%m%d')}0000000{order.id}"
+
+        # Generate HTML
+        html = self._generate_return_html(
+            return_id=return_id,
+            order=order,
+            return_info=return_info,
+            creator_name=creator_name
+        )
+
+        response = HttpResponse(html, content_type='text/html')
+        return response
+
+    def _generate_return_html(self, return_id, order, return_info, creator_name):
+        """Generate HTML untuk print return order"""
+        return f"""
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laporan Pengembalian - {return_id}</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; }}
+        .container {{ max-width: 800px; margin: 20px auto; background: white; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
+
+        .header {{ text-align: center; margin-bottom: 30px; border-bottom: 2px solid #e0e0e0; padding-bottom: 20px; }}
+        .header h1 {{ font-size: 28px; color: #333; margin-bottom: 5px; }}
+        .header p {{ color: #999; font-size: 12px; }}
+
+        .content {{ margin: 30px 0; }}
+        .section {{ margin-bottom: 25px; }}
+        .section-title {{ color: #2563eb; font-weight: bold; font-size: 13px; margin-bottom: 12px; text-transform: uppercase; }}
+
+        .info-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }}
+        .info-box {{ }}
+        .info-label {{ color: #999; font-size: 11px; font-weight: 500; margin-bottom: 3px; }}
+        .info-value {{ color: #333; font-size: 13px; font-weight: 600; }}
+
+        table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+        th {{ background: #f9f9f9; border: 1px solid #e0e0e0; padding: 10px; text-align: left; font-size: 12px; font-weight: 600; color: #666; }}
+        td {{ border: 1px solid #e0e0e0; padding: 10px; font-size: 12px; color: #333; }}
+
+        .total-section {{ background: #f9f9f9; padding: 15px; border: 1px solid #e0e0e0; text-align: right; }}
+        .total-row {{ display: flex; justify-content: flex-end; margin-bottom: 8px; }}
+        .total-label {{ color: #666; margin-right: 20px; font-size: 12px; }}
+        .total-value {{ color: #333; font-weight: 600; font-size: 12px; min-width: 80px; text-align: right; }}
+
+        .footer {{ margin-top: 40px; border-top: 2px solid #e0e0e0; padding-top: 20px; text-align: center; }}
+        .footer-line {{ display: flex; justify-content: space-between; font-size: 11px; color: #999; margin-bottom: 3px; }}
+
+        .notes {{ background: #fffbf0; border-left: 3px solid #fb923c; padding: 12px; margin-top: 15px; }}
+        .notes-label {{ font-weight: 600; color: #333; font-size: 12px; margin-bottom: 5px; }}
+        .notes-value {{ color: #666; font-size: 12px; white-space: pre-wrap; }}
+
+        @media print {{
+            body {{ background: white; }}
+            .container {{ box-shadow: none; margin: 0; padding: 20px; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header dengan ID Pengembalian -->
+        <div class="header">
+            <h1>🎈 No. Pengembalian #{return_id}</h1>
+            <p>{creator_name}</p>
+        </div>
+
+        <!-- Tanggal & No. Pesanan -->
+        <div class="content">
+            <div style="text-align: right; margin-bottom: 30px; font-size: 12px; color: #666;">
+                <strong>Tanggal Pengembalian :</strong> {return_info.get('tanggal', '-')}
+            </div>
+
+            <!-- Pelanggan -->
+            <div class="section">
+                <div class="section-title">Pelanggan</div>
+                <div class="info-grid">
+                    <div class="info-box">
+                        <div class="info-label">Nama</div>
+                        <div class="info-value">{order.nama or '-'}</div>
+                    </div>
+                    <div class="info-box">
+                        <div class="info-label">No. WA</div>
+                        <div class="info-value">{order.nomor_wa or 'N/A'}</div>
+                    </div>
+                </div>
+                <div class="info-box">
+                    <div class="info-label">No. Pesanan</div>
+                    <div class="info-value" style="font-family: monospace;">#{order.id}</div>
+                </div>
+            </div>
+
+            <!-- Tabel Produk -->
+            <div class="section">
+                <div class="section-title">Deskripsi</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Deskripsi</th>
+                            <th style="width: 80px;">Qty</th>
+                            <th style="width: 100px;">Harga</th>
+                            <th style="width: 100px;">Total Harga</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #fafafa;">
+                            <td colspan="4" style="text-align: center; padding: 20px; color: #999; font-style: italic;">Total Pengembalian</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Total Pengembalian -->
+            <div class="total-section">
+                <div class="total-row">
+                    <span class="total-label">Subtotal</span>
+                    <span class="total-value">IDR 0</span>
+                </div>
+                <div class="total-row">
+                    <span class="total-label">Tambahan</span>
+                    <span class="total-value">IDR 0</span>
+                </div>
+                <div class="total-row" style="font-size: 13px; font-weight: bold; color: #333; margin-top: 10px; border-top: 1px solid #e0e0e0; padding-top: 10px;">
+                    <span class="total-label">Total</span>
+                    <span class="total-value">IDR 0</span>
+                </div>
+            </div>
+
+            <!-- Catatan -->
+            {f'<div class="notes"><div class="notes-label">Catatan :</div><div class="notes-value">{return_info.get("catatan", "-")}</div></div>' if return_info.get('catatan') else ''}
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <div class="footer-line">
+                <span><strong>Diketahui oleh:</strong> {creator_name}</span>
+                <span><strong>Tanggal Cetak:</strong> {datetime.datetime.now().strftime('%d-%b-%Y')}</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-print saat halaman selesai load
+        // window.print();
+    </script>
+</body>
+</html>
+"""
+
     @action(detail=True, methods=['post'], url_path='bayar')
     def bayar(self, request, pk=None):
         order = self.get_object()
@@ -265,6 +464,190 @@ class OrderViewSet(viewsets.ModelViewSet):
             pass
 
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='import-status-csv', parser_classes=[MultiPartParser])
+    def import_status_csv(self, request):
+        """
+        POST /api/orders/import-status-csv/
+        Impor status pesanan massal dari CSV (max. 500 baris) dengan validasi.
+        Legenda: P = Tunda, A = Dikonfirmasi, S = Dikirim, T = Terkirim, Z = Selesai, X = Batal
+        """
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'error': 'File CSV tidak ditemukan.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            decoded = upload.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'error': 'File harus berupa CSV dengan encoding UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        rows = list(csv.DictReader(io.StringIO(decoded)))
+        MAX_IMPORT_ROWS = 500
+        if len(rows) > MAX_IMPORT_ROWS:
+            return Response(
+                {'error': f'Maksimal {MAX_IMPORT_ROWS} baris per import (file ini berisi {len(rows)} baris).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not rows:
+            return Response({'error': 'File CSV kosong atau tidak memiliki baris data.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Mencocokkan nama header secara fleksibel (case-insensitive)
+        first_row = rows[0]
+        order_id_key = None
+        status_key = None
+        shipping_date_key = None
+
+        for k in first_row.keys():
+            k_clean = k.strip().lower()
+            if k_clean in ['no. pesanan', 'no pesanan', 'order id', 'order_id', 'no', 'order_no']:
+                order_id_key = k
+            elif k_clean in ['status', 'status_code', 'status code', 'update_status', 'update status']:
+                status_key = k
+            elif k_clean in ['tanggal kirim', 'tanggal_kirim', 'shipping date', 'shipping_date']:
+                shipping_date_key = k
+
+        if not order_id_key:
+            return Response(
+                {'error': 'Header CSV harus memuat kolom nomor pesanan ("order_no" atau "No. Pesanan").'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        status_map = {
+            'P': 'review',   # Tunda -> Menunggu Review
+            'A': 'desain',   # Dikonfirmasi -> Proses Desain
+            'S': 'proses',   # Dikirim -> Proses Produksi
+            'T': 'ready',    # Terkirim -> Siap Diambil
+            'Z': 'selesai',  # Selesai -> Selesai
+            'X': 'batal'     # Batal -> Dibatalkan
+        }
+
+        row_errors = []
+        orders_to_update = []
+        seen_order_ids = set()
+
+        for idx, row in enumerate(rows, start=2):  # Baris 1 adalah header
+            order_id = (row.get(order_id_key) or '').strip()
+            status_code = (row.get(status_key) or '').strip().upper() if status_key else ''
+            shipping_date_str = (row.get(shipping_date_key) or '').strip() if shipping_date_key else ''
+
+            if not order_id:
+                # Lewati jika baris benar-benar kosong
+                if not status_code and not shipping_date_str:
+                    continue
+                row_errors.append({
+                    'row': idx,
+                    'order_id': '-',
+                    'tanggal_kirim': shipping_date_str,
+                    'message': 'No. Pesanan (order_no) wajib diisi.'
+                })
+                continue
+
+            if order_id in seen_order_ids:
+                row_errors.append({
+                    'row': idx,
+                    'order_id': order_id,
+                    'tanggal_kirim': shipping_date_str,
+                    'message': f'No. Pesanan "{order_id}" duplikat dalam berkas CSV.'
+                })
+                continue
+            seen_order_ids.add(order_id)
+
+            # Jika status dan tanggal kirim dua-duanya kosong untuk order_id ini, lewati saja
+            if not status_code and not shipping_date_str:
+                continue
+
+            new_status = None
+            if status_code:
+                if status_code not in status_map:
+                    row_errors.append({
+                        'row': idx,
+                        'order_id': order_id,
+                        'tanggal_kirim': shipping_date_str,
+                        'message': f'Kode status "{status_code}" tidak valid. Gunakan P, A, S, T, Z, atau X.'
+                    })
+                    continue
+                new_status = status_map[status_code]
+
+            try:
+                order = Order.objects.get(id=order_id)
+            except Order.DoesNotExist:
+                row_errors.append({
+                    'row': idx,
+                    'order_id': order_id,
+                    'tanggal_kirim': shipping_date_str,
+                    'message': f'Pesanan dengan ID "{order_id}" tidak ditemukan.'
+                })
+                continue
+
+            # Validasi format tanggal kirim jika ada
+            parsed_date = None
+            if shipping_date_str:
+                success = False
+                for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d', '%m/%d/%Y', '%m-%d-%Y'):
+                    try:
+                        parsed_date = datetime.datetime.strptime(shipping_date_str, fmt).date()
+                        success = True
+                        break
+                    except ValueError:
+                        continue
+                if not success:
+                    row_errors.append({
+                        'row': idx,
+                        'order_id': order_id,
+                        'tanggal_kirim': shipping_date_str,
+                        'message': f'Format Tanggal Kirim "{shipping_date_str}" tidak valid. Gunakan YYYY-MM-DD, DD/MM/YYYY, atau MM/DD/YYYY.'
+                    })
+                    continue
+
+            orders_to_update.append((order, new_status, parsed_date, shipping_date_str))
+
+        if row_errors:
+            return Response({'errors': row_errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Jika hanya dry-run/validasi saja, return OK tanpa menyimpan
+        if request.query_params.get('dry_run') == 'true':
+            return Response({
+                'success': True,
+                'message': f'Semua {len(orders_to_update)} baris valid.',
+                'valid_count': len(orders_to_update)
+            }, status=status.HTTP_200_OK)
+
+        # Proses pembaruan dalam satu transaksi database atomic
+        updated_count = 0
+        with transaction.atomic():
+            for order, new_status, parsed_date, orig_date_str in orders_to_update:
+                changed = False
+                ket_parts = []
+
+                if new_status and order.status_global != new_status:
+                    order.status_global = new_status
+                    changed = True
+                    ket_parts.append(f"Status diperbarui menjadi '{new_status}'")
+
+                if orig_date_str:
+                    ket_parts.append(f"Tanggal Kirim: {orig_date_str}")
+                    changed = True
+
+                if changed:
+                    order._current_user = request.user
+                    order.save()
+
+                    ket = ", ".join(ket_parts) + " via impor CSV."
+                    OrderActivityLog.objects.create(
+                        order=order,
+                        user=request.user,
+                        tindakan="UPDATE_STATUS",
+                        keterangan=ket
+                    )
+                    updated_count += 1
+
+        return Response({
+            'success': True,
+            'message': f'Berhasil memperbarui status {updated_count} pesanan.',
+            'updated_count': updated_count
+        }, status=status.HTTP_200_OK)
+
 
 
 class AssignOrderView(APIView):
