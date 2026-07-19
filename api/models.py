@@ -285,7 +285,22 @@ class OrderActivityLog(models.Model):
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
     jenis_produk = models.CharField(max_length=100, db_index=True)
-    
+
+    # Tautan ke master Produk. Tanpa ini, laporan penjualan per SKU/Kategori/Brand/
+    # Koleksi buta terhadap pesanan advertising (hanya membaca POS). Opsional agar
+    # alur input lama tetap jalan; `jenis_produk` dipertahankan sebagai teks histori.
+    # PROTECT supaya produk yang sudah dipakai di pesanan tidak bisa dihapus dan
+    # merusak laporan historis. Referensi string karena product_models diimpor di
+    # akhir berkas ini.
+    product = models.ForeignKey(
+        'Product', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='order_items', db_index=True,
+    )
+    variant = models.ForeignKey(
+        'ProductVariant', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='order_items',
+    )
+
     # TAMBAHAN FIELD MODUL 1: KALKULATOR PERCETAKAN
     panjang = models.FloatField(default=0.0, help_text="Panjang cetakan dalam meter")
     lebar = models.FloatField(default=0.0, help_text="Lebar cetakan dalam meter")
@@ -764,11 +779,19 @@ class POSAntrianDevice(models.Model):
 # 16. Saldo Kas Harian (V1)
 # ---------------------------------------------------------
 class SaldoKasHarian(models.Model):
-    tanggal = models.DateField(default=timezone.now)
+    # localdate (bukan timezone.now) — DateField harus diberi date, bukan datetime.
+    # Dengan timezone.now, membuat record tanpa `tanggal` membuat serializer DRF
+    # gagal ("Expected a date, but got a datetime") sehingga buka shift error 500.
+    tanggal = models.DateField(default=timezone.localdate)
     kasir = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='saldo_kas_harian')
     shift = models.CharField(max_length=150)
     kas_awal = models.FloatField(default=0.0)
     kas_akhir = models.FloatField(null=True, blank=True)
+    # Jejak waktu & catatan penutupan. Sebelumnya dikirim frontend tapi tidak ada
+    # di model, sehingga dibuang diam-diam oleh serializer.
+    waktu_buka = models.DateTimeField(null=True, blank=True)
+    waktu_tutup = models.DateTimeField(null=True, blank=True, help_text="Terisi saat shift ditutup")
+    catatan = models.TextField(blank=True, default='')
 
     def __str__(self):
         return f"{self.tanggal} - {self.kasir.username} - {self.shift} (Awal: {self.kas_awal}, Akhir: {self.kas_akhir})"
@@ -777,7 +800,8 @@ class SaldoKasHarian(models.Model):
 # 17. Ringkasan Shift (V2)
 # ---------------------------------------------------------
 class RingkasanShift(models.Model):
-    tanggal = models.DateField(default=timezone.now)
+    # Lihat catatan di SaldoKasHarian.tanggal — DateField butuh date, bukan datetime.
+    tanggal = models.DateField(default=timezone.localdate)
     kasir = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='ringkasan_shift')
     mulai = models.DateTimeField(default=timezone.now)
     berakhir = models.DateTimeField(null=True, blank=True)
@@ -792,6 +816,36 @@ class RingkasanShift(models.Model):
     def __str__(self):
         return f"{self.tanggal} - {self.kasir.username} (Selisih: {self.selisih})"
 
+
+# ---------------------------------------------------------
+# 18. Metode Pembayaran POS (Pengaturan POS > Pembayaran)
+# ---------------------------------------------------------
+class POSPaymentMethod(models.Model):
+    """Cara pembayaran yang tersedia di POS, mis. 'CASH' (Tunai) atau
+    'QRIS GPN' (QRIS) dengan biaya MDR 0.7%."""
+    TIPE_CHOICES = [
+        ('Tunai', 'Tunai (Cash)'),
+        ('QRIS', 'QRIS'),
+        ('Debit', 'Kartu Debit'),
+        ('Kredit', 'Kartu Kredit'),
+        ('Transfer', 'Transfer Bank'),
+        ('E-Wallet', 'E-Wallet'),
+    ]
+
+    tipe = models.CharField(max_length=30, choices=TIPE_CHOICES, default='Tunai')
+    nama = models.CharField(max_length=100, help_text="Nama yang tampil di POS, mis. 'CASH'")
+    nama_biaya = models.CharField(max_length=100, blank=True, default='', help_text="Mis. 'MDR'")
+    nilai_biaya = models.DecimalField(max_digits=6, decimal_places=2, default=0, help_text="Persen biaya layanan")
+    is_active = models.BooleanField(default=True)
+    urutan = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['urutan', 'id']
+
+    def __str__(self):
+        return f"{self.nama} ({self.tipe})"
+
 # Import new models from product_models
 from .product_models import *
 
@@ -803,3 +857,6 @@ from .customer_models import *
 
 # Import new models from production_models
 from .production_models import *
+
+# Import new models from finance_models (Pendapatan/Pengeluaran)
+from .finance_models import *

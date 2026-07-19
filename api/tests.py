@@ -3,6 +3,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework import status
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from api.models import Divisi, TahapProses, Contact, Order, OrderItem, JobBoard
 from hr.models import Absensi
 
@@ -171,3 +172,49 @@ class ApiTestCase(APITestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(len(response.data) >= 1)
+
+    def test_import_status_csv_olsera_headers(self):
+        """Uji impor status CSV menggunakan header template resmi Olsera."""
+        self.client.force_authenticate(user=self.owner)
+        order = Order.objects.create(id="ORD-1111", nomor_wa="08123456789", nama="Test User", status_global="review")
+        
+        # Format Olsera: order_no,shipping_date,shipping_track_no,update_status
+        csv_content = "order_no,shipping_date,shipping_track_no,update_status\nORD-1111,2026-07-17,,S"
+        berkas = SimpleUploadedFile("status.csv", csv_content.encode("utf-8"), content_type="text/csv")
+        
+        url = "/api/orders/import-status-csv/"
+        response = self.client.post(url, {"file": berkas}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        order.refresh_from_db()
+        self.assertEqual(order.status_global, "proses") # S mapped to proses
+
+    def test_import_status_csv_dry_run(self):
+        """Uji impor status CSV dengan parameter dry_run=true tidak mengubah database."""
+        self.client.force_authenticate(user=self.owner)
+        order = Order.objects.create(id="ORD-2222", nomor_wa="08123456789", nama="Test User 2", status_global="review")
+        
+        csv_content = "order_no,shipping_date,shipping_track_no,update_status\nORD-2222,2026-07-17,,S"
+        berkas = SimpleUploadedFile("status.csv", csv_content.encode("utf-8"), content_type="text/csv")
+        
+        url = "/api/orders/import-status-csv/?dry_run=true"
+        response = self.client.post(url, {"file": berkas}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        order.refresh_from_db()
+        self.assertEqual(order.status_global, "review") # Tidak berubah karena dry_run=true
+
+    def test_import_status_csv_empty_status(self):
+        """Uji baris CSV dengan status kosong tetapi memiliki shipping_date tetap diproses (tidak error)."""
+        self.client.force_authenticate(user=self.owner)
+        order = Order.objects.create(id="ORD-3333", nomor_wa="08123456789", nama="Test User 3", status_global="review")
+        
+        csv_content = "order_no,shipping_date,shipping_track_no,update_status\nORD-3333,3/22/2018,,"
+        berkas = SimpleUploadedFile("status.csv", csv_content.encode("utf-8"), content_type="text/csv")
+        
+        url = "/api/orders/import-status-csv/"
+        response = self.client.post(url, {"file": berkas}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        order.refresh_from_db()
+        self.assertEqual(order.status_global, "review") # Tetap review (tidak berubah karena status kosong), tetapi log dibuat.

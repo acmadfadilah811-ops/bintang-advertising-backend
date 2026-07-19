@@ -93,7 +93,15 @@ class OrderViewSet(viewsets.ModelViewSet):
             'items__jobs__tahap',
             'items__jobs__tahap__divisi',
             'items__jobs__pic_staff',
-            'items__jobs__pic_staff__divisi'
+            'items__jobs__pic_staff__divisi',
+            # OrderItemSerializer mengekspos product_nama/sku/brand/kategori dan
+            # variant_nama. Tanpa prefetch ini tiap item memicu query sendiri.
+            'items__product__brand',
+            'items__product__kategori',
+            'items__variant',
+            # OrderSerializer menyertakan activity_logs beserta user tiap log —
+            # penyumbang query terbesar bila tidak di-prefetch.
+            'activity_logs__user',
         ).order_by('-waktu')
         
         # ✅ Filter by nomor_wa if provided in query params (optimasi query detail customer)

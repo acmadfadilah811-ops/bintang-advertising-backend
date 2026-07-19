@@ -7,7 +7,8 @@ from .product_models import (
     Addon, Specification, ProductSpecValue, ProductImage, ProductStockMovement,
     StockInDocument, StockInDocumentItem, StockOutDocument, StockOutDocumentItem,
     StockProductionDocument, StockProductionDocumentItem,
-    StockOpnameDocument, StockOpnameDocumentItem
+    StockOpnameDocument, StockOpnameDocumentItem,
+    Purchase, PurchaseItem, PurchasePayment
 )
 
 class ProductCategorySerializer(serializers.ModelSerializer):
@@ -229,6 +230,72 @@ class StockInDocumentSerializer(serializers.ModelSerializer):
 
     def get_dibuat_oleh_email(self, obj):
         return obj.dibuat_oleh.email if obj.dibuat_oleh else None
+
+
+# --- Pembelian (Purchase) ---------------------------------------------------
+class PurchaseItemSerializer(serializers.ModelSerializer):
+    product_nama = serializers.ReadOnlyField(source='product.nama')
+    product_sku = serializers.ReadOnlyField(source='product.sku')
+    product_satuan = serializers.ReadOnlyField(source='product.satuan')
+    variant_nama = serializers.ReadOnlyField(source='variant.nama_varian')
+    subtotal = serializers.ReadOnlyField()
+
+    class Meta:
+        model = PurchaseItem
+        fields = '__all__'
+
+
+class PurchasePaymentSerializer(serializers.ModelSerializer):
+    dibuat_oleh_nama = serializers.ReadOnlyField(source='dibuat_oleh.username')
+
+    class Meta:
+        model = PurchasePayment
+        fields = '__all__'
+        read_only_fields = ['purchase', 'dibuat_oleh']
+
+
+class PurchaseSerializer(serializers.ModelSerializer):
+    items = PurchaseItemSerializer(many=True, read_only=True)
+    payments = PurchasePaymentSerializer(many=True, read_only=True)
+    dibuat_oleh_nama = serializers.ReadOnlyField(source='dibuat_oleh.username')
+    dibuat_oleh_email = serializers.SerializerMethodField()
+    # Field turunan untuk layar detail & tabel — dihitung dari item & pembayaran.
+    total = serializers.ReadOnlyField()
+    total_dibayar = serializers.ReadOnlyField()
+    sisa = serializers.SerializerMethodField()
+    # Kontak supplier dari master (bila tertaut), untuk kartu Supplier.
+    supplier_kontak = serializers.SerializerMethodField()
+    supplier_telepon = serializers.SerializerMethodField()
+    supplier_email = serializers.SerializerMethodField()
+    supplier_alamat = serializers.SerializerMethodField()
+    # Nomor PO asal untuk dokumen retur.
+    retur_ref_nomor = serializers.ReadOnlyField(source='retur_ref.nomor')
+
+    class Meta:
+        model = Purchase
+        fields = '__all__'
+        read_only_fields = [
+            'nomor', 'status', 'payment_status', 'receive_status',
+            'tanggal_diterima', 'no_terima', 'is_retur', 'retur_ref', 'dibuat_oleh',
+        ]
+
+    def get_dibuat_oleh_email(self, obj):
+        return obj.dibuat_oleh.email if obj.dibuat_oleh else None
+
+    def get_sisa(self, obj):
+        return obj.total - obj.total_dibayar
+
+    def get_supplier_kontak(self, obj):
+        return obj.supplier_ref.kontak_pic if obj.supplier_ref else ''
+
+    def get_supplier_telepon(self, obj):
+        return obj.supplier_ref.phone if obj.supplier_ref else ''
+
+    def get_supplier_email(self, obj):
+        return obj.supplier_ref.email if obj.supplier_ref else ''
+
+    def get_supplier_alamat(self, obj):
+        return obj.supplier_ref.alamat if obj.supplier_ref else ''
 
 
 class StockOutDocumentItemSerializer(serializers.ModelSerializer):

@@ -2,11 +2,13 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
 from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, EvolutionWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView, KomplainViewSet, ContactStatsView
-from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView, ExportStockMovementView, ExportCustomersView, ExportProductsView
+from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView, ExportStockMovementView, ExportCustomersView, ExportProductsView, ExportCustomerNotesView, ExportCashTransactionsView
 from . import product_views
 from . import production_views
 from . import marketing_views
 from . import customer_views
+from . import finance_views
+from .report_views import ReportDataView, ReportExportView
 
 router = DefaultRouter()
 
@@ -30,6 +32,7 @@ router.register(r'shift-timing', views.ShiftTimingViewSet, basename='shift-timin
 router.register(r'pos-antrian-device', views.POSAntrianDeviceViewSet, basename='pos-antrian-device')
 router.register(r'saldo-kas-harian', views.SaldoKasHarianViewSet, basename='saldo-kas-harian')
 router.register(r'ringkasan-shift', views.RingkasanShiftViewSet, basename='ringkasan-shift')
+router.register(r'pos-payment-methods', views.POSPaymentMethodViewSet, basename='pos-payment-method')
 
 # Product & Inventory Phase 1
 router.register(r'product-categories', product_views.ProductCategoryViewSet, basename='product-category')
@@ -44,6 +47,9 @@ router.register(r'addons', product_views.AddonViewSet, basename='addon')
 router.register(r'specifications', product_views.SpecificationViewSet, basename='specification')
 router.register(r'product-spec-values', product_views.ProductSpecValueViewSet, basename='product-spec-value')
 router.register(r'product-stock-movements', product_views.ProductStockMovementViewSet, basename='product-stock-movement')
+router.register(r'purchases', product_views.PurchaseViewSet, basename='purchase')
+router.register(r'cash-transaction-types', finance_views.CashTransactionTypeViewSet, basename='cash-transaction-type')
+router.register(r'cash-transactions', finance_views.CashTransactionViewSet, basename='cash-transaction')
 router.register(r'stock-in-documents', product_views.StockInDocumentViewSet, basename='stock-in-document')
 router.register(r'stock-out-documents', product_views.StockOutDocumentViewSet, basename='stock-out-document')
 router.register(r'stock-production-documents', product_views.StockProductionDocumentViewSet, basename='stock-production-document')
@@ -90,9 +96,17 @@ urlpatterns = [
     path('export/staff-performance/', ExportStaffPerformanceView.as_view(), name='export-staff-performance'),
     path('export/stock-movement/', ExportStockMovementView.as_view(), name='export-stock-movement'),
     path('export/products/', ExportProductsView.as_view(), name='export-products'),
+    path('export/customer-notes/', ExportCustomerNotesView.as_view(), name='export-customer-notes'),
+    path('export/cash-transactions/', ExportCashTransactionsView.as_view(), name='export-cash-transactions'),
+    path('stock-fifo/sync/', product_views.StockFifoSyncView.as_view(), name='stock-fifo-sync'),
+    path('stock-fifo/status/', product_views.StockFifoStatusView.as_view(), name='stock-fifo-status'),
 
     # Reports Endpoints
     path('reports/staff-performance/', StaffPerformanceReportView.as_view(), name='staff-performance-report'),
+    # Laporan generik — HARUS setelah route reports/ yang spesifik di atas,
+    # karena <str:report_id> akan menangkap segmen apa pun.
+    path('reports/<str:report_id>/export/', ReportExportView.as_view(), name='report-export'),
+    path('reports/<str:report_id>/', ReportDataView.as_view(), name='report-data'),
 
     # Explicit restock URL — standalone APIView, tidak pakai @action ViewSet
     path('inventory/<str:pk>/restock/', InventoryRestockView.as_view(), name='inventory-restock'),

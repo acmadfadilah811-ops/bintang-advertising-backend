@@ -58,6 +58,20 @@ class CustomerViewSet(ToggleStatusMixin, viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(nama__icontains=search) |
+                Q(email__icontains=search) |
+                Q(handphone__icontains=search) |
+                Q(kode_pelanggan__icontains=search)
+            )
+        return qs
+
+
     def perform_create(self, serializer):
         raw_password = serializer.validated_data.get('password')
         serializer.save(
@@ -223,3 +237,72 @@ class SupplierViewSet(ToggleStatusMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(dibuat_oleh=self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='import-csv', parser_classes=[MultiPartParser])
+    def import_csv(self, request):
+        """Import massal supplier dari CSV (max. 500 baris)."""
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'error': 'File CSV tidak ditemukan.'}, status=400)
+
+        try:
+            decoded = upload.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'error': 'File harus berupa CSV dengan encoding UTF-8.'}, status=400)
+
+        rows = list(csv.DictReader(io.StringIO(decoded)))
+        if len(rows) > MAX_IMPORT_ROWS:
+            return Response(
+                {'error': f'Maksimal {MAX_IMPORT_ROWS} baris per import (file ini berisi {len(rows)} baris).'},
+                status=400,
+            )
+
+        created = 0
+        row_errors = []
+
+        for idx, row in enumerate(rows, start=2):  # baris 1 adalah header
+            # Cek field name / nama / Nama Pelanggan (sesuai header preview)
+            nama = (row.get('name') or row.get('nama') or row.get('Nama Pelanggan') or '').strip()
+            if not nama:
+                row_errors.append({'row': idx, 'message': 'Kolom "name" atau "nama" wajib diisi.'})
+                continue
+
+            kontak_pic = (row.get('contact_person') or row.get('pic') or row.get('kontak_pic') or row.get('Personal Yg Dihubungi') or '').strip()
+            email = (row.get('email') or '').strip()
+            phone = (row.get('phone') or row.get('telpon') or row.get('Telpon') or '').strip()
+            alamat = (row.get('address') or row.get('alamat') or row.get('Alamat') or '').strip()
+            catatan = (row.get('notes') or row.get('catatan') or row.get('Catatan') or '').strip()
+            negara = (row.get('country') or row.get('negara') or 'Indonesia').strip()
+            provinsi = (row.get('province') or row.get('provinsi') or row.get('Propinsi') or '').strip()
+            kota = (row.get('city') or row.get('kota') or '').strip()
+            kode_pos = (row.get('postal_code') or row.get('kode_pos') or row.get('Kode Pos') or '').strip()
+
+            is_active_val = row.get('status') or row.get('is_active')
+            is_active = True
+            if is_active_val is not None:
+                is_active = _truthy(is_active_val)
+
+            try:
+                Supplier.objects.create(
+                    nama=nama,
+                    kontak_pic=kontak_pic,
+                    email=email,
+                    phone=phone,
+                    alamat=alamat,
+                    catatan=catatan,
+                    negara=negara,
+                    provinsi=provinsi,
+                    kota=kota,
+                    kode_pos=kode_pos,
+                    is_active=is_active,
+                    dibuat_oleh=request.user
+                )
+                created += 1
+            except Exception as e:
+                row_errors.append({'row': idx, 'message': str(e)})
+
+        return Response({
+            'created': created,
+            'errors': row_errors
+        }, status=201 if created > 0 else 400)
+

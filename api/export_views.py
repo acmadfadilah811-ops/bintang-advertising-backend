@@ -1,15 +1,24 @@
 import openpyxl
 import logging
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from api.permissions import IsOwnerOrManager
 from rest_framework.response import Response
+from rest_framework.negotiation import DefaultContentNegotiation
 from .models import Order, InventoryItem, JobBoard, Contact
 from .customer_models import Customer
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+
+class IgnoreFormatContentNegotiation(DefaultContentNegotiation):
+    def filter_renderers(self, renderers, format):
+        try:
+            return super().filter_renderers(renderers, format)
+        except Http404:
+            return renderers
 
 class ExportContactsView(APIView):
     permission_classes = [IsOwnerOrManager]
@@ -740,4 +749,353 @@ class ExportProductsView(APIView):
                     "0"   # non_service_charge
                 ])
                 
+        return response
+
+
+class ExportCustomerNotesView(APIView):
+    permission_classes = [IsOwnerOrManager]
+    content_negotiation_class = IgnoreFormatContentNegotiation
+
+    def get(self, request):
+        from .customer_models import CustomerNote
+        
+        # Get query parameters (filters)
+        customer_id = request.query_params.get('customer')
+        tag_name = request.query_params.get('tag')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        search_query = request.query_params.get('search')
+        export_format = request.query_params.get('format', 'excel')
+
+        # Base query
+        notes_qs = CustomerNote.objects.select_related('customer', 'dibuat_oleh').prefetch_related('tags', 'entries').order_by('-created_at')
+
+        # Apply filters
+        if customer_id:
+            notes_qs = notes_qs.filter(customer_id=customer_id)
+        if tag_name:
+            notes_qs = notes_qs.filter(tags__nama=tag_name)
+        if start_date:
+            notes_qs = notes_qs.filter(tanggal__gte=start_date)
+        if end_date:
+            notes_qs = notes_qs.filter(tanggal__lte=end_date)
+        if search_query:
+            from django.db.models import Q
+            notes_qs = notes_qs.filter(
+                Q(judul__icontains=search_query) |
+                Q(customer_name__icontains=search_query)
+            )
+
+        # Safety limit (consistent with system architecture)
+        total_count = notes_qs.count()
+        if total_count > 50000:
+            return Response({
+                'error': f'Data terlalu banyak ({total_count:,} records). Limit: 50,000',
+            }, status=400)
+
+        if export_format == 'pdf':
+            # Generate a beautiful print-ready HTML page
+            html_content = self.generate_pdf_html(notes_qs)
+            response = HttpResponse(html_content, content_type='text/html')
+            return response
+
+        # Default format: Excel
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="customer-notes-{timezone.now().strftime("%Y-%m-%d")}.xlsx"'
+
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Catatan Pelanggan"
+
+            headers = ['id', 'customer_id', 'customer_name', 'note_no', 'title', 'note', 'created_time', 'tag', 'created_by_name']
+            ws.append(headers)
+
+            for note in notes_qs:
+                note_no = f"N{note.id:06d}"
+                created_time = f"{note.tanggal.strftime('%Y-%m-%d') if note.tanggal else ''} {note.jam.strftime('%H:%M') if note.jam else ''}".strip()
+                if not created_time and note.created_at:
+                    created_time = timezone.localtime(note.created_at).strftime('%Y-%m-%d %H:%M')
+
+                # note column: concatenate all entry contents
+                entries_list = []
+                for entry in note.entries.all():
+                    val = f"[{entry.label}] {entry.content}" if entry.label else entry.content
+                    entries_list.append(val)
+                note_text = "\n".join(entries_list) if entries_list else None
+
+                # tag column: list tags separated by comma
+                tags_list = [t.nama for t in note.tags.all()]
+                tag_text = ", ".join(tags_list) if tags_list else None
+
+                created_by = note.dibuat_oleh.get_full_name() or note.dibuat_oleh.username if note.dibuat_oleh else 'Brandy'
+
+                ws.append([
+                    note.id,
+                    note.customer_id or '',
+                    note.customer_name or 'Umum / Anonim',
+                    note_no,
+                    note.judul or '',
+                    note_text,
+                    created_time,
+                    tag_text,
+                    created_by
+                ])
+            wb.save(response)
+        except Exception as e:
+            return Response({'error': f'Gagal membuat file Excel: {str(e)}'}, status=500)
+
+        return response
+
+    def generate_pdf_html(self, notes_qs):
+        import datetime
+        now_str = datetime.datetime.now().strftime('%d %B %Y, %H:%M')
+        
+        # Build rows
+        rows_html = ""
+        for idx, note in enumerate(notes_qs, 1):
+            note_no = f"N{note.id:06d}"
+            created_time = f"{note.tanggal.strftime('%Y-%m-%d') if note.tanggal else ''} {note.jam.strftime('%H:%M') if note.jam else ''}".strip()
+            if not created_time and note.created_at:
+                created_time = timezone.localtime(note.created_at).strftime('%Y-%m-%d %H:%M')
+
+            # entries
+            entries_list = []
+            for entry in note.entries.all():
+                val = f"<strong>[{entry.label}]</strong> {entry.content}" if entry.label else entry.content
+                entries_list.append(val)
+            note_text = "<br>".join(entries_list) if entries_list else "-"
+
+            # tags
+            tags_list = [f'<span class="badge">{t.nama}</span>' for t in note.tags.all()]
+            tags_html = " ".join(tags_list) if tags_list else "-"
+
+            created_by = note.dibuat_oleh.get_full_name() or note.dibuat_oleh.username if note.dibuat_oleh else 'Brandy'
+
+            rows_html += f"""
+            <tr>
+                <td style="text-align: center;">{idx}</td>
+                <td><strong>{note.judul or '(Tanpa judul)'}</strong><br><small style="color: #64748b;">{note_no}</small></td>
+                <td>{note.customer_name or 'Umum / Anonim'}</td>
+                <td style="white-space: nowrap;">{created_time}</td>
+                <td>{tags_html}</td>
+                <td>{created_by}</td>
+                <td style="font-size: 12px; line-height: 1.4;">{note_text}</td>
+            </tr>
+            """
+
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Laporan Catatan Pelanggan</title>
+    <style>
+        body {{
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #1e293b;
+            margin: 20px;
+            font-size: 13px;
+        }}
+        .header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }}
+        .title {{
+            font-size: 20px;
+            font-weight: bold;
+            color: #0f172a;
+        }}
+        .meta-info {{
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }}
+        th, td {{
+            border: 1px solid #cbd5e1;
+            padding: 8px 10px;
+            text-align: left;
+            vertical-align: top;
+        }}
+        th {{
+            background-color: #f1f5f9;
+            color: #334155;
+            font-weight: bold;
+        }}
+        .badge {{
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background-color: #eff6ff;
+            color: #1d4ed8;
+            font-size: 10px;
+            font-weight: bold;
+            border: 1px solid #dbeafe;
+            margin-right: 2px;
+            margin-bottom: 2px;
+        }}
+        .no-print-btn {{
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }}
+        .no-print-btn:hover {{
+            background-color: #1d4ed8;
+        }}
+        @media print {{
+            .no-print {{
+                display: none !important;
+            }}
+            body {{
+                margin: 0;
+                color: #000;
+            }}
+            th {{
+                background-color: #f8fafc !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="no-print" style="display: flex; justify-content: space-between; align-items: center;">
+        <button class="no-print-btn" onclick="window.print()">Cetak Halaman (PDF)</button>
+        <span style="color: #64748b; font-size: 12px;">Tips: Atur printer ke "Save as PDF" untuk mengunduh dokumen.</span>
+    </div>
+
+    <div class="header">
+        <div>
+            <div class="title">LAPORAN CATATAN PELANGGAN</div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Bintang Advertising ERP</div>
+        </div>
+        <div style="text-align: right; font-size: 12px; color: #64748b;">
+            Waktu Cetak: {now_str}
+        </div>
+    </div>
+
+    <div class="meta-info">
+        <strong>Status Data:</strong> Diekspor dari database sistem<br>
+        <strong>Total Catatan:</strong> {len(notes_qs)} data ditemukan
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 30px; text-align: center;">No</th>
+                <th style="width: 120px;">Judul & ID</th>
+                <th style="width: 120px;">Pembeli</th>
+                <th style="width: 110px;">Waktu Buat</th>
+                <th style="width: 120px;">Tag</th>
+                <th style="width: 100px;">Dibuat Oleh</th>
+                <th>Catatan / Entri</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html if rows_html else '<tr><td colspan="7" style="text-align: center; color: #64748b;">Tidak ada data catatan.</td></tr>'}
+        </tbody>
+    </table>
+
+    <script>
+        window.onload = function() {{
+            setTimeout(function() {{
+                window.print();
+            }}, 500);
+        }};
+    </script>
+</body>
+</html>
+"""
+        return html
+
+class ExportCashTransactionsView(APIView):
+    """Export Excel untuk Pendapatan/Pengeluaran (Kas Masuk/Keluar).
+
+    Menghormati filter yang sama dengan layar: ?arah=, ?start=, ?end=, ?search=
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .finance_models import CashTransaction
+
+        qs = CashTransaction.objects.all().select_related('tipe_transaksi', 'staff')
+
+        arah = request.query_params.get('arah')
+        if arah in ('pendapatan', 'pengeluaran'):
+            qs = qs.filter(arah=arah)
+
+        start = request.query_params.get('start')
+        end = request.query_params.get('end')
+        if start:
+            qs = qs.filter(waktu__date__gte=start)
+        if end:
+            qs = qs.filter(waktu__date__lte=end)
+
+        search = (request.query_params.get('search') or '').strip()
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(nomor__icontains=search)
+                | Q(catatan__icontains=search)
+                | Q(tipe_transaksi__nama__icontains=search)
+                | Q(staff__username__icontains=search)
+            )
+
+        qs = qs.order_by('-waktu')
+
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="pendapatan_pengeluaran_{timezone.now().strftime("%Y%m%d")}.xlsx"'
+
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Pendapatan-Pengeluaran"
+
+            ws.append(['No. Transaksi', 'Tanggal', 'Waktu', 'Staff', 'Tipe Transaksi', 'Arah', 'Jumlah (Rp)', 'Catatan'])
+
+            total_masuk = 0
+            total_keluar = 0
+            for t in qs:
+                waktu_local = timezone.localtime(t.waktu) if timezone.is_aware(t.waktu) else t.waktu
+                jumlah = float(t.jumlah or 0)
+                if t.arah == 'pendapatan':
+                    total_masuk += jumlah
+                else:
+                    total_keluar += jumlah
+                ws.append([
+                    t.nomor,
+                    waktu_local.strftime('%Y-%m-%d'),
+                    waktu_local.strftime('%H:%M'),
+                    t.staff.username if t.staff else '',
+                    t.tipe_transaksi.nama if t.tipe_transaksi else '',
+                    'Pendapatan' if t.arah == 'pendapatan' else 'Pengeluaran',
+                    jumlah,
+                    t.catatan or '',
+                ])
+
+            # Ringkasan di bawah tabel
+            ws.append([])
+            ws.append(['', '', '', '', '', 'Total Pendapatan', total_masuk, ''])
+            ws.append(['', '', '', '', '', 'Total Pengeluaran', total_keluar, ''])
+            ws.append(['', '', '', '', '', 'Selisih (Net)', total_masuk - total_keluar, ''])
+
+            wb.save(response)
+        except Exception as e:
+            return Response({'error': f'Gagal membuat file Excel: {str(e)}'}, status=500)
+
         return response

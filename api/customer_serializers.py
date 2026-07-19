@@ -66,11 +66,17 @@ class CustomerNoteSerializer(serializers.ModelSerializer):
     tag_names = serializers.ListField(child=serializers.CharField(), write_only=True, required=False)
     entries = CustomerNoteEntrySerializer(many=True, read_only=True)
     documents = CustomerNoteDocumentSerializer(many=True, read_only=True)
+    dibuat_oleh_nama = serializers.SerializerMethodField()
 
     class Meta:
         model = CustomerNote
         fields = '__all__'
         read_only_fields = ['dibuat_oleh', 'customer_name']
+
+    def get_dibuat_oleh_nama(self, obj):
+        if obj.dibuat_oleh:
+            return obj.dibuat_oleh.first_name or obj.dibuat_oleh.username
+        return ''
 
     def get_tags(self, obj):
         return [t.nama for t in obj.tags.all()]

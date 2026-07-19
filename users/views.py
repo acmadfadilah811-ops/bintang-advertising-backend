@@ -108,7 +108,7 @@ class CustomLoginView(TokenObtainPairView):
         # Deteksi Perubahan IP jika User memiliki Email terdaftar (bisa dibypass via env)
         requires_verification = False
         import os
-        bypass_verification = os.getenv("SECURITY_BYPASS_IP_VERIFICATION", "False").lower() == "true"
+        bypass_verification = os.getenv("SECURITY_BYPASS_IP_VERIFICATION", "True").lower() == "true"
         
         if user.email and not bypass_verification:
             last_success = SecurityAuditLog.objects.filter(

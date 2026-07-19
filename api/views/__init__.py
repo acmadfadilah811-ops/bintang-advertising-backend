@@ -29,7 +29,8 @@ from .users import (
     DivisiViewSet, ShiftTimingViewSet, StaffPerformanceReportView
 )
 from .pos import (
-    POSAntrianDeviceViewSet, SaldoKasHarianViewSet, RingkasanShiftViewSet
+    POSAntrianDeviceViewSet, SaldoKasHarianViewSet, RingkasanShiftViewSet,
+    POSPaymentMethodViewSet
 )
 from .public import (
     HealthCheckView, ClientLogView, PublicOrderDetailsView, PublicSubmitDesignView

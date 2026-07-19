@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.conf import settings
 from django.db import models
 
@@ -231,6 +233,10 @@ class ProductStockMovement(models.Model):
     tipe = models.CharField(max_length=20, choices=TIPE_CHOICES)
     qty = models.DecimalField(max_digits=10, decimal_places=2, help_text="Selalu positif; arah ditentukan oleh 'tipe'")
     harga_beli = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="Harga beli per unit saat stok masuk")
+    hpp_total = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+        help_text="HPP mutasi keluar, dihitung dari lapisan FIFO yang dikonsumsi",
+    )
     stok_awal = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     stok_akhir = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     catatan = models.TextField(blank=True, default='')
@@ -265,6 +271,9 @@ class StockInDocument(models.Model):
     supplier = models.CharField(max_length=255, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_in_documents')
+    # Tautan ke dokumen Pembelian bila stok-masuk ini lahir dari penerimaan PO.
+    # Null untuk stok-masuk manual biasa (menu Inventory).
+    purchase = models.ForeignKey('Purchase', on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_in_documents')
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -281,6 +290,12 @@ class StockInDocumentItem(models.Model):
     harga_beli = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     qty = models.DecimalField(max_digits=10, decimal_places=2)
     rak = models.CharField(max_length=100, blank=True, default='', help_text="Lokasi rak/gudang (kolom 'rack' di template import)")
+    tanggal_kadaluwarsa = models.DateField(null=True, blank=True, help_text="Dipakai pada mode stok 'FIFO & Expired'")
+    # Satuan alternatif (UOM). `qty` SELALU dalam satuan dasar; field di bawah
+    # hanya merekam bagaimana angka itu diinput agar bisa ditampilkan kembali.
+    uom_kode = models.CharField(max_length=10, blank=True, default='')
+    uom_konverter = models.DecimalField(max_digits=12, decimal_places=4, default=1)
+    uom_qty = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="Qty sesuai satuan yang dipilih")
 
     def __str__(self):
         return f"{self.document.nomor} - {self.product.nama} x{self.qty}"
@@ -315,6 +330,8 @@ class StockOutDocument(models.Model):
     transfer_ke = models.CharField(max_length=255, blank=True, default='', help_text="Tujuan transfer toko (kolom 'to_store_url_id' di template import)")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_out_documents')
+    # Tautan ke dokumen Pembelian bila stok-keluar ini lahir dari posting Retur Pembelian.
+    purchase = models.ForeignKey('Purchase', on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_out_documents')
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -329,7 +346,11 @@ class StockOutDocumentItem(models.Model):
     document = models.ForeignKey(StockOutDocument, on_delete=models.CASCADE, related_name='items')
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_out_items')
     variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, null=True, blank=True, related_name='stock_out_items')
-    qty = models.DecimalField(max_digits=10, decimal_places=2)
+    qty = models.DecimalField(max_digits=10, decimal_places=2, help_text="Qty dalam satuan DASAR")
+    # Satuan alternatif (UOM) yang dipilih saat input; qty di atas tetap basis dasar.
+    uom_kode = models.CharField(max_length=10, blank=True, default='')
+    uom_konverter = models.DecimalField(max_digits=12, decimal_places=4, default=1)
+    uom_qty = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
     def __str__(self):
         return f"{self.document.nomor} - {self.product.nama} x{self.qty}"
@@ -416,3 +437,193 @@ class ProductActivityLog(models.Model):
 
     def __str__(self):
         return f"{self.product.nama} - {self.aksi} ({self.created_at:%Y-%m-%d %H:%M})"
+
+
+# ---------------------------------------------------------------------------
+# Pembelian (Purchase Order) — modul mandiri, terpisah dari Stok Masuk.
+# Mengikuti poin penting Olsera: dua dimensi status independen (pembayaran &
+# penerimaan), stok baru bertambah saat penerimaan diposting, dan retur benar-
+# benar mengurangi stok. PO dan retur disatukan di model ini via flag is_retur
+# supaya satu endpoint memberi makan keempat tab layar Pembelian.
+# ---------------------------------------------------------------------------
+class Purchase(models.Model):
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),        # Butuh Diproses
+        ('selesai', 'Selesai'),    # Telah Diproses / retur terposting
+        ('batal', 'Batal'),        # Dibatalkan
+    ]
+    RECEIVE_CHOICES = [
+        ('tunda', 'Tunda'),        # barang belum sampai
+        ('diterima', 'Diterima'),  # barang sampai -> stok bertambah
+    ]
+    PAYMENT_CHOICES = [
+        ('belum', 'Belum Bayar'),
+        ('sebagian', 'Sebagian'),  # DP / cicilan
+        ('lunas', 'Lunas'),
+    ]
+
+    nomor = models.CharField(max_length=50, unique=True, blank=True)
+    tanggal = models.DateField(help_text="Tanggal beli / pembuatan PO")
+    mata_uang = models.CharField(max_length=10, blank=True, default='IDR')
+    catatan = models.TextField(blank=True, default='')
+    jatuh_tempo = models.DateField(null=True, blank=True, help_text="Jatuh tempo pembayaran (opsional)")
+
+    # Supplier: FK ke master bila ada, plus nama teks untuk back-compat / import.
+    supplier = models.CharField(max_length=255, blank=True, default='')
+    supplier_ref = models.ForeignKey('Supplier', on_delete=models.SET_NULL, null=True, blank=True, related_name='purchases')
+
+    # Dimensi 1: penerimaan barang
+    receive_status = models.CharField(max_length=20, choices=RECEIVE_CHOICES, default='tunda')
+    tanggal_diterima = models.DateField(null=True, blank=True)
+    no_terima = models.CharField(max_length=100, blank=True, default='')
+    lanjut_tambah_stok = models.BooleanField(default=True, help_text="Bila True, penerimaan menambah stok (buat Stok Masuk)")
+
+    # Dimensi 2: pembayaran (diturunkan dari PurchasePayment)
+    payment_status = models.CharField(max_length=20, choices=PAYMENT_CHOICES, default='belum')
+
+    # Retur
+    is_retur = models.BooleanField(default=False)
+    retur_ref = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='returns')
+    exchange_new = models.BooleanField(default=False, help_text="Retur ditukar barang baru (stok ditambah kembali)")
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchases')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.nomor or f"Purchase-{self.pk}"
+
+    @property
+    def total(self):
+        return sum((it.qty * it.harga_beli for it in self.items.all()), start=Decimal('0'))
+
+    @property
+    def total_dibayar(self):
+        return sum((p.nominal for p in self.payments.all()), start=Decimal('0'))
+
+    def recompute_payment_status(self):
+        """Selaraskan payment_status dari akumulasi pembayaran. Panggil setelah
+        pembayaran ditambah/dihapus.
+
+        Memakai agregasi DB (bukan properti .total/.total_dibayar) supaya kebal
+        terhadap cache prefetch_related yang mungkin sudah basi pada instance ini."""
+        from django.db.models import Sum, F, DecimalField
+        total = self.items.aggregate(
+            t=Sum(F('qty') * F('harga_beli'), output_field=DecimalField())
+        )['t'] or Decimal('0')
+        dibayar = self.payments.aggregate(t=Sum('nominal'))['t'] or Decimal('0')
+        if dibayar <= 0:
+            self.payment_status = 'belum'
+        elif dibayar >= total and total > 0:
+            self.payment_status = 'lunas'
+        else:
+            self.payment_status = 'sebagian'
+        self.save(update_fields=['payment_status', 'updated_at'])
+
+
+class PurchaseItem(models.Model):
+    purchase = models.ForeignKey(Purchase, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='purchase_items')
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, null=True, blank=True, related_name='purchase_items')
+    qty = models.DecimalField(max_digits=10, decimal_places=2)
+    harga_beli = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    tanggal_kadaluwarsa = models.DateField(null=True, blank=True, help_text="Dipakai pada mode stok 'FIFO & Expired'")
+    # Satuan alternatif (UOM). `qty` & `harga_beli` SELALU dalam satuan dasar.
+    uom_kode = models.CharField(max_length=10, blank=True, default='')
+    uom_konverter = models.DecimalField(max_digits=12, decimal_places=4, default=1)
+    uom_qty = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="Qty sesuai satuan yang dipilih")
+
+    def __str__(self):
+        return f"{self.purchase.nomor} - {self.product.nama} x{self.qty}"
+
+    @property
+    def subtotal(self):
+        return self.qty * self.harga_beli
+
+
+# ---------------------------------------------------------------------------
+# Lapisan biaya stok (FIFO / FEFO)
+#
+# Setiap penerimaan barang membuat satu StockLayer. Setiap pengeluaran barang
+# mengonsumsi lapisan tertua lebih dulu (FIFO), atau yang paling cepat
+# kedaluwarsa lebih dulu bila mode stok = 'fifo_expired' (FEFO).
+#
+# Lapisan dipelihara di SEMUA mode stok — mode hanya menentukan apakah HPP
+# diambil dari lapisan (FIFO) atau dari Product.harga_beli (average). Dengan
+# begitu perpindahan mode tidak menghilangkan riwayat.
+# ---------------------------------------------------------------------------
+class StockLayer(models.Model):
+    SUMBER_CHOICES = [
+        ('saldo_awal', 'Saldo Awal (sync)'),
+        ('stock_in', 'Stok Masuk'),
+        ('purchase', 'Pembelian'),
+        ('produksi', 'Produksi'),
+        ('opname', 'Penyesuaian Opname'),
+        ('pos_void', 'Pembatalan POS'),
+        ('manual', 'Manual'),
+    ]
+
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_layers')
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, null=True, blank=True, related_name='stock_layers')
+
+    tanggal_masuk = models.DateField(db_index=True)
+    qty_masuk = models.DecimalField(max_digits=12, decimal_places=2)
+    sisa_qty = models.DecimalField(max_digits=12, decimal_places=2, help_text="Sisa yang belum terpakai")
+    harga_beli = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, help_text="Biaya per unit lapisan ini")
+    tanggal_kadaluwarsa = models.DateField(null=True, blank=True, db_index=True)
+    rak = models.CharField(max_length=100, blank=True, default='')
+
+    sumber_tipe = models.CharField(max_length=20, choices=SUMBER_CHOICES, default='manual')
+    sumber_nomor = models.CharField(max_length=50, blank=True, default='', help_text="Nomor dokumen asal, untuk laporan")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['tanggal_masuk', 'id']
+        indexes = [
+            models.Index(fields=['product', 'variant', 'sisa_qty'], name='idx_layer_prod_var_sisa'),
+        ]
+
+    def __str__(self):
+        return f"{self.product.nama} {self.tanggal_masuk} sisa {self.sisa_qty}@{self.harga_beli}"
+
+
+class StockLayerConsumption(models.Model):
+    """Jejak audit: berapa qty diambil dari lapisan mana, dengan biaya berapa.
+
+    `layer` null berarti pengambilan melebihi lapisan yang tersedia (data drift /
+    stok minus) dan memakai harga beli produk sebagai fallback.
+    """
+    layer = models.ForeignKey(StockLayer, on_delete=models.SET_NULL, null=True, blank=True, related_name='consumptions')
+    movement = models.ForeignKey(ProductStockMovement, on_delete=models.CASCADE, null=True, blank=True, related_name='layer_consumptions')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='layer_consumptions')
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, null=True, blank=True, related_name='layer_consumptions')
+    qty = models.DecimalField(max_digits=12, decimal_places=2)
+    harga_beli = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    is_shortfall = models.BooleanField(default=False, help_text="True bila lapisan tidak mencukupi")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.product.nama} -{self.qty} @{self.harga_beli}"
+
+
+class PurchasePayment(models.Model):
+    purchase = models.ForeignKey(Purchase, on_delete=models.CASCADE, related_name='payments')
+    tanggal = models.DateField()
+    nominal = models.DecimalField(max_digits=14, decimal_places=2)
+    metode = models.CharField(max_length=50, blank=True, default='')
+    catatan = models.CharField(max_length=255, blank=True, default='')
+    dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchase_payments')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['tanggal', 'created_at']
+
+    def __str__(self):
+        return f"{self.purchase.nomor} - {self.nominal} ({self.tanggal})"

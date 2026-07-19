@@ -37,10 +37,15 @@ class POSSaleItem(models.Model):
     variant = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL, null=True, blank=True)
     
     nama_snapshot = models.CharField(max_length=255)
-    harga_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
-    qty = models.DecimalField(max_digits=10, decimal_places=2)
+    harga_snapshot = models.DecimalField(max_digits=12, decimal_places=2, help_text="Harga per satuan DASAR")
+    qty = models.DecimalField(max_digits=10, decimal_places=2, help_text="Qty dalam satuan DASAR")
     subtotal = models.DecimalField(max_digits=12, decimal_places=2)
     catatan = models.TextField(blank=True, default='')
+    # Satuan alternatif (UOM) yang dipilih kasir; qty/harga di atas tetap basis dasar.
+    uom_kode = models.CharField(max_length=10, blank=True, default='')
+    uom_konverter = models.DecimalField(max_digits=12, decimal_places=4, default=1)
+    uom_qty = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    uom_harga = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="Harga per satuan yang dipilih")
 
     def __str__(self):
         return f"{self.nama_snapshot} x {self.qty}"

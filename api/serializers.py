@@ -7,7 +7,7 @@ from .models import (
     InventoryItem, RestockHistory, ProductPrice, SystemConfig, FAQ,
     OrderActivityLog, KomplainOrder, KomplainLog, CustomerActivity,
     BillOfMaterials, BoMItem, ShiftTiming, POSAntrianDevice, SaldoKasHarian,
-    RingkasanShift
+    RingkasanShift, POSPaymentMethod
 )
 
 logger = logging.getLogger(__name__)
@@ -141,6 +141,12 @@ class OrderItemSerializer(serializers.ModelSerializer):
     jobs = JobBoardSerializer(many=True, read_only=True) # Nested JobBoard
     insentif = serializers.SerializerMethodField()
     biaya_desain = serializers.SerializerMethodField()
+    # Turunan dari FK product (opsional) — dipakai layar pesanan & laporan penjualan.
+    product_nama = serializers.ReadOnlyField(source='product.nama')
+    product_sku = serializers.ReadOnlyField(source='product.sku')
+    brand_nama = serializers.ReadOnlyField(source='product.brand.nama')
+    kategori_nama = serializers.ReadOnlyField(source='product.kategori.nama')
+    variant_nama = serializers.ReadOnlyField(source='variant.nama_varian')
 
     class Meta:
         model = OrderItem
@@ -272,37 +278,85 @@ class OrderSerializer(serializers.ModelSerializer):
             'sisa_tagihan': {'read_only': True}, # Backend auto kurang total dengan DP
         }
 
+    def _get_contact(self, nomor_wa):
+        """Contact di-cache per request. Sebelumnya tiap order memanggil
+        Contact.objects.get() dua kali (total_spent + total_order), sehingga
+        daftar 8 order saja sudah 16 query hanya untuk data pelanggan."""
+        cache = self.context.setdefault('_contact_cache', {})
+        if nomor_wa not in cache:
+            cache[nomor_wa] = Contact.objects.filter(nomor_wa=nomor_wa).first()
+        return cache[nomor_wa]
+
     def get_customer_total_spent(self, obj):
-        try:
-            contact = Contact.objects.get(nomor_wa=obj.nomor_wa)
-            return contact.total_spent
-        except Contact.DoesNotExist:
-            return 0
+        contact = self._get_contact(obj.nomor_wa)
+        return contact.total_spent if contact else 0
 
     def get_customer_total_orders(self, obj):
-        try:
-            contact = Contact.objects.get(nomor_wa=obj.nomor_wa)
-            return contact.total_order
-        except Contact.DoesNotExist:
-            return 0
+        contact = self._get_contact(obj.nomor_wa)
+        return contact.total_order if contact else 0
+
+    def _job_ids(self, obj):
+        """Job milik order ini lewat relasi yang sudah di-prefetch viewset,
+        sehingga tidak menambah query."""
+        return [job.id for item in obj.items.all() for job in item.jobs.all()]
+
+    def _hpp_per_job(self, obj):
+        """Peta job_id -> biaya bahan, dibangun SEKALI per request.
+
+        Sebelumnya tiap job menjalankan query RestockHistory sendiri
+        (`keterangan__icontains='Job #<id>'`), jadi daftar order = puluhan query.
+        Sekarang seluruh riwayat job yang relevan diambil satu kali lalu
+        dicocokkan di memori.
+        """
+        if '_hpp_index' in self.context:
+            return self.context['_hpp_index']
+
+        # Kumpulkan job dari SEMUA order yang sedang diserialisasi (bukan hanya
+        # order ini) supaya cukup satu query untuk seluruh halaman.
+        semua = self.instance if isinstance(self.instance, (list, tuple)) else None
+        if semua is None:
+            try:
+                semua = list(self.instance.all()) if hasattr(self.instance, 'all') else [obj]
+            except Exception:
+                semua = [obj]
+        job_ids = set()
+        for o in semua:
+            try:
+                job_ids.update(self._job_ids(o))
+            except Exception:
+                pass
+        job_ids.update(self._job_ids(obj))
+
+        idx = {}
+        if job_ids:
+            import re as _re
+            pola = _re.compile(r'Job #(\d+)')
+            qs = RestockHistory.objects.filter(delta__lt=0, keterangan__icontains='Job #')
+            for h in qs.select_related('item'):
+                m = pola.search(h.keterangan or '')
+                if not m:
+                    continue
+                jid = int(m.group(1))
+                if jid in job_ids:
+                    idx[jid] = idx.get(jid, 0.0) + abs(h.delta) * (h.item.cost_per_unit or 0)
+        self.context['_hpp_index'] = idx
+        return idx
 
     def get_hpp_bahan(self, obj):
-        """Hitung HPP bahan baku dari RestockHistory yang terkait job order ini."""
+        """HPP bahan baku order, dari peta job yang dibangun sekali per request.
+
+        Di-cache per order karena get_margin_persen memanggil ulang fungsi ini."""
+        cache = self.context.setdefault('_hpp_cache', {})
+        if obj.id in cache:
+            return cache[obj.id]
         try:
-            total_hpp = 0.0
-            jobs = JobBoard.objects.filter(order_item__order=obj).prefetch_related(
-                'order_item__order'
-            )
-            for job in jobs:
-                histories = RestockHistory.objects.filter(
-                    keterangan__icontains=f'Job #{job.id}',
-                    delta__lt=0  # hanya pemakaian (delta negatif)
-                ).select_related('item')
-                for h in histories:
-                    total_hpp += abs(h.delta) * (h.item.cost_per_unit or 0)
-            return round(total_hpp)
-        except Exception as e:
+            idx = self._hpp_per_job(obj)
+            total_hpp = sum(idx.get(jid, 0.0) for jid in self._job_ids(obj))
+            cache[obj.id] = round(total_hpp)
+            return cache[obj.id]
+        except Exception:
             logger.exception("Gagal menghitung HPP bahan baku")
+            cache[obj.id] = 0
             return 0
 
     def get_margin_persen(self, obj):
@@ -439,6 +493,16 @@ class BusinessSettingsSerializer(serializers.Serializer):
     # POS Extended Settings
     pos_ext_settings = serializers.JSONField(required=False, default=dict)
 
+    # Sistem Stok (Average / FIFO / FIFO & Expired)
+    stock_system = serializers.ChoiceField(
+        choices=['average', 'fifo', 'fifo_expired'], required=False, default='average')
+    stock_transfer_pakai_harga_beli = serializers.BooleanField(required=False, default=False)
+    stock_tampilkan_harga_beli_rata2 = serializers.BooleanField(required=False, default=False)
+    stock_harga_beli_terakhir = serializers.BooleanField(required=False, default=False)
+    uom_multi_enabled = serializers.BooleanField(required=False, default=False)
+    pos_stock_mode = serializers.CharField(required=False, allow_blank=True, default='auto')
+    stock_alert_emails = serializers.CharField(required=False, allow_blank=True, default='')
+
     # POS Shift Settings
     pos_shift_aktif = serializers.BooleanField(required=False, default=False)
     pos_shift_kas_awal = serializers.IntegerField(required=False, default=0)
@@ -521,6 +585,15 @@ class BusinessSettingsSerializer(serializers.Serializer):
         'pos_stok_transfer_harus_proses_penerima': 'pos_stok_transfer_harus_proses_penerima',
         'pos_stok_posting_otomatis_laba_rugi':   'pos_stok_posting_otomatis_laba_rugi',
         'pos_antrian_aktif':                     'pos_antrian_aktif',
+
+        # Sistem Stok
+        'stock_system':                          'stock_system',
+        'stock_transfer_pakai_harga_beli':       'stock_transfer_pakai_harga_beli',
+        'stock_tampilkan_harga_beli_rata2':      'stock_tampilkan_harga_beli_rata2',
+        'stock_harga_beli_terakhir':             'stock_harga_beli_terakhir',
+        'uom_multi_enabled':                     'uom_multi_enabled',
+        'pos_stock_mode':                        'pos_stock_mode',
+        'stock_alert_emails':                    'stock_alert_emails',
     }
 
     def get_divisi_list(self, obj):
@@ -614,11 +687,22 @@ class BusinessSettingsSerializer(serializers.Serializer):
 
             # POS Antrian Defaults
             'pos_antrian_aktif': False,
+
+            # Mode stok POS & email peringatan stok
+            'pos_stock_mode': 'auto',
+            'stock_alert_emails': '',
         }
         
+        # Ambil SELURUH konfigurasi dalam satu query. Sebelumnya tiap field
+        # memanggil SystemConfig.objects.get() sendiri-sendiri — 49 field = 49
+        # query, padahal endpoint ini dipanggil hampir di setiap halaman.
+        semua_config = dict(SystemConfig.objects.values_list('key', 'value'))
+
         for field_name, config_key in self.FIELD_KEY_MAP.items():
             try:
-                val = SystemConfig.objects.get(key=config_key).value
+                if config_key not in semua_config:
+                    raise SystemConfig.DoesNotExist
+                val = semua_config[config_key]
                 if field_name in ['ppn_default', 'payroll_toleransi_menit', 'biaya_potongan_terlambat', 'smtp_port', 'pos_shift_kas_awal']:
                     try:
                         result[field_name] = int(val)
@@ -848,6 +932,12 @@ class SaldoKasHarianSerializer(serializers.ModelSerializer):
             name = f"{obj.kasir.first_name} {obj.kasir.last_name}".strip()
             return name if name else obj.kasir.username
         return ""
+
+
+class POSPaymentMethodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = POSPaymentMethod
+        fields = '__all__'
 
 
 class RingkasanShiftSerializer(serializers.ModelSerializer):

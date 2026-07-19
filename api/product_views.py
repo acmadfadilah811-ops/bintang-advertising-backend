@@ -11,6 +11,7 @@ from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
 from api.permissions import IsOwnerManagerAdminOrReadOnly
 from rest_framework.response import Response
 
@@ -19,7 +20,9 @@ from .product_models import (
     Product, ProductVariant, ProductPackage, ProductPackageItem, Addon, Specification, ProductSpecValue,
     ProductStockMovement, ProductImage, StockInDocument, StockInDocumentItem,
     StockOutDocument, StockOutDocumentItem, StockProductionDocument, StockProductionDocumentItem,
-    StockOpnameDocument, StockOpnameDocumentItem, ProductActivityLog
+    StockOpnameDocument, StockOpnameDocumentItem, ProductActivityLog,
+    Purchase, PurchaseItem, PurchasePayment,
+    StockLayer, StockLayerConsumption
 )
 from .product_serializers import (
     ProductCategorySerializer, BrandSerializer, SpecialTypeSerializer,
@@ -29,10 +32,14 @@ from .product_serializers import (
     StockInDocumentSerializer, StockInDocumentItemSerializer,
     StockOutDocumentSerializer, StockOutDocumentItemSerializer,
     StockProductionDocumentSerializer, StockProductionDocumentItemSerializer,
-    StockOpnameDocumentSerializer, StockOpnameDocumentItemSerializer
+    StockOpnameDocumentSerializer, StockOpnameDocumentItemSerializer,
+    PurchaseSerializer, PurchaseItemSerializer, PurchasePaymentSerializer
 )
 from .models import BillOfMaterials, BoMItem
 from .customer_models import Supplier
+from . import stock_fifo
+from . import uom
+from . import pos_settings
 
 # Batas baris per import CSV. Tanpa batas, satu file besar diproses dalam satu
 # transaction.atomic() dan berisiko timeout / lock tabel produk berkepanjangan.
@@ -128,7 +135,14 @@ class CollectionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.all().order_by('-created_at')
+    # ProductSerializer mengekspos kategori/brand/koleksi + varian & gambar.
+    # Tanpa select/prefetch, tiap produk memicu beberapa query tambahan.
+    queryset = (
+        Product.objects
+        .select_related('kategori', 'brand', 'koleksi')
+        .prefetch_related('variants', 'fotos')
+        .order_by('-created_at')
+    )
     serializer_class = ProductSerializer
     permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
@@ -141,6 +155,20 @@ class ProductViewSet(viewsets.ModelViewSet):
         if search:
             queryset = queryset.filter(nama__icontains=search)
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        """Hormati setelan Pengaturan POS > Cek Stok: cegah hapus produk yang
+        stoknya masih ada, supaya nilai persediaan tidak hilang diam-diam."""
+        instance = self.get_object()
+        if pos_settings.blokir_hapus_produk_jika_ada_stok():
+            sisa = float(instance.qty_stok or 0)
+            if sisa > 0:
+                return Response(
+                    {'error': f"'{instance.nama}' masih memiliki stok {sisa:g}. "
+                              f"Aturan 'blokir hapus produk jika stok masih ada' aktif di Pengaturan POS."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        return super().destroy(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         product = serializer.save()
@@ -726,6 +754,17 @@ class ProductViewSet(viewsets.ModelViewSet):
                 tanggal=tanggal,
             )
 
+            # Lapisan biaya FIFO.
+            tgl_layer = tanggal or timezone.now().date()
+            if tipe == 'masuk':
+                stock_fifo.create_layer(
+                    product, variant, qty,
+                    harga_beli if harga_beli is not None else product.harga_beli,
+                    tgl_layer, sumber_tipe='manual', sumber_nomor=f'MV-{movement.id}',
+                )
+            else:
+                stock_fifo.consume_layers(product, variant, qty, movement=movement)
+
         return Response(ProductStockMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='stock-in')
@@ -735,91 +774,39 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='stock-in-history')
     def stock_in_history(self, request, pk=None):
-        """GET /api/products/{id}/stock-in-history/ — Ambil dokumen stok masuk untuk produk ini."""
+        """GET /api/products/{id}/stock-in-history/ — Lapisan biaya (FIFO) produk ini.
+
+        Membaca StockLayer sungguhan: `sisa_qty` benar-benar sisa yang belum
+        terpakai, dan `qty_keluar` dihitung dari lapisan yang sudah dikonsumsi.
+        Endpoint ini murni baca — tidak lagi membuat dokumen stok masuk palsu
+        seperti implementasi sebelumnya.
+        """
         product = self.get_object()
         variant_id = request.query_params.get('variant')
-        items = StockInDocumentItem.objects.filter(product=product)
-        if variant_id:
-            items = items.filter(variant_id=variant_id)
-            
-        if not items.exists():
-            variants = product.variants.all()
-            if variants.exists():
-                created_any = False
-                for v in variants:
-                    v_qty = float(v.qty_stok or 0)
-                    if v_qty > 0:
-                        # Check if a StockInDocumentItem already exists for this variant
-                        if not StockInDocumentItem.objects.filter(product=product, variant=v).exists():
-                            # nomor harus unik per dokumen (unique=True) — satu dokumen per varian,
-                            # ditampilkan kembali sebagai "ADD-PRODUCT" di response
-                            doc = StockInDocument.objects.create(
-                                nomor=f"ADD-PRODUCT-{product.id}-V{v.id}",
-                                tanggal=product.created_at.date() if product.created_at else timezone.now().date(),
-                                catatan=f"Stok awal varian {v.nama_varian}",
-                                status="selesai"
-                            )
-                            StockInDocumentItem.objects.create(
-                                document=doc,
-                                product=product,
-                                variant=v,
-                                harga_beli=float(v.harga_beli or product.harga_beli or 0),
-                                qty=v_qty,
-                                rak=""
-                            )
-                            created_any = True
-                if created_any:
-                    items = StockInDocumentItem.objects.filter(product=product)
-                    if variant_id:
-                        items = items.filter(variant_id=variant_id)
-            else:
-                qty_stok = float(product.qty_stok or 0)
-                harga_beli = float(product.harga_beli or 0)
-                if qty_stok > 0:
-                    doc = StockInDocument.objects.create(
-                        nomor=f"ADD-PRODUCT-{product.id}",
-                        tanggal=product.created_at.date() if product.created_at else timezone.now().date(),
-                        catatan="Stok awal produk",
-                        status="selesai"
-                    )
-                    StockInDocumentItem.objects.create(
-                        document=doc,
-                        product=product,
-                        variant=None,
-                        harga_beli=harga_beli,
-                        qty=qty_stok,
-                        rak=""
-                    )
-                    items = StockInDocumentItem.objects.filter(product=product)
-                    if variant_id:
-                        items = items.filter(variant_id=variant_id)
 
-        items = items.select_related('document', 'variant').order_by('-document__tanggal', '-document__created_at')
-        
+        layers = StockLayer.objects.filter(product=product)
+        if variant_id:
+            layers = layers.filter(variant_id=variant_id)
+        layers = layers.select_related('variant').order_by('-tanggal_masuk', '-id')
+
+        label_sumber = dict(StockLayer.SUMBER_CHOICES)
         data = []
-        for item in items:
-            qty = float(item.qty)
-            # In a real FIFO system, we track sisa_qty. For simplicity, we fallback to qty.
-            # If the product/variant is marked as stok kosong, we can simulate sisa_qty = 0
-            sisa_qty = qty
-            qty_keluar = 0.0
-            
-            doc_nomor = item.document.nomor or f"StockIn-{item.document.id}"
-            if doc_nomor.startswith('ADD-PRODUCT'):
-                doc_nomor = 'ADD-PRODUCT'
+        for l in layers:
+            qty = float(l.qty_masuk)
+            sisa = float(l.sisa_qty)
             data.append({
-                'id': item.id,
-                'nomor': doc_nomor,
-                'created_at': item.document.created_at.isoformat() if item.document.created_at else (item.document.tanggal.isoformat() if item.document.tanggal else None),
-                'tanggal': item.document.tanggal.isoformat() if item.document.tanggal else None,
-                'supplier': item.document.supplier or '',
-                'variant_nama': item.variant.nama_varian if item.variant else '',
-                'variant_id': item.variant.id if item.variant else None,
+                'id': l.id,
+                'nomor': l.sumber_nomor or label_sumber.get(l.sumber_tipe, l.sumber_tipe),
+                'created_at': l.created_at.isoformat() if l.created_at else None,
+                'tanggal': l.tanggal_masuk.isoformat() if l.tanggal_masuk else None,
+                'tanggal_kadaluwarsa': l.tanggal_kadaluwarsa.isoformat() if l.tanggal_kadaluwarsa else None,
+                'variant_nama': l.variant.nama_varian if l.variant else '',
+                'variant_id': l.variant_id,
                 'qty': qty,
-                'qty_keluar': qty_keluar,
-                'sisa_qty': sisa_qty,
-                'harga_beli': float(item.harga_beli),
-                'rak': item.rak or '',
+                'qty_keluar': qty - sisa,
+                'sisa_qty': sisa,
+                'harga_beli': float(l.harga_beli),
+                'rak': l.rak or '',
             })
         return Response(data)
 
@@ -938,6 +925,12 @@ class ProductViewSet(viewsets.ModelViewSet):
                 stok_akhir=qty_fisik,
                 catatan=catatan,
                 tanggal=tanggal,
+            )
+
+            # Selaraskan lapisan dengan hasil hitung fisik.
+            stock_fifo.recalibrate_layers(
+                product, variant, qty_fisik, tanggal or timezone.now().date(),
+                sumber_nomor=f'OPN-{movement.id}',
             )
 
         return Response(ProductStockMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
@@ -1276,7 +1269,14 @@ class StockInDocumentViewSet(viewsets.ModelViewSet):
 
         product = get_object_or_404(Product, pk=product_id)
         rak = (request.data.get('rak') or '').strip()
-        item = StockInDocumentItem.objects.create(document=document, product=product, harga_beli=harga_beli, qty=qty, rak=rak)
+        u = uom.resolve(product, request.data.get('uom_kode'), qty, harga_beli)
+        item = StockInDocumentItem.objects.create(
+            document=document, product=product,
+            harga_beli=u['harga_dasar'] if u['harga_dasar'] is not None else harga_beli,
+            qty=u['qty_dasar'], rak=rak,
+            tanggal_kadaluwarsa=request.data.get('tanggal_kadaluwarsa') or None,
+            uom_kode=u['uom_kode'], uom_konverter=u['uom_konverter'], uom_qty=u['uom_qty'],
+        )
         return Response(StockInDocumentItemSerializer(item).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='import-csv')
@@ -1445,6 +1445,12 @@ class StockInDocumentViewSet(viewsets.ModelViewSet):
                     stock_in_document=document,
                 )
 
+                stock_fifo.create_layer(
+                    product, item.variant, item.qty, item.harga_beli, document.tanggal,
+                    sumber_tipe='stock_in', sumber_nomor=document.nomor,
+                    rak=item.rak, tanggal_kadaluwarsa=item.tanggal_kadaluwarsa,
+                )
+
             document.status = 'selesai'
             document.save()
 
@@ -1458,6 +1464,408 @@ class StockInDocumentViewSet(viewsets.ModelViewSet):
         document.status = 'batal'
         document.save()
         return Response(StockInDocumentSerializer(document).data)
+
+
+class PurchaseViewSet(viewsets.ModelViewSet):
+    """Pembelian (Purchase Order) + Retur.
+
+    Empat tab layar Pembelian dilayani satu endpoint:
+      - Butuh Diproses : status='draft', is_retur=False
+      - Telah Diproses : status='selesai', is_retur=False
+      - Retur          : is_retur=True
+      - Dibatalkan     : status='batal', is_retur=False
+
+    Dua dimensi status independen (Olsera): payment_status (belum/sebagian/lunas)
+    dari PurchasePayment, dan receive_status (tunda/diterima). Stok baru bertambah
+    saat 'receive' diposting (menghasilkan StockInDocument); retur mengurangi stok
+    (menghasilkan StockOutDocument).
+    """
+    queryset = (
+        Purchase.objects
+        .all()
+        .prefetch_related('items__product', 'items__variant', 'payments')
+        .select_related('dibuat_oleh', 'supplier_ref', 'retur_ref')
+    )
+    serializer_class = PurchaseSerializer
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
+
+    def perform_create(self, serializer):
+        today = timezone.now().date()
+        nomor = _next_document_number(Purchase, f"PB{today.strftime('%y%m%d')}")
+        supplier_ref = self._resolve_supplier(serializer.validated_data.get('supplier'))
+        serializer.save(nomor=nomor, dibuat_oleh=self.request.user, supplier_ref=supplier_ref)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.status != 'draft':
+            return Response({'error': 'Dokumen yang sudah diposting/dibatalkan tidak bisa diubah.'}, status=status.HTTP_400_BAD_REQUEST)
+        response = super().update(request, *args, **kwargs)
+        # Jaga supplier_ref tetap sinkron bila nama supplier diubah.
+        instance.refresh_from_db()
+        ref = self._resolve_supplier(instance.supplier)
+        if ref != instance.supplier_ref:
+            instance.supplier_ref = ref
+            instance.save(update_fields=['supplier_ref', 'updated_at'])
+        return response
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.status != 'draft':
+            return Response({'error': 'Dokumen yang sudah diposting/dibatalkan tidak bisa dihapus.'}, status=status.HTTP_400_BAD_REQUEST)
+        return super().destroy(request, *args, **kwargs)
+
+    @staticmethod
+    def _resolve_supplier(nama):
+        nama = (nama or '').strip()
+        if not nama:
+            return None
+        return Supplier.objects.filter(nama__iexact=nama).first()
+
+    def _detail_response(self, pk, status_code=status.HTTP_200_OK):
+        """Serialisasi ulang dari queryset fresh agar field turunan (total,
+        total_dibayar, sisa) tidak basi akibat cache prefetch pada instance yang
+        baru saja dimutasi (mis. setelah menambah item/pembayaran)."""
+        obj = self.get_queryset().get(pk=pk)
+        return Response(PurchaseSerializer(obj).data, status=status_code)
+
+    # ---- kelola item (draft saja) ----
+    @action(detail=True, methods=['post'], url_path='add-item')
+    def add_item(self, request, pk=None):
+        purchase = self.get_object()
+        if purchase.status != 'draft':
+            return Response({'error': 'Dokumen tidak dalam status draft.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        product_id = request.data.get('product')
+        qty_raw = request.data.get('qty')
+        if not product_id or qty_raw is None:
+            return Response({'error': 'product dan qty wajib diisi'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            qty = _to_decimal(qty_raw, 'qty')
+            harga_beli = _to_decimal(request.data.get('harga_beli', 0), 'harga_beli')
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if qty <= 0:
+            return Response({'error': 'qty harus lebih besar dari 0'}, status=status.HTTP_400_BAD_REQUEST)
+
+        product = get_object_or_404(Product, pk=product_id)
+        variant = None
+        variant_id = request.data.get('variant')
+        if variant_id:
+            variant = get_object_or_404(ProductVariant, pk=variant_id, product=product)
+        # Satuan alternatif (UOM): qty & harga dikonversi ke satuan dasar.
+        u = uom.resolve(product, request.data.get('uom_kode'), qty, harga_beli, variant)
+        item = PurchaseItem.objects.create(
+            purchase=purchase, product=product, variant=variant,
+            harga_beli=u['harga_dasar'] if u['harga_dasar'] is not None else harga_beli,
+            qty=u['qty_dasar'],
+            tanggal_kadaluwarsa=request.data.get('tanggal_kadaluwarsa') or None,
+            uom_kode=u['uom_kode'], uom_konverter=u['uom_konverter'], uom_qty=u['uom_qty'],
+        )
+        return Response(PurchaseItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='remove-item')
+    def remove_item(self, request, pk=None):
+        purchase = self.get_object()
+        if purchase.status != 'draft':
+            return Response({'error': 'Dokumen tidak dalam status draft.'}, status=status.HTTP_400_BAD_REQUEST)
+        item_id = request.data.get('item_id')
+        deleted, _ = PurchaseItem.objects.filter(purchase=purchase, id=item_id).delete()
+        if not deleted:
+            return Response({'error': 'Item tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+        return self._detail_response(purchase.pk)
+
+    @action(detail=True, methods=['post'], url_path='import-csv')
+    def import_csv(self, request, pk=None):
+        """Import massal item dari CSV. Kolom: product, variant, sku, supplier, qty, new_buy_price."""
+        purchase = self.get_object()
+        if purchase.status != 'draft':
+            return Response({'error': 'Dokumen tidak dalam status draft.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({'error': 'File CSV wajib diunggah.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            decoded = file_obj.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'error': 'File harus berupa CSV berformat teks (UTF-8).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        rows = list(csv.DictReader(io.StringIO(decoded)))
+        if len(rows) > CSV_IMPORT_MAX_ROWS:
+            return Response(
+                {'error': f'Maksimal {CSV_IMPORT_MAX_ROWS} baris per import — file ini berisi {len(rows)} baris.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Supplier pada CSV harus sudah terdaftar (mengikuti Olsera); kolom boleh kosong.
+        nama_supplier_csv = {_csv_cell(_csv_row_lower(row), 'supplier') for row in rows}
+        nama_supplier_csv = {nama for nama in nama_supplier_csv if nama}
+        if nama_supplier_csv:
+            terdaftar = set(
+                Supplier.objects.annotate(nama_lower=Lower('nama'))
+                .filter(nama_lower__in=[n.lower() for n in nama_supplier_csv])
+                .values_list('nama_lower', flat=True)
+            )
+            tidak_dikenal = sorted(n for n in nama_supplier_csv if n.lower() not in terdaftar)
+            if tidak_dikenal:
+                return Response(
+                    {'error': 'Supplier belum terdaftar: ' + ', '.join(f'"{n}"' for n in tidak_dikenal)
+                              + '. Tambahkan dulu lewat menu Pelanggan & Supplier, atau kosongkan kolom supplier.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        created_items = []
+        errors = []
+        supplier_name = None
+
+        with transaction.atomic():
+            for idx, row in enumerate(rows, start=2):
+                row_lower = _csv_row_lower(row)
+                product_name = _csv_cell(row_lower, 'product')
+                variant_name = _csv_cell(row_lower, 'variant')
+                sku = _csv_cell(row_lower, 'sku')
+                supplier = _csv_cell(row_lower, 'supplier')
+                qty_raw = _csv_cell(row_lower, 'qty')
+                harga_raw = _csv_cell(row_lower, 'new_buy_price', 'new buy price', 'price')
+
+                if supplier and not supplier_name:
+                    supplier_name = supplier
+
+                product = None
+                if sku:
+                    product = Product.objects.filter(sku=sku).first()
+                if not product and product_name:
+                    product = Product.objects.filter(nama__iexact=product_name).first()
+                if not product:
+                    errors.append(f"Produk {sku or ''} - {product_name or ''} di baris {idx} tidak ditemukan")
+                    continue
+
+                try:
+                    qty = _to_decimal(qty_raw, 'qty')
+                except ValueError:
+                    errors.append(f"Baris {idx}: qty '{qty_raw}' tidak valid.")
+                    continue
+                if qty <= 0:
+                    errors.append(f"Baris {idx}: qty harus lebih besar dari 0.")
+                    continue
+
+                harga_beli = product.harga_beli
+                if harga_raw:
+                    try:
+                        harga_beli = _to_decimal(harga_raw, 'harga_beli')
+                    except ValueError:
+                        errors.append(f"Baris {idx}: harga beli '{harga_raw}' tidak valid, memakai harga beli produk.")
+
+                variant = None
+                if variant_name:
+                    variant = ProductVariant.objects.filter(product=product, nama_varian__iexact=variant_name).first()
+
+                item = PurchaseItem.objects.create(purchase=purchase, product=product, variant=variant, harga_beli=harga_beli, qty=qty)
+                created_items.append(item)
+
+            if supplier_name and not purchase.supplier:
+                purchase.supplier = supplier_name
+                purchase.supplier_ref = self._resolve_supplier(supplier_name)
+                purchase.save(update_fields=['supplier', 'supplier_ref', 'updated_at'])
+
+        return Response(
+            {
+                'document': PurchaseSerializer(self.get_queryset().get(pk=purchase.pk)).data,
+                'created': PurchaseItemSerializer(created_items, many=True).data,
+                'errors': errors,
+            },
+            status=status.HTTP_201_CREATED if created_items else status.HTTP_400_BAD_REQUEST,
+        )
+
+    # ---- pembayaran (cicilan/DP) ----
+    @action(detail=True, methods=['post'], url_path='add-payment')
+    def add_payment(self, request, pk=None):
+        purchase = self.get_object()
+        if purchase.is_retur:
+            return Response({'error': 'Dokumen retur tidak menerima pembayaran.'}, status=status.HTTP_400_BAD_REQUEST)
+        if purchase.status == 'batal':
+            return Response({'error': 'Dokumen batal tidak bisa menerima pembayaran.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            nominal = _to_decimal(request.data.get('nominal'), 'nominal')
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if nominal <= 0:
+            return Response({'error': 'Nominal pembayaran harus lebih besar dari 0.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        tanggal = request.data.get('tanggal') or timezone.now().date()
+        PurchasePayment.objects.create(
+            purchase=purchase,
+            tanggal=tanggal,
+            nominal=nominal,
+            metode=(request.data.get('metode') or '').strip(),
+            catatan=(request.data.get('catatan') or '').strip(),
+            dibuat_oleh=request.user,
+        )
+        purchase.recompute_payment_status()
+        return self._detail_response(purchase.pk, status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='remove-payment')
+    def remove_payment(self, request, pk=None):
+        purchase = self.get_object()
+        payment_id = request.data.get('payment_id')
+        deleted, _ = PurchasePayment.objects.filter(purchase=purchase, id=payment_id).delete()
+        if not deleted:
+            return Response({'error': 'Pembayaran tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
+        purchase.recompute_payment_status()
+        return self._detail_response(purchase.pk)
+
+    # ---- penerimaan barang (menambah stok) ----
+    @action(detail=True, methods=['post'], url_path='receive')
+    def receive(self, request, pk=None):
+        purchase = self.get_object()
+        if purchase.is_retur:
+            return Response({'error': 'Gunakan post-retur untuk dokumen retur.'}, status=status.HTTP_400_BAD_REQUEST)
+        if purchase.status != 'draft':
+            return Response({'error': 'Dokumen sudah diproses/dibatalkan.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not purchase.items.exists():
+            return Response({'error': 'Tambahkan minimal satu produk sebelum menerima.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        lanjut_raw = request.data.get('lanjut_tambah_stok')
+        lanjut_tambah_stok = purchase.lanjut_tambah_stok if lanjut_raw is None else _parse_bool_flag(lanjut_raw)
+
+        with transaction.atomic():
+            purchase.tanggal_diterima = request.data.get('tanggal_diterima') or timezone.now().date()
+            purchase.no_terima = (request.data.get('no_terima') or '').strip()
+            purchase.lanjut_tambah_stok = lanjut_tambah_stok
+            if lanjut_tambah_stok:
+                err = self._apply_purchase_stock(purchase, request, direction='in')
+                if err:
+                    return err
+            purchase.receive_status = 'diterima'
+            purchase.status = 'selesai'
+            purchase.save()
+        return self._detail_response(purchase.pk)
+
+    # ---- retur ----
+    @action(detail=True, methods=['post'], url_path='create-retur')
+    def create_retur(self, request, pk=None):
+        """Buat draft retur dari PO ini (pk = PO asal). Syarat: Diterima + Lunas."""
+        source = self.get_object()
+        if source.is_retur:
+            return Response({'error': 'Tidak bisa meretur dokumen retur.'}, status=status.HTTP_400_BAD_REQUEST)
+        if source.receive_status != 'diterima' or source.payment_status != 'lunas':
+            return Response({'error': 'Retur hanya untuk pembelian yang sudah Diterima dan Lunas.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        today = timezone.now().date()
+        with transaction.atomic():
+            retur = Purchase.objects.create(
+                nomor=_next_document_number(Purchase, f"RB{today.strftime('%y%m%d')}"),
+                tanggal=request.data.get('tanggal') or today,
+                supplier=source.supplier,
+                supplier_ref=source.supplier_ref,
+                mata_uang=source.mata_uang,
+                catatan=(request.data.get('catatan') or '').strip(),
+                is_retur=True,
+                retur_ref=source,
+                status='draft',
+                dibuat_oleh=request.user,
+            )
+            for it in source.items.all():
+                PurchaseItem.objects.create(purchase=retur, product=it.product, variant=it.variant, qty=it.qty, harga_beli=it.harga_beli)
+        return self._detail_response(retur.pk, status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='post-retur')
+    def post_retur(self, request, pk=None):
+        retur = self.get_object()
+        if not retur.is_retur:
+            return Response({'error': 'Bukan dokumen retur.'}, status=status.HTTP_400_BAD_REQUEST)
+        if retur.status != 'draft':
+            return Response({'error': 'Retur sudah diposting/dibatalkan.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not retur.items.exists():
+            return Response({'error': 'Tidak ada produk untuk diretur.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        exchange = _parse_bool_flag(request.data.get('exchange_new'))
+        with transaction.atomic():
+            err = self._apply_purchase_stock(retur, request, direction='out')
+            if err:
+                return err
+            if exchange:
+                # Supplier menukar barang rusak dengan barang baru -> stok ditambah kembali.
+                retur.exchange_new = True
+                err2 = self._apply_purchase_stock(retur, request, direction='in')
+                if err2:
+                    return err2
+            retur.status = 'selesai'
+            retur.receive_status = 'diterima'
+            retur.save()
+        return self._detail_response(retur.pk)
+
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel(self, request, pk=None):
+        purchase = self.get_object()
+        if purchase.status != 'draft':
+            return Response({'error': 'Hanya dokumen draft yang bisa dibatalkan.'}, status=status.HTTP_400_BAD_REQUEST)
+        purchase.status = 'batal'
+        purchase.save()
+        return self._detail_response(purchase.pk)
+
+    # ---- helper stok ----
+    def _apply_purchase_stock(self, purchase, request, direction):
+        """direction='in' menambah stok (buat StockInDocument), 'out' mengurangi
+        stok (buat StockOutDocument). Return Response error, atau None bila sukses."""
+        today = timezone.now().date()
+        tanggal = purchase.tanggal_diterima or purchase.tanggal or today
+
+        if direction == 'in':
+            doc = StockInDocument.objects.create(
+                nomor=_next_document_number(StockInDocument, f"IN{today.strftime('%y%m%d')}"),
+                tanggal=tanggal, catatan=purchase.catatan, supplier=purchase.supplier,
+                status='selesai', dibuat_oleh=request.user, purchase=purchase,
+            )
+            for it in purchase.items.select_related('product', 'variant'):
+                if it.variant_id:
+                    owner = ProductVariant.objects.select_for_update().get(pk=it.variant_id)
+                else:
+                    owner = Product.objects.select_for_update().get(pk=it.product_id)
+                stok_awal = owner.qty_stok
+                stok_akhir = stok_awal + it.qty
+                owner.qty_stok = stok_akhir
+                owner.save()
+                if it.harga_beli:
+                    Product.objects.filter(pk=it.product_id).update(harga_beli=it.harga_beli)
+                ProductStockMovement.objects.create(
+                    product=it.product, variant=it.variant, user=request.user, tipe='masuk',
+                    qty=it.qty, harga_beli=it.harga_beli, stok_awal=stok_awal, stok_akhir=stok_akhir,
+                    catatan=purchase.catatan, tanggal=tanggal, stock_in_document=doc,
+                )
+                stock_fifo.create_layer(
+                    it.product, it.variant, it.qty, it.harga_beli, tanggal,
+                    sumber_tipe='purchase', sumber_nomor=purchase.nomor,
+                    tanggal_kadaluwarsa=it.tanggal_kadaluwarsa,
+                )
+            return None
+
+        # direction == 'out'
+        doc = StockOutDocument.objects.create(
+            nomor=_next_document_number(StockOutDocument, f"OUT{today.strftime('%y%m%d')}"),
+            tanggal=tanggal, catatan=purchase.catatan, alasan='refund',
+            status='selesai', dibuat_oleh=request.user, purchase=purchase,
+        )
+        for it in purchase.items.select_related('product', 'variant'):
+            if it.variant_id:
+                owner = ProductVariant.objects.select_for_update().get(pk=it.variant_id)
+            else:
+                owner = Product.objects.select_for_update().get(pk=it.product_id)
+            stok_awal = owner.qty_stok
+            stok_akhir = stok_awal - it.qty
+            if stok_akhir < 0:
+                return Response(
+                    {'error': f"Stok '{owner}' tidak cukup untuk retur. Stok saat ini {stok_awal}, diminta {it.qty}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            owner.qty_stok = stok_akhir
+            owner.save()
+            mv = ProductStockMovement.objects.create(
+                product=it.product, variant=it.variant, user=request.user, tipe='keluar',
+                qty=it.qty, stok_awal=stok_awal, stok_akhir=stok_akhir,
+                catatan=purchase.catatan, tanggal=tanggal, stock_out_document=doc,
+            )
+            stock_fifo.consume_layers(it.product, it.variant, it.qty, movement=mv)
+        return None
 
 
 class StockOutDocumentViewSet(viewsets.ModelViewSet):
@@ -1508,7 +1916,11 @@ class StockOutDocumentViewSet(viewsets.ModelViewSet):
         if variant_id:
             variant = get_object_or_404(ProductVariant, pk=variant_id, product=product)
 
-        item = StockOutDocumentItem.objects.create(document=document, product=product, variant=variant, qty=qty)
+        u = uom.resolve(product, request.data.get('uom_kode'), qty, None, variant)
+        item = StockOutDocumentItem.objects.create(
+            document=document, product=product, variant=variant, qty=u['qty_dasar'],
+            uom_kode=u['uom_kode'], uom_konverter=u['uom_konverter'], uom_qty=u['uom_qty'],
+        )
         return Response(StockOutDocumentItemSerializer(item).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='remove-item')
@@ -1633,7 +2045,7 @@ class StockOutDocumentViewSet(viewsets.ModelViewSet):
                 owner.qty_stok = stok_akhir
                 owner.save()
 
-                ProductStockMovement.objects.create(
+                mv = ProductStockMovement.objects.create(
                     product=item.product,
                     variant=item.variant,
                     user=request.user,
@@ -1645,6 +2057,7 @@ class StockOutDocumentViewSet(viewsets.ModelViewSet):
                     tanggal=document.tanggal,
                     stock_out_document=document,
                 )
+                stock_fifo.consume_layers(item.product, item.variant, item.qty, movement=mv)
 
             document.status = 'selesai'
             document.save()
@@ -1815,6 +2228,12 @@ class StockProductionDocumentViewSet(viewsets.ModelViewSet):
                     catatan=document.catatan,
                     tanggal=document.tanggal,
                     stock_production_document=document,
+                )
+                # Barang jadi hasil produksi masuk sebagai lapisan baru senilai
+                # harga beli produk (biaya bahan tidak diserap — sesuai model saat ini).
+                stock_fifo.create_layer(
+                    item.product, item.variant, item.qty, item.product.harga_beli,
+                    document.tanggal, sumber_tipe='produksi', sumber_nomor=document.nomor,
                 )
 
             document.status = 'selesai'
@@ -2159,6 +2578,10 @@ class StockOpnameDocumentViewSet(viewsets.ModelViewSet):
                     tanggal=document.tanggal,
                     stock_opname_document=document,
                 )
+                stock_fifo.recalibrate_layers(
+                    group['product'], group['variant'], stok_akhir, document.tanggal,
+                    sumber_nomor=document.nomor,
+                )
 
             document.status = 'selesai'
             document.save()
@@ -2173,3 +2596,39 @@ class StockOpnameDocumentViewSet(viewsets.ModelViewSet):
         document.status = 'batal'
         document.save()
         return Response(StockOpnameDocumentSerializer(document).data)
+
+
+class StockFifoSyncView(APIView):
+    """POST /api/stock-fifo/sync/ — tombol "Sync Stok Produk".
+
+    Membuat satu lapisan saldo awal untuk produk/varian yang punya stok tapi
+    belum punya lapisan. Idempoten.
+    """
+    permission_classes = [IsOwnerManagerAdminOrReadOnly]
+
+    def post(self, request):
+        with transaction.atomic():
+            dibuat = stock_fifo.sync_opening_layers()
+        rekon = stock_fifo.reconciliation_report()
+        return Response({
+            'lapisan_dibuat': dibuat,
+            'mode': stock_fifo.get_stock_system(),
+            'tanpa_lapisan': rekon['tanpa_lapisan'],
+            'tidak_cocok': len(rekon['tidak_cocok']),
+        })
+
+
+class StockFifoStatusView(APIView):
+    """GET /api/stock-fifo/status/ — kesehatan lapisan FIFO."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        rekon = stock_fifo.reconciliation_report()
+        return Response({
+            'mode': stock_fifo.get_stock_system(),
+            'total_lapisan': StockLayer.objects.count(),
+            'lapisan_terbuka': StockLayer.objects.filter(sisa_qty__gt=0).count(),
+            'tanpa_lapisan': rekon['tanpa_lapisan'],
+            'tidak_cocok': rekon['tidak_cocok'][:50],
+            'jumlah_tidak_cocok': len(rekon['tidak_cocok']),
+        })

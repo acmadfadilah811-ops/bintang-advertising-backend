@@ -228,6 +228,7 @@ CORS_ALLOW_ALL_ORIGINS = True # Default True untuk dev / backward compatibility,
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://192.168.1.160:5173",  # Akses LAN dari perangkat lain di WiFi yang sama
     "https://brandy-crm-811.web.app",
     "https://brandy-crm-811.firebaseapp.com",
 ]
