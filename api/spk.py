@@ -25,9 +25,27 @@ class SpkError(Exception):
         self.status_code = status_code
 
 
-def resolve_staff(staff_id):
+# Peran yang hanya boleh menerbitkan SPK ke antrean divisi, bukan menunjuk
+# staff tertentu. Penugasan per-staff adalah wewenang kepala produksi/manager;
+# kasir cukup melempar pekerjaan ke divisi dan divisi yang membagi tugas.
+ROLE_TANPA_PENUGASAN_STAFF = ('kasir',)
+
+
+def resolve_staff(staff_id, pemohon=None):
+    """Ambil staff tujuan SPK.
+
+    `pemohon` adalah user yang menerbitkan SPK. Untuk peran pada
+    ROLE_TANPA_PENUGASAN_STAFF, penunjukan staff ditolak — bukan diabaikan
+    diam-diam — supaya kesalahan pemakaian API terlihat jelas.
+    """
     if not staff_id:
         return None
+    if pemohon is not None and getattr(pemohon, 'role', None) in ROLE_TANPA_PENUGASAN_STAFF:
+        raise SpkError(
+            'Akun kasir hanya dapat menerbitkan SPK ke divisi. '
+            'Penunjukan staff dilakukan oleh kepala divisi atau manager.',
+            403,
+        )
     try:
         return CustomUser.objects.get(pk=staff_id, role='staff')
     except CustomUser.DoesNotExist:

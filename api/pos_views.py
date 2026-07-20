@@ -442,7 +442,7 @@ class POSSaleViewSet(viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
-                staff = spk.resolve_staff(request.data.get('staff_id'))
+                staff = spk.resolve_staff(request.data.get('staff_id'), pemohon=request.user)
                 tahap = spk.resolve_tahap(
                     tahap_id=request.data.get('tahap_id'),
                     divisi_id=request.data.get('divisi_id'),

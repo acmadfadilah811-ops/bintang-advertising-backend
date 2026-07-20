@@ -22,7 +22,7 @@ from ..models import (
 from ..serializers import (
     OrderSerializer, OrderItemSerializer, JobBoardSerializer
 )
-from ..permissions import IsOwnerOrManager, IsClockedIn
+from ..permissions import IsOwnerOrManager, IsOwnerManagerAdminOrKasir, IsClockedIn
 from hr.models import Akun, TransaksiBukuBesar
 from users.models import SecurityAuditLog
 
@@ -119,6 +119,20 @@ class OrderViewSet(viewsets.ModelViewSet):
                 Q(nomor_wa__icontains=search)
             )
             
+        # Filter status_global/sumber eksplisit. Sebelumnya hanya `tab` yang
+        # dikenali, sehingga permintaan seperti ?status_global=review&sumber=wa
+        # (dipakai antrean WA dan badge topbar kasir) diabaikan diam-diam dan
+        # mengembalikan SELURUH order — badge pun menghitung semuanya.
+        status_global = self.request.query_params.get('status_global')
+        if status_global:
+            valid_status = {kode for kode, _ in Order.STATUS_GLOBAL_CHOICES}
+            if status_global in valid_status:
+                base_qs = base_qs.filter(status_global=status_global)
+
+        sumber = self.request.query_params.get('sumber')
+        if sumber:
+            base_qs = base_qs.filter(sumber=sumber)
+
         # ✅ Filter tab/status di database level
         tab = self.request.query_params.get('tab')
         if tab:
@@ -134,7 +148,12 @@ class OrderViewSet(viewsets.ModelViewSet):
             elif mapped_tab in ['draft', 'quotation', 'review', 'desain', 'proses', 'ready', 'selesai', 'batal']:
                 base_qs = base_qs.filter(status_global=mapped_tab)
             
-        if user.role in ['owner', 'manager', 'admin']:
+        # Kasir ikut melihat seluruh order: perannya di meja depan — menerima
+        # antrean WA, membuat order, menagih pesanan yang siap diambil. Batasan
+        # pic_staff di bawah ditujukan untuk staff produksi, yang memang hanya
+        # boleh melihat pekerjaannya sendiri. Tanpa kasir di daftar ini, semua
+        # layar kasir yang membaca /orders/ menerima daftar kosong.
+        if user.role in ['owner', 'manager', 'admin', 'kasir']:
             return base_qs
         my_order_ids = JobBoard.objects.filter(
             pic_staff=user
@@ -659,11 +678,16 @@ class OrderViewSet(viewsets.ModelViewSet):
 
 
 class AssignOrderView(APIView):
-    """POST /api/orders/{order_id}/assign/ — Manager/Admin publish/assign staff ke semua item dalam order"""
-    permission_classes = [IsOwnerOrManager]
+    """POST /api/orders/{order_id}/assign/ — publish/assign SPK ke semua item dalam order.
+
+    Kasir ikut diizinkan karena menerbitkan SPK adalah bagian dari alur Buat
+    Order di terminal kasir, tetapi hanya ke antrean divisi. Penunjukan staff
+    tertentu ditolak di spk.resolve_staff().
+    """
+    permission_classes = [IsOwnerManagerAdminOrKasir]
 
     def post(self, request, order_id):
-        staff_id = request.data.get('staff_id')
+        staff_id = request.data.get('staff_id')  # ditolak bila pemohon kasir
         tahap_id = request.data.get('tahap_id', None)
         divisi_id = request.data.get('divisi_id', None)
         status_global = request.data.get('status_global', None)
@@ -687,277 +711,7 @@ class AssignOrderView(APIView):
         # Resolusi staff/tahap dipusatkan di api/spk.py — dipakai bersama
         # dengan penerbitan SPK dari terminal POS agar aturannya tidak bercabang.
         try:
-            staff = spk.resolve_staff(staff_id)
-            tahap = spk.resolve_tahap(tahap_id=tahap_id, divisi_id=divisi_id, staff=staff)
-        except spk.SpkError as exc:
-            return Response({'error': exc.pesan}, status=exc.status_code)
-
-        # Buat atau update JobBoard untuk setiap OrderItem
-        items = order.items.all()
-        if order_item_id:
-            items = items.filter(pk=order_item_id)
-
-        if not items.exists():
-            return Response({'error': 'Order ini belum memiliki item produk atau item tidak cocok.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            created_jobs = spk.terbitkan(
-                items, field='order_item', tahap=tahap, staff=staff,
-                biaya_desain=biaya_desain, insentif=insentif,
-            )
-        except spk.SpkError as exc:
-            return Response({'error': exc.pesan}, status=exc.status_code)
-
-        target_name = spk.nama_target(staff, tahap)
-        tahap_desc = tahap.nama if tahap else "Tahap Awal"
-        action_desc = "TUGASKAN_STAFF" if staff else "TERBITKAN_SPK"
-        for item in items:
-            OrderActivityLog.objects.create(
-                order=order,
-                user=request.user,
-                tindakan=action_desc,
-                keterangan=f"Menerbitkan SPK item '{item.jenis_produk}' ke {target_name} untuk tahap '{tahap_desc}'"
-            )
-
-        # Update status order
-        if status_global:
-            order.status_global = status_global
-        else:
-            order.status_global = 'desain' if spk.is_divisi_desain(staff, tahap) else 'proses'
-
-        order._current_user = request.user
-        order.save()
-
-        # Update statistik Contact
-        try:
-            contact = Contact.objects.get(nomor_wa=order.nomor_wa)
-            my_orders = Order.objects.filter(nomor_wa=contact.nomor_wa).prefetch_related('items')
-            contact.total_spent = sum(
-                item.harga_jual
-                for o in my_orders
-                for item in o.items.all()
-            )
-            contact.save()
-        except Contact.DoesNotExist:
-            pass
-
-        return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=['post'], url_path='import-status-csv', parser_classes=[MultiPartParser])
-    def import_status_csv(self, request):
-        """
-        POST /api/orders/import-status-csv/
-        Impor status pesanan massal dari CSV (max. 500 baris) dengan validasi.
-        Legenda: P = Tunda, A = Dikonfirmasi, S = Dikirim, T = Terkirim, Z = Selesai, X = Batal
-        """
-        upload = request.FILES.get('file')
-        if not upload:
-            return Response({'error': 'File CSV tidak ditemukan.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            decoded = upload.read().decode('utf-8-sig')
-        except UnicodeDecodeError:
-            return Response({'error': 'File harus berupa CSV dengan encoding UTF-8.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        rows = list(csv.DictReader(io.StringIO(decoded)))
-        MAX_IMPORT_ROWS = 500
-        if len(rows) > MAX_IMPORT_ROWS:
-            return Response(
-                {'error': f'Maksimal {MAX_IMPORT_ROWS} baris per import (file ini berisi {len(rows)} baris).'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not rows:
-            return Response({'error': 'File CSV kosong atau tidak memiliki baris data.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Mencocokkan nama header secara fleksibel (case-insensitive)
-        first_row = rows[0]
-        order_id_key = None
-        status_key = None
-        shipping_date_key = None
-
-        for k in first_row.keys():
-            k_clean = k.strip().lower()
-            if k_clean in ['no. pesanan', 'no pesanan', 'order id', 'order_id', 'no', 'order_no']:
-                order_id_key = k
-            elif k_clean in ['status', 'status_code', 'status code', 'update_status', 'update status']:
-                status_key = k
-            elif k_clean in ['tanggal kirim', 'tanggal_kirim', 'shipping date', 'shipping_date']:
-                shipping_date_key = k
-
-        if not order_id_key:
-            return Response(
-                {'error': 'Header CSV harus memuat kolom nomor pesanan ("order_no" atau "No. Pesanan").'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        status_map = {
-            'P': 'review',   # Tunda -> Menunggu Review
-            'A': 'desain',   # Dikonfirmasi -> Proses Desain
-            'S': 'proses',   # Dikirim -> Proses Produksi
-            'T': 'ready',    # Terkirim -> Siap Diambil
-            'Z': 'selesai',  # Selesai -> Selesai
-            'X': 'batal'     # Batal -> Dibatalkan
-        }
-
-        row_errors = []
-        orders_to_update = []
-        seen_order_ids = set()
-
-        for idx, row in enumerate(rows, start=2):  # Baris 1 adalah header
-            order_id = (row.get(order_id_key) or '').strip()
-            status_code = (row.get(status_key) or '').strip().upper() if status_key else ''
-            shipping_date_str = (row.get(shipping_date_key) or '').strip() if shipping_date_key else ''
-
-            if not order_id:
-                # Lewati jika baris benar-benar kosong
-                if not status_code and not shipping_date_str:
-                    continue
-                row_errors.append({
-                    'row': idx,
-                    'order_id': '-',
-                    'tanggal_kirim': shipping_date_str,
-                    'message': 'No. Pesanan (order_no) wajib diisi.'
-                })
-                continue
-
-            if order_id in seen_order_ids:
-                row_errors.append({
-                    'row': idx,
-                    'order_id': order_id,
-                    'tanggal_kirim': shipping_date_str,
-                    'message': f'No. Pesanan "{order_id}" duplikat dalam berkas CSV.'
-                })
-                continue
-            seen_order_ids.add(order_id)
-
-            # Jika status dan tanggal kirim dua-duanya kosong untuk order_id ini, lewati saja
-            if not status_code and not shipping_date_str:
-                continue
-
-            new_status = None
-            if status_code:
-                if status_code not in status_map:
-                    row_errors.append({
-                        'row': idx,
-                        'order_id': order_id,
-                        'tanggal_kirim': shipping_date_str,
-                        'message': f'Kode status "{status_code}" tidak valid. Gunakan P, A, S, T, Z, atau X.'
-                    })
-                    continue
-                new_status = status_map[status_code]
-
-            try:
-                order = Order.objects.get(id=order_id)
-            except Order.DoesNotExist:
-                row_errors.append({
-                    'row': idx,
-                    'order_id': order_id,
-                    'tanggal_kirim': shipping_date_str,
-                    'message': f'Pesanan dengan ID "{order_id}" tidak ditemukan.'
-                })
-                continue
-
-            # Validasi format tanggal kirim jika ada
-            parsed_date = None
-            if shipping_date_str:
-                success = False
-                for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d', '%m/%d/%Y', '%m-%d-%Y'):
-                    try:
-                        parsed_date = datetime.datetime.strptime(shipping_date_str, fmt).date()
-                        success = True
-                        break
-                    except ValueError:
-                        continue
-                if not success:
-                    row_errors.append({
-                        'row': idx,
-                        'order_id': order_id,
-                        'tanggal_kirim': shipping_date_str,
-                        'message': f'Format Tanggal Kirim "{shipping_date_str}" tidak valid. Gunakan YYYY-MM-DD, DD/MM/YYYY, atau MM/DD/YYYY.'
-                    })
-                    continue
-
-            orders_to_update.append((order, new_status, parsed_date, shipping_date_str))
-
-        if row_errors:
-            return Response({'errors': row_errors}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Jika hanya dry-run/validasi saja, return OK tanpa menyimpan
-        if request.query_params.get('dry_run') == 'true':
-            return Response({
-                'success': True,
-                'message': f'Semua {len(orders_to_update)} baris valid.',
-                'valid_count': len(orders_to_update)
-            }, status=status.HTTP_200_OK)
-
-        # Proses pembaruan dalam satu transaksi database atomic
-        updated_count = 0
-        with transaction.atomic():
-            for order, new_status, parsed_date, orig_date_str in orders_to_update:
-                changed = False
-                ket_parts = []
-
-                if new_status and order.status_global != new_status:
-                    order.status_global = new_status
-                    changed = True
-                    ket_parts.append(f"Status diperbarui menjadi '{new_status}'")
-
-                if orig_date_str:
-                    ket_parts.append(f"Tanggal Kirim: {orig_date_str}")
-                    changed = True
-
-                if changed:
-                    order._current_user = request.user
-                    order.save()
-
-                    ket = ", ".join(ket_parts) + " via impor CSV."
-                    OrderActivityLog.objects.create(
-                        order=order,
-                        user=request.user,
-                        tindakan="UPDATE_STATUS",
-                        keterangan=ket
-                    )
-                    updated_count += 1
-
-        return Response({
-            'success': True,
-            'message': f'Berhasil memperbarui status {updated_count} pesanan.',
-            'updated_count': updated_count
-        }, status=status.HTTP_200_OK)
-
-
-
-class AssignOrderView(APIView):
-    """POST /api/orders/{order_id}/assign/ — Manager/Admin publish/assign staff ke semua item dalam order"""
-    permission_classes = [IsOwnerOrManager]
-
-    def post(self, request, order_id):
-        staff_id = request.data.get('staff_id')
-        tahap_id = request.data.get('tahap_id', None)
-        divisi_id = request.data.get('divisi_id', None)
-        status_global = request.data.get('status_global', None)
-        try:
-            biaya_desain = int(request.data.get('biaya_desain', 0) or 0)
-        except (ValueError, TypeError):
-            biaya_desain = 0
-        try:
-            insentif = int(request.data.get('insentif', 0) or 0)
-        except (ValueError, TypeError):
-            insentif = 0
-
-        order_item_id = request.data.get('order_item_id', None)
-
-        # Validasi order ada
-        try:
-            order = Order.objects.get(pk=order_id)
-        except Order.DoesNotExist:
-            return Response({'error': 'Order tidak ditemukan.'}, status=status.HTTP_404_NOT_FOUND)
-
-        # Resolusi staff/tahap dipusatkan di api/spk.py — dipakai bersama
-        # dengan penerbitan SPK dari terminal POS agar aturannya tidak bercabang.
-        try:
-            staff = spk.resolve_staff(staff_id)
+            staff = spk.resolve_staff(staff_id, pemohon=request.user)
             tahap = spk.resolve_tahap(tahap_id=tahap_id, divisi_id=divisi_id, staff=staff)
         except spk.SpkError as exc:
             return Response({'error': exc.pesan}, status=exc.status_code)
