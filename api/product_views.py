@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
+from django.db.models import Q
 from django.db.models.functions import Lower
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -37,6 +38,7 @@ from .product_serializers import (
 )
 from .models import BillOfMaterials, BoMItem
 from .customer_models import Supplier
+from . import production_costing
 from . import stock_fifo
 from . import uom
 from . import pos_settings
@@ -125,7 +127,7 @@ class BrandViewSet(viewsets.ModelViewSet):
     permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
 class SpecialTypeViewSet(viewsets.ModelViewSet):
-    queryset = SpecialType.objects.all().order_by('urutan')
+    queryset = SpecialType.objects.prefetch_related('products_multi').all().order_by('urutan')
     serializer_class = SpecialTypeSerializer
     permission_classes = [IsOwnerManagerAdminOrReadOnly]
 
@@ -140,7 +142,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     queryset = (
         Product.objects
         .select_related('kategori', 'brand', 'koleksi')
-        .prefetch_related('variants', 'fotos')
+        .prefetch_related('variants', 'fotos', 'tipe_specials')
         .order_by('-created_at')
     )
     serializer_class = ProductSerializer
@@ -153,8 +155,21 @@ class ProductViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(kategori__id=category)
         search = self.request.query_params.get('search', None)
         if search:
-            queryset = queryset.filter(nama__icontains=search)
-        return queryset
+            queryset = queryset.filter(
+                Q(nama__icontains=search) |
+                Q(nama_alternatif__icontains=search) |
+                Q(sku__icontains=search) |
+                Q(barcode__icontains=search) |
+                Q(variants__nama_varian__icontains=search) |
+                Q(variants__sku__icontains=search) |
+                Q(variants__barcode__icontains=search)
+            )
+        special_type = self.request.query_params.get('tipe_special')
+        if special_type:
+            queryset = queryset.filter(
+                Q(tipe_specials__id=special_type) | Q(tipe_special_id=special_type)
+            )
+        return queryset.distinct()
 
     def destroy(self, request, *args, **kwargs):
         """Hormati setelan Pengaturan POS > Cek Stok: cegah hapus produk yang
@@ -349,6 +364,11 @@ class ProductViewSet(viewsets.ModelViewSet):
                     counter += 1
             
             new_product.save()
+
+            # M2M hanya bisa di-set setelah instance punya PK. Tanpa baris ini
+            # hasil duplikat selalu kehilangan tipe special-nya, karena UI
+            # menulis lewat tipe_specials, bukan FK lama tipe_special.
+            new_product.tipe_specials.set(original.tipe_specials.all())
 
             # Copy photos
             if copy_photo:
@@ -2206,7 +2226,12 @@ class StockProductionDocumentViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Tambahkan minimal satu produk sebelum posting.'}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            for item in document.items.select_related('product', 'variant'):
+            items = list(document.items.select_related('product', 'variant'))
+            # Dihitung sekali di luar loop: alokasi butuh melihat seluruh item
+            # untuk menentukan bobot proporsionalnya.
+            biaya_unit = production_costing.biaya_per_unit(document, items)
+
+            for item in items:
                 if item.variant:
                     owner = ProductVariant.objects.select_for_update().get(pk=item.variant.id)
                 else:
@@ -2229,10 +2254,12 @@ class StockProductionDocumentViewSet(viewsets.ModelViewSet):
                     tanggal=document.tanggal,
                     stock_production_document=document,
                 )
-                # Barang jadi hasil produksi masuk sebagai lapisan baru senilai
-                # harga beli produk (biaya bahan tidak diserap — sesuai model saat ini).
+                # Barang jadi masuk sebagai lapisan baru senilai harga beli
+                # produk, ditambah porsi biaya produksi bila dokumen ini
+                # mengaktifkan penyerapan ke HPP (default: tidak).
+                harga_layer = item.product.harga_beli + biaya_unit.get(item.id, 0)
                 stock_fifo.create_layer(
-                    item.product, item.variant, item.qty, item.product.harga_beli,
+                    item.product, item.variant, item.qty, harga_layer,
                     document.tanggal, sumber_tipe='produksi', sumber_nomor=document.nomor,
                 )
 

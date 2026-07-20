@@ -129,6 +129,15 @@ class ProductPackageSerializer(serializers.ModelSerializer):
         model = ProductPackage
         fields = '__all__'
 
+    # sku/barcode unique tapi nullable. FormData tidak bisa mengirim NULL, jadi
+    # string kosong dari form harus diubah ke None di sini — kalau tidak, paket
+    # kedua tanpa SKU akan menabrak unique constraint dengan nilai ''.
+    def validate_sku(self, value):
+        return value or None
+
+    def validate_barcode(self, value):
+        return value or None
+
     def create(self, validated_data):
         request = self.context.get('request')
         items_data = []

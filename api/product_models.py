@@ -63,6 +63,10 @@ class Product(models.Model):
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     koleksi = models.ForeignKey(Collection, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     tipe_special = models.ForeignKey(SpecialType, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
+    # Satu produk dapat tampil di beberapa daftar khusus sekaligus (misalnya
+    # Unggulan dan Sale). FK lama dipertahankan agar data/klien lama tetap
+    # kompatibel, sedangkan fitur baru memakai relasi many-to-many ini.
+    tipe_specials = models.ManyToManyField(SpecialType, blank=True, related_name='products_multi')
 
     sku = models.CharField(max_length=100, blank=True, null=True, unique=True)
     barcode = models.CharField(max_length=100, blank=True, null=True, unique=True)
@@ -154,6 +158,8 @@ class ProductVariant(models.Model):
 
 class ProductPackage(models.Model):
     nama = models.CharField(max_length=255)
+    sku = models.CharField(max_length=100, blank=True, null=True, unique=True)
+    barcode = models.CharField(max_length=100, blank=True, null=True, unique=True)
     deskripsi = models.TextField(blank=True, null=True)
     harga_beli = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, help_text="purchase_price")
     harga_pasar = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, help_text="market_price")
@@ -369,6 +375,14 @@ class StockProductionDocument(models.Model):
     tanggal = models.DateField()
     catatan = models.TextField(blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    # Default False supaya perilaku dokumen lama tidak berubah: sebelum fitur ini
+    # ada, biaya produksi memang tidak pernah masuk HPP. Lihat
+    # StockProductionDocumentViewSet.post_document untuk cara alokasinya.
+    serap_biaya_ke_hpp = models.BooleanField(
+        default=False,
+        help_text='Bila aktif, total biaya produksi dibebankan ke HPP barang jadi '
+                  'secara proporsional terhadap nilai bahan tiap item saat posting.',
+    )
     dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_production_documents')
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)

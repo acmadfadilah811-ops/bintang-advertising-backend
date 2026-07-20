@@ -73,6 +73,7 @@ router.register(r'customer-reviews', customer_views.CustomerReviewViewSet, basen
 router.register(r'suppliers', customer_views.SupplierViewSet, basename='supplier')
 
 # POS Cashier Terminal
+from . import executive_dashboard_views
 from . import pos_views
 router.register(r'pos/sales', pos_views.POSSaleViewSet, basename='pos-sale')
 
@@ -81,6 +82,9 @@ urlpatterns = [
     path('contacts/stats/', ContactStatsView.as_view(), name='contact-stats'),
     path('', include(router.urls)),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
+    # Dashboard eksekutif (manajemen) — terpisah dari dashboard operasional di atas.
+    path('executive-dashboard/', executive_dashboard_views.ExecutiveDashboardView.as_view(), name='executive-dashboard'),
+    path('executive-dashboard/export/', executive_dashboard_views.ExecutiveDashboardExportView.as_view(), name='executive-dashboard-export'),
     path('auth/create-user/', CreateUserView.as_view(), name='create_user'),
     path('orders/<str:order_id>/assign/', AssignOrderView.as_view(), name='assign_order'),
     path('jobs/<int:job_id>/forward/', ForwardJobView.as_view(), name='forward_job'),
