@@ -637,7 +637,7 @@ def sync_contact_for_whatsapp(nomor_wa):
     import re
     # Bersihkan nomor WA dari spasi, tanda hubung, kurung
     cleaned_wa = re.sub(r'[\s\-()]+', '', nomor_wa)
-    if not re.match(r'^\+?\d{8,15}$', cleaned_wa):
+    if not re.match(r'^\+?\d{4,15}$', cleaned_wa):
         logger.warning(f"Invalid WhatsApp number format: '{nomor_wa}'")
         return
 
@@ -673,6 +673,19 @@ def sync_contact_for_whatsapp(nomor_wa):
         total_spent_val = active_orders.aggregate(total=Sum('total_harga'))['total'] or 0
         contact.total_spent = total_spent_val
         contact.save()
+
+        # Otomatis sinkronkan juga ke Master Data Pelanggan (Customer)
+        try:
+            from .customer_models import Customer
+            cust, cust_created = Customer.objects.get_or_create(
+                handphone=nomor_wa,
+                defaults={'nama': nama}
+            )
+            if cust.nama != nama and nama:
+                cust.nama = nama
+                cust.save(update_fields=['nama', 'updated_at'])
+        except Exception as cust_err:
+            logger.warning(f"Failed to auto-sync Master Customer for {nomor_wa}: {cust_err}")
     except Exception as e:
         logger.error(f"Failed to sync contact stats for {nomor_wa}: {e}")
 
