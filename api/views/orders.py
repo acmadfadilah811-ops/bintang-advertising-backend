@@ -160,7 +160,6 @@ class OrderViewSet(viewsets.ModelViewSet):
         if instance.dp_dibayar > 0:
             record_payment_to_general_ledger(
                 order=instance,
-                block_pay=instance.dp_dibayar,  # Wait! Is it jumlah_bayar? Yes, the parameter is jumlah_bayar
                 jumlah_bayar=instance.dp_dibayar,
                 metode=getattr(instance, 'metode_pembayaran', 'tunai'),
                 is_dp=True
@@ -728,14 +727,6 @@ class AssignOrderView(APIView):
 
         order._current_user = request.user
         order.save()
-
-        # Buku Besar Otomatis untuk Pelunasan / Cicilan
-        record_payment_to_general_ledger(
-            order=order,
-            jumlah_bayar=jumlah_bayar,
-            metode=metode,
-            is_dp=False
-        )
 
         # Update statistik Contact
         try:
