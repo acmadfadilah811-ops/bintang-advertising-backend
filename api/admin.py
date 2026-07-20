@@ -30,16 +30,17 @@ class OrderAdmin(admin.ModelAdmin):
     inlines = [OrderItemInline, OrderActivityLogInline]
 
 class JobBoardAdmin(admin.ModelAdmin):
-    list_display = ['get_order_id', 'get_produk', 'tahap', 'pic_staff', 'status_pekerjaan', 'insentif']
+    list_display = ['get_sumber', 'get_produk', 'tahap', 'pic_staff', 'status_pekerjaan', 'insentif']
     list_filter = ['status_pekerjaan', 'tahap__divisi', 'tahap']
-    search_fields = ['order_item__order__id', 'pic_staff__username']
+    # SPK bisa berasal dari order maupun nota POS, jadi keduanya bisa dicari.
+    search_fields = ['order_item__order__id', 'pos_sale_item__sale__nomor', 'pic_staff__username']
 
-    def get_order_id(self, obj):
-        return obj.order_item.order.id
-    get_order_id.short_description = 'ID Order'
+    def get_sumber(self, obj):
+        return obj.nomor_sumber
+    get_sumber.short_description = 'Order / Nota'
 
     def get_produk(self, obj):
-        return obj.order_item.jenis_produk
+        return obj.nama_produk
     get_produk.short_description = 'Jenis Produk'
 
 class OrderActivityLogAdmin(admin.ModelAdmin):

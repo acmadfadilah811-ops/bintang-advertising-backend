@@ -453,7 +453,12 @@ class JobBoard(models.Model):
         ('kendala', 'Ada Kendala / Pending'),
     )
 
-    order_item = models.ForeignKey(OrderItem, on_delete=models.CASCADE, related_name='jobs')
+    # SPK bisa lahir dari dua sumber: item pesanan (alur order/antrean WA) atau
+    # item transaksi POS (pesanan custom yang dilayani langsung di terminal).
+    # Tepat SATU yang boleh terisi — dijaga constraint di Meta, bukan sekadar
+    # kesepakatan, supaya data tidak bisa jadi ambigu lewat jalur mana pun.
+    order_item = models.ForeignKey(OrderItem, on_delete=models.CASCADE, null=True, blank=True, related_name='jobs')
+    pos_sale_item = models.ForeignKey('POSSaleItem', on_delete=models.CASCADE, null=True, blank=True, related_name='jobs')
     tahap = models.ForeignKey(TahapProses, on_delete=models.SET_NULL, null=True, related_name='jobs')
     pic_staff = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, limit_choices_to={'role': 'staff'}, related_name='my_tasks')
     status_pekerjaan = models.CharField(max_length=20, choices=STATUS_JOB_CHOICES, default='antrean', db_index=True) 
@@ -484,14 +489,52 @@ class JobBoard(models.Model):
             models.Index(fields=['tahap', 'status_pekerjaan'], name='idx_job_tahap_status'),
             # Query: semua job dari satu order item
             models.Index(fields=['order_item'], name='idx_job_orderitem'),
+            # Query: semua job dari satu item transaksi POS
+            models.Index(fields=['pos_sale_item'], name='idx_job_possaleitem'),
             # Query: filter job yang ada OTP request pending (admin view)
             models.Index(fields=['otp_requested', 'otp_sent'], name='idx_job_otp_flags'),
         ]
+        constraints = [
+            models.CheckConstraint(
+                name='job_tepat_satu_sumber',
+                check=(
+                    models.Q(order_item__isnull=False, pos_sale_item__isnull=True)
+                    | models.Q(order_item__isnull=True, pos_sale_item__isnull=False)
+                ),
+            ),
+        ]
+
+    # --- Akses seragam ke sumber SPK -------------------------------------
+    # Pemakai (serializer, papan produksi, ekspor) sebaiknya lewat properti ini
+    # supaya tidak perlu bercabang order_item / pos_sale_item di mana-mana.
+
+    @property
+    def sumber(self):
+        return 'pos' if self.pos_sale_item_id else 'order'
+
+    @property
+    def nama_produk(self):
+        if self.pos_sale_item_id:
+            return self.pos_sale_item.nama_snapshot
+        return self.order_item.jenis_produk if self.order_item_id else '-'
+
+    @property
+    def nomor_sumber(self):
+        """Nomor yang dikenal kasir/pelanggan: ID order atau nomor nota POS."""
+        if self.pos_sale_item_id:
+            return self.pos_sale_item.sale.nomor
+        return str(self.order_item.order.id) if self.order_item_id else '-'
+
+    @property
+    def pelanggan(self):
+        if self.pos_sale_item_id:
+            return self.pos_sale_item.sale.pelanggan
+        return self.order_item.order if self.order_item_id else None
 
     def __str__(self):
         tahap_nama = self.tahap.nama if self.tahap else "Tanpa Tahap"
         pic_nama = self.pic_staff.username if self.pic_staff else "Belum Ada PIC"
-        return f"{self.order_item.jenis_produk} - Tahap {tahap_nama} [{pic_nama}]"
+        return f"{self.nama_produk} - Tahap {tahap_nama} [{pic_nama}]"
 
 # ---------------------------------------------------------
 # 8. INVENTORI & DATA PENDUKUNG
@@ -860,3 +903,8 @@ from .production_models import *
 
 # Import new models from finance_models (Pendapatan/Pengeluaran)
 from .finance_models import *
+
+# Model POS. Sebelumnya hanya ikut terdaftar lewat api/urls.py -> pos_views,
+# sehingga tidak ada saat models.py dimuat. JobBoard.pos_sale_item merujuk
+# POSSaleItem, jadi registrasinya harus pasti — bukan efek samping impor URL.
+from .pos_models import *

@@ -117,18 +117,63 @@ class JobBoardSerializer(serializers.ModelSerializer):
     pic_nama          = serializers.ReadOnlyField(source='pic_staff.username')
     pic_nip           = serializers.ReadOnlyField(source='pic_staff.nip')
     pic_divisi_nama   = serializers.ReadOnlyField(source='pic_staff.divisi.nama') # Fallback grouping
-    order_item_detail = OrderItemShortSerializer(source='order_item', read_only=True)
-    
-    # Customer and order details for staff view
-    pelanggan_nama    = serializers.ReadOnlyField(source='order_item.order.nama')
-    pelanggan_wa      = serializers.ReadOnlyField(source='order_item.order.nomor_wa')
-    order_id          = serializers.ReadOnlyField(source='order_item.order.id')
-    nama_produk       = serializers.ReadOnlyField(source='order_item.jenis_produk')
+    # Untuk job dari POS, isinya disintesis agar BENTUKNYA sama dengan item
+    # pesanan. Papan produksi (ClaimPool, KanbanPersonal, WorkspaceSPK, dst)
+    # sudah membaca order_item_detail; dengan begini semuanya ikut jalan tanpa
+    # perlu bercabang per sumber di belasan komponen.
+    order_item_detail = serializers.SerializerMethodField()
+
+    # SPK bisa berasal dari OrderItem atau POSSaleItem, jadi field turunan di
+    # bawah TIDAK boleh menunjuk order_item langsung — job dari POS akan
+    # bernilai null dan papan produksi menampilkan baris kosong.
+    sumber            = serializers.ReadOnlyField()          # 'order' | 'pos'
+    nomor_sumber      = serializers.ReadOnlyField()          # ID order atau nomor nota POS
+    nama_produk       = serializers.ReadOnlyField()
+    pelanggan_nama    = serializers.SerializerMethodField()
+    pelanggan_wa      = serializers.SerializerMethodField()
+    order_id          = serializers.SerializerMethodField()
     ukuran            = serializers.SerializerMethodField()
 
     class Meta:
         model = JobBoard
         fields = '__all__'
+
+    def get_order_item_detail(self, obj):
+        if obj.order_item_id:
+            return OrderItemShortSerializer(obj.order_item).data
+        if not obj.pos_sale_item_id:
+            return None
+        item = obj.pos_sale_item
+        # Nota POS tidak punya dimensi/bahan seperti item pesanan; field itu
+        # dikosongkan agar tampilan papan tetap konsisten, bukan hilang.
+        return {
+            'id': item.id,
+            'order': None,
+            'jenis_produk': item.nama_snapshot,
+            'bahan': '',
+            'panjang': 0,
+            'lebar': 0,
+            'qty': item.qty,
+            'harga_jual': item.harga_snapshot,
+            'keterangan_detail': item.catatan or '',
+            'sumber': 'pos',
+            'nomor_nota': item.sale.nomor,
+        }
+
+    def get_pelanggan_nama(self, obj):
+        pelanggan = obj.pelanggan
+        if not pelanggan:
+            return 'Pelanggan Umum'
+        # Order menyimpan nama langsung; POS menautkan ke Contact.
+        return getattr(pelanggan, 'nama', None) or 'Pelanggan Umum'
+
+    def get_pelanggan_wa(self, obj):
+        pelanggan = obj.pelanggan
+        return getattr(pelanggan, 'nomor_wa', None) if pelanggan else None
+
+    def get_order_id(self, obj):
+        # Hanya job dari alur order yang punya ID order; POS pakai nomor_sumber.
+        return obj.order_item.order.id if obj.order_item_id else None
 
     def get_ukuran(self, obj):
         item = obj.order_item

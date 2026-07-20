@@ -56,3 +56,7 @@ vps_redeploy.py
 # Artefak hasil audit keamanan (jangan di-commit)
 laporan_*.html
 
+
+# Skrip deploy/SSH lokal — sering memuat host & kredensial VPS.
+# Jangan pernah ikut ter-commit ke remote publik.
+scripts/_*.py

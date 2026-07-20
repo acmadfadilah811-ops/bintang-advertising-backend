@@ -12,6 +12,8 @@ from .product_models import Product, ProductVariant, ProductStockMovement
 from . import stock_fifo
 from . import uom
 from . import pos_settings
+from . import spk
+from .permissions import IsOwnerManagerAdminOrKasir
 
 class POSSaleViewSet(viewsets.ModelViewSet):
     queryset = POSSale.objects.all().order_by('-created_at')
@@ -408,3 +410,53 @@ class POSSaleViewSet(viewsets.ModelViewSet):
                 return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='terbitkan-spk',
+            permission_classes=[IsOwnerManagerAdminOrKasir])
+    def terbitkan_spk(self, request, pk=None):
+        """POST /api/pos/sales/{id}/terbitkan-spk/
+
+        Menerbitkan SPK produksi untuk item transaksi POS — padanan
+        /api/orders/{id}/assign/ pada alur pesanan. Dipakai terminal kasir
+        saat melayani pesanan custom yang perlu dikerjakan divisi produksi.
+        """
+        sale = self.get_object()
+
+        if sale.status != 'paid':
+            return Response(
+                {'error': 'Hanya transaksi lunas yang bisa diterbitkan SPK-nya.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        item_ids = request.data.get('item_ids') or []
+        items = sale.items.all()
+        if item_ids:
+            items = items.filter(pk__in=item_ids)
+
+        try:
+            biaya_desain = int(request.data.get('biaya_desain', 0) or 0)
+            insentif = int(request.data.get('insentif', 0) or 0)
+        except (TypeError, ValueError):
+            return Response({'error': 'biaya_desain dan insentif harus berupa angka.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+                staff = spk.resolve_staff(request.data.get('staff_id'))
+                tahap = spk.resolve_tahap(
+                    tahap_id=request.data.get('tahap_id'),
+                    divisi_id=request.data.get('divisi_id'),
+                    staff=staff,
+                )
+                jobs = spk.terbitkan(
+                    items, field='pos_sale_item', tahap=tahap, staff=staff,
+                    biaya_desain=biaya_desain, insentif=insentif,
+                )
+        except spk.SpkError as exc:
+            return Response({'error': exc.pesan}, status=exc.status_code)
+
+        target = spk.nama_target(staff, tahap)
+        return Response({
+            'message': f'SPK nota {sale.nomor} berhasil diterbitkan ke {target}.',
+            'jobs': jobs,
+        }, status=status.HTTP_200_OK)
