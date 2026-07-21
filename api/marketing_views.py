@@ -43,6 +43,61 @@ class DiscountCouponViewSet(viewsets.ModelViewSet):
         instance.save()
         return Response(self.get_serializer(instance).data)
 
+    @action(detail=False, methods=['post'], url_path='evaluate')
+    def evaluate(self, request):
+        from decimal import Decimal
+        from .models import Contact
+        from .product_models import Product
+        from .promo_engine import BarisKeranjang, KonteksPromo, evaluate_coupon_code
+        from .marketing_models import KANAL_POS
+
+        kode = request.data.get('kode', '').strip()
+        subtotal = request.data.get('subtotal', 0)
+        pelanggan_id = request.data.get('pelanggan')
+
+        pelanggan = None
+        if pelanggan_id:
+            pelanggan = Contact.objects.filter(pk=pelanggan_id).first()
+
+        raw_items = request.data.get('items') or []
+        baris = []
+        for item in raw_items:
+            pid = item.get('product_id') or item.get('product')
+            prod = Product.objects.filter(pk=pid).first() if pid else None
+            qty = Decimal(str(item.get('qty', 1) or 1))
+            harga = Decimal(str(item.get('harga', 0) or 0))
+            baris.append(BarisKeranjang(
+                product=prod,
+                qty=qty,
+                harga=harga,
+                subtotal=harga * qty
+            ))
+
+        konteks = KonteksPromo(
+            baris=baris,
+            subtotal=Decimal(str(subtotal or 0)),
+            pelanggan=pelanggan,
+            kanal=KANAL_POS,
+        )
+        hasil = evaluate_coupon_code(kode, konteks)
+        if not hasil.ok:
+            return Response({'ok': False, 'alasan': hasil.alasan}, status=400)
+
+        return Response({
+            'ok': True,
+            'kupon': {
+                'id': hasil.kupon.id,
+                'kode': hasil.kupon.kode,
+                'judul': hasil.kupon.judul,
+                'tipe_diskon': hasil.kupon.tipe_diskon,
+                'jumlah_diskon': float(hasil.kupon.jumlah_diskon),
+                'maksimal_jumlah_diskon': float(hasil.kupon.maksimal_jumlah_diskon),
+                'min_total_pesanan': float(hasil.kupon.min_total_pesanan),
+            },
+            'diskon': float(hasil.diskon),
+            'alasan': hasil.alasan,
+        })
+
 
 class POSPromotionViewSet(viewsets.ModelViewSet):
     """Promosi (POS): Marketing > Voucher & Diskon > Promosi (POS) — tipe BX/DQ/DA/FI."""

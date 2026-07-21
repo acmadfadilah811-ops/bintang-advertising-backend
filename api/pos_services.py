@@ -96,29 +96,55 @@ def create_sale(*, user, data):
                 if product.lacak_inventori and requested[(product.id, variant.id if variant else None)] > Decimal(str(owner.qty_stok or 0)):
                     raise ValidationError({'error': f"Stok '{owner}' tidak mencukupi."})
 
-        discount = money(subtotal * discount_pct / Decimal('100'))
-        tax = money((subtotal - discount) * tax_pct / Decimal('100'))
-        total = money(subtotal - discount + tax)
-        if status_val == 'paid' and paid < total:
-            raise ValidationError({'error': 'Jumlah pembayaran belum mencukupi total server.'})
-        client_total = data.get('total')
-        if client_total not in (None, '') and money(client_total) != total:
-            raise ValidationError({'error': 'Total transaksi berubah. Muat ulang harga produk lalu coba lagi.', 'server_total': total})
-
         customer = None
         if data.get('pelanggan'):
             customer = Contact.objects.filter(pk=data['pelanggan']).first()
             if customer is None:
                 raise ValidationError({'error': 'Pelanggan tidak valid.'})
 
+        kupon_obj = None
+        coupon_discount = Decimal('0')
+        kupon_kode = data.get('kupon_kode') or (data.get('kupon', {}).get('kode') if isinstance(data.get('kupon'), dict) else (data.get('kupon') if isinstance(data.get('kupon'), str) else None))
+        if kupon_kode:
+            from .promo_engine import BarisKeranjang, KonteksPromo, evaluate_coupon_code
+            from .marketing_models import KANAL_POS
+            baris_promo = [
+                BarisKeranjang(product=p, variant=v, qty=qb, harga=pb, subtotal=lt)
+                for raw, p, v, conv, qb, pb, lt in prepared
+            ]
+            konteks = KonteksPromo(baris=baris_promo, subtotal=subtotal, pelanggan=customer, kanal=KANAL_POS)
+            hasil = evaluate_coupon_code(kupon_kode, konteks)
+            if not hasil.ok:
+                raise ValidationError({'error': f'Kupon ditolak: {hasil.alasan}'})
+            kupon_obj = hasil.kupon
+            coupon_discount = hasil.diskon
+
+        discount = money(subtotal * discount_pct / Decimal('100'))
+        tax = money(max(Decimal('0'), subtotal - discount - coupon_discount) * tax_pct / Decimal('100'))
+        total = money(max(Decimal('0'), subtotal - discount - coupon_discount + tax))
+        if status_val == 'paid' and paid < total:
+            raise ValidationError({'error': 'Jumlah pembayaran belum mencukupi total server.'})
+        client_total = data.get('total')
+        if client_total not in (None, '') and money(client_total) != total:
+            raise ValidationError({'error': 'Total transaksi berubah. Muat ulang harga produk lalu coba lagi.', 'server_total': total})
+
         sale = POSSale.objects.create(
             nomor=_nomor(), kasir=user, pelanggan=customer, shift=shift,
-            subtotal=money(subtotal), diskon=discount, pajak=tax, total=total,
+            subtotal=money(subtotal), diskon=discount, kupon=kupon_obj, diskon_kupon=coupon_discount,
+            pajak=tax, total=total,
             metode_bayar=str(data.get('metode_bayar') or 'Cash')[:50], dibayar=paid,
             kembalian=money(max(Decimal('0'), paid-total)),
             catatan=str(data.get('catatan') or '')[:2000], status=status_val,
         )
         now = timezone.localdate()
+        if kupon_obj:
+            from .marketing_models import CouponUsage
+            CouponUsage.objects.create(
+                kupon=kupon_obj, pelanggan=customer, pos_sale=sale,
+                diskon=coupon_discount, tanggal=now
+            )
+            kupon_obj.penggunaan_count = CouponUsage.objects.filter(kupon=kupon_obj).count()
+            kupon_obj.save(update_fields=['penggunaan_count'])
         for raw, product, variant, conversion, qty_base, price_base, line_total in prepared:
             POSSaleItem.objects.create(
                 sale=sale, product=product, variant=variant, nama_snapshot=product.nama,
@@ -174,6 +200,11 @@ def void_sale(*, sale_id, user):
                     stok_awal=start, stok_akhir=owner.qty_stok, hpp_total=restored_hpp,
                     catatan=f'Pembatalan POS (Void) {sale.nomor}', tanggal=timezone.localdate(),
                 )
+        if sale.kupon:
+            from .marketing_models import CouponUsage
+            CouponUsage.objects.filter(pos_sale=sale).delete()
+            sale.kupon.penggunaan_count = CouponUsage.objects.filter(kupon=sale.kupon).count()
+            sale.kupon.save(update_fields=['penggunaan_count'])
         sale.status = 'void'
         sale.save(update_fields=['status'])
         return sale
