@@ -26,6 +26,13 @@ class POSSale(models.Model):
     
     catatan = models.TextField(blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='paid')
+    
+    # TAMBAHAN FIELD MODUL PROMO/KUPON (MIGRASI 0078)
+    kupon = models.ForeignKey('DiscountCoupon', on_delete=models.SET_NULL, null=True, blank=True, related_name='pos_sales')
+    diskon_manual = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    diskon_kupon = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    diskon_promo = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -46,6 +53,10 @@ class POSSaleItem(models.Model):
     uom_konverter = models.DecimalField(max_digits=12, decimal_places=4, default=1)
     uom_qty = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     uom_harga = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="Harga per satuan yang dipilih")
+    
+    # TAMBAHAN FIELD MODUL PROMO/KUPON (MIGRASI 0078)
+    is_gratis = models.BooleanField(default=False)
+    promo = models.ForeignKey('POSPromotion', on_delete=models.SET_NULL, null=True, blank=True, related_name='sale_items')
 
     def __str__(self):
         return f"{self.nama_snapshot} x {self.qty}"

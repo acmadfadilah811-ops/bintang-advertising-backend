@@ -141,7 +141,7 @@ def create_sale(*, user, data):
             from .marketing_models import CouponUsage
             CouponUsage.objects.create(
                 kupon=kupon_obj, pelanggan=customer, pos_sale=sale,
-                diskon=coupon_discount, tanggal=now
+                nilai_diskon=coupon_discount, tanggal=now
             )
             kupon_obj.penggunaan_count = CouponUsage.objects.filter(kupon=kupon_obj).count()
             kupon_obj.save(update_fields=['penggunaan_count'])
