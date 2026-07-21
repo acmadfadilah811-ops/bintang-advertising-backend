@@ -67,9 +67,26 @@ def resolve_tahap(tahap_id=None, divisi_id=None, staff=None):
 
     if not tahap and divisi_id:
         tahap = TahapProses.objects.filter(divisi_id=divisi_id).order_by('urutan').first()
+        if not tahap:
+            from .models import Divisi
+            divisi = Divisi.objects.filter(pk=divisi_id).first()
+            if divisi:
+                tahap = TahapProses.objects.create(
+                    divisi=divisi,
+                    nama=divisi.nama,
+                    urutan=1
+                )
+                logger.info("Otomatis membuat TahapProses '%s' untuk Divisi ID %s", divisi.nama, divisi_id)
 
     if not tahap and staff and staff.divisi_id:
         tahap = TahapProses.objects.filter(divisi=staff.divisi).order_by('urutan').first()
+        if not tahap:
+            tahap = TahapProses.objects.create(
+                divisi=staff.divisi,
+                nama=staff.divisi.nama,
+                urutan=1
+            )
+            logger.info("Otomatis membuat TahapProses '%s' untuk Divisi staff", staff.divisi.nama)
 
     return tahap
 
