@@ -169,6 +169,13 @@ class Order(models.Model):
         subtotal = sum(item.harga_jual for item in self.items.all())
         potongan = int(subtotal * (self.diskon_persen / 100))
         self.total_harga = subtotal - potongan
+        try:
+            from api.marketing_models import CouponUsage
+            coupon_usage = CouponUsage.objects.filter(order=self).first()
+            if coupon_usage:
+                self.total_harga -= int(coupon_usage.nilai_diskon)
+        except Exception:
+            pass
         self.sisa_tagihan = max(0, self.total_harga - self.dp_dibayar)
         # Jangan pakai self.save() di sini jika dipanggil dari signal/save, agar tidak infinite loop
 
@@ -182,6 +189,13 @@ class Order(models.Model):
                     subtotal = sum(item.harga_jual for item in self.items.all())
                     potongan = int(subtotal * (self.diskon_persen / 100))
                     self.total_harga = subtotal - potongan
+                    try:
+                        from api.marketing_models import CouponUsage
+                        coupon_usage = CouponUsage.objects.filter(order=self).first()
+                        if coupon_usage:
+                            self.total_harga -= int(coupon_usage.nilai_diskon)
+                    except Exception:
+                        pass
                 except Exception as e:
                     logger.warning(f"Failed to calculate subtotal/potongan on order save for {self.pk}: {e}")
 
@@ -401,6 +415,13 @@ class OrderItem(models.Model):
                 subtotal = order.items.aggregate(total=Sum('harga_jual'))['total'] or 0
                 potongan = int(subtotal * (order.diskon_persen / 100))
                 total_harga = subtotal - potongan
+                try:
+                    from api.marketing_models import CouponUsage
+                    coupon_usage = CouponUsage.objects.filter(order=order).first()
+                    if coupon_usage:
+                        total_harga -= int(coupon_usage.nilai_diskon)
+                except Exception:
+                    pass
                 sisa_tagihan = max(0, total_harga - order.dp_dibayar)
                 # Pakai queryset update agar tidak trigger Order.save() sama sekali
                 Order.objects.filter(pk=order.pk).update(

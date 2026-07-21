@@ -167,6 +167,29 @@ class OrderViewSet(viewsets.ModelViewSet):
         order_id = f'ORD-{today}-{short_id}'
         instance = serializer.save(id=order_id, _current_user=self.request.user)
         
+        # Simpan penggunaan kupon jika ada
+        kupon_kode = self.request.data.get('kupon_kode')
+        diskon_kupon = self.request.data.get('diskon_kupon', 0)
+        if kupon_kode:
+            try:
+                from api.marketing_models import DiscountCoupon, CouponUsage
+                from api.models import Contact
+                kupon_obj = DiscountCoupon.objects.filter(kode__iexact=kupon_kode.strip()).first()
+                if kupon_obj:
+                    customer = Contact.objects.filter(nomor_wa=instance.nomor_wa).first()
+                    CouponUsage.objects.create(
+                        kupon=kupon_obj,
+                        pelanggan=customer,
+                        order=instance,
+                        nilai_diskon=int(diskon_kupon or 0),
+                        tanggal=timezone.localdate(),
+                        kanal='pos'
+                    )
+                    kupon_obj.penggunaan_count = CouponUsage.objects.filter(kupon=kupon_obj).count()
+                    kupon_obj.save(update_fields=['penggunaan_count'])
+            except Exception as e:
+                logger.error(f"Failed to record CouponUsage for order {order_id}: {e}")
+        
         # Log pembuatan pesanan
         OrderActivityLog.objects.create(
             order=instance,

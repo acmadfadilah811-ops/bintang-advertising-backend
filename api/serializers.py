@@ -317,6 +317,9 @@ class OrderSerializer(serializers.ModelSerializer):
     customer_total_orders = serializers.SerializerMethodField()
     hpp_bahan = serializers.SerializerMethodField()
     margin_persen = serializers.SerializerMethodField()
+    kupon_kode = serializers.CharField(write_only=True, required=False, allow_null=True)
+    diskon_kupon = serializers.IntegerField(write_only=True, required=False, default=0)
+    kupon_info = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -325,6 +328,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'items', 'activity_logs', 'dp_dibayar', 'diskon_persen', 'total_harga', 'sisa_tagihan', 'metode_pembayaran',
             'customer_total_spent', 'customer_total_orders',
             'hpp_bahan', 'margin_persen',
+            'kupon_kode', 'diskon_kupon', 'kupon_info',
         ]
         extra_kwargs = {
             'id': {'read_only': True},       
@@ -427,8 +431,24 @@ class OrderSerializer(serializers.ModelSerializer):
             logger.exception("Gagal menghitung margin persen")
             return None
 
+    def get_kupon_info(self, obj):
+        try:
+            from api.marketing_models import CouponUsage
+            usage = CouponUsage.objects.filter(order=obj).select_related('kupon').first()
+            if usage and usage.kupon:
+                return {
+                    'kode': usage.kupon.kode,
+                    'judul': usage.kupon.judul,
+                    'nilai_diskon': float(usage.nilai_diskon)
+                }
+        except Exception:
+            pass
+        return None
+
     def create(self, validated_data):
         current_user = validated_data.pop('_current_user', None)
+        validated_data.pop('kupon_kode', None)
+        validated_data.pop('diskon_kupon', None)
         instance = Order(**validated_data)
         if current_user:
             instance._current_user = current_user
