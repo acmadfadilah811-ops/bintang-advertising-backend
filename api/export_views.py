@@ -1028,7 +1028,7 @@ class ExportCashTransactionsView(APIView):
 
     Menghormati filter yang sama dengan layar: ?arah=, ?start=, ?end=, ?search=
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
         from .finance_models import CashTransaction
@@ -1106,7 +1106,7 @@ class ExportSalesItemsByBrandView(APIView):
     GET /api/export/sales-items-by-brand/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
     Mengekspor laporan Item Penjualan Berdasarkan Brand (27 kolom legacy format).
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
         from api.pos_models import POSSaleItem
@@ -1118,12 +1118,12 @@ class ExportSalesItemsByBrandView(APIView):
         end_date_str = request.query_params.get('end_date') or request.query_params.get('end')
 
         if start_date_str:
-            start_date = parse_date(start_date_str)
+            start_date = parse_date(start_date_str) or datetime.date.today()
         else:
             start_date = datetime.date.today()
 
         if end_date_str:
-            end_date = parse_date(end_date_str)
+            end_date = parse_date(end_date_str) or datetime.date.today()
         else:
             end_date = datetime.date.today()
 
@@ -1213,7 +1213,7 @@ class ExportSalesDetailsView(APIView):
     GET /api/export/sales-details/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
     Mengekspor laporan Rincian Penjualan (48 kolom legacy format).
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
         from api.pos_models import POSSale
@@ -1225,12 +1225,12 @@ class ExportSalesDetailsView(APIView):
         end_date_str = request.query_params.get('end_date') or request.query_params.get('end')
 
         if start_date_str:
-            start_date = parse_date(start_date_str)
+            start_date = parse_date(start_date_str) or datetime.date.today()
         else:
             start_date = datetime.date.today()
 
         if end_date_str:
-            end_date = parse_date(end_date_str)
+            end_date = parse_date(end_date_str) or datetime.date.today()
         else:
             end_date = datetime.date.today()
 

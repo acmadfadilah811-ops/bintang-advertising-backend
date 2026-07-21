@@ -23,14 +23,34 @@ class ProductionCustomerLiteView(APIView):
     piutang, total belanja, atau catatan pelanggan. Endpoint `/contacts/`
     penuh dikunci (lihat ContactViewSet) agar staff tidak bisa membaca seluruh
     database pelanggan beserta data finansialnya.
+
+    Penyaringan dilakukan di server (`?search=`) dan hasilnya dibatasi
+    `MAX_ROWS`. Sebagai APIView, endpoint ini tidak melewati
+    OptionalPageNumberPagination, jadi tanpa batas di sini papan produksi akan
+    menarik seluruh tabel kontak setiap kali dibuka. `truncated` dikirim
+    eksplisit supaya UI bisa memberi tahu user bahwa hasilnya terpotong —
+    memotong diam-diam akan membuat pelanggan "hilang" dari pencarian.
     """
     permission_classes = [IsAuthenticated]
 
+    MAX_ROWS = 200
+
     def get(self, request):
-        data = list(
-            Contact.objects.order_by('nama').values('nama', 'nomor_wa')
-        )
-        return Response(data)
+        search = (request.query_params.get('search') or '').strip()
+
+        qs = Contact.objects.all()
+        if search:
+            qs = qs.filter(Q(nama__icontains=search) | Q(nomor_wa__icontains=search))
+
+        # Ambil satu baris lebih agar bisa membedakan "pas MAX_ROWS" dari "lebih".
+        rows = list(qs.order_by('nama').values('nama', 'nomor_wa')[:self.MAX_ROWS + 1])
+        truncated = len(rows) > self.MAX_ROWS
+
+        return Response({
+            'results': rows[:self.MAX_ROWS],
+            'truncated': truncated,
+            'limit': self.MAX_ROWS,
+        })
 
 
 class ContactViewSet(viewsets.ModelViewSet):

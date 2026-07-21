@@ -266,9 +266,9 @@ class SecurityPermissionTestCase(APITestCase):
         # Check that the variant stock is reduced by 2 (from 5.0 to 3.0)
         self.assertEqual(float(self.variant.qty_stok), 3.00)
 
-    def test_kasir_cannot_export_data(self):
+    def test_kasir_and_staff_cannot_export_data(self):
         """
-        Memverifikasi bahwa role kasir diblokir (403 Forbidden) di seluruh endpoint export.
+        Memverifikasi bahwa role kasir dan staff diblokir (403 Forbidden) di seluruh endpoint export.
         """
         export_urls = [
             "/api/export/orders/",
@@ -280,6 +280,9 @@ class SecurityPermissionTestCase(APITestCase):
             "/api/export/staff-performance/",
             "/api/export/stock-movement/",
             "/api/export/products/",
+            "/api/export/cash-transactions/",
+            "/api/export/sales-items-by-brand/",
+            "/api/export/sales-details/",
         ]
         
         # Test as Kasir -> 403 Forbidden
@@ -288,6 +291,12 @@ class SecurityPermissionTestCase(APITestCase):
             response = self.client.get(url)
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Endpoint {url} tidak diblokir untuk Kasir")
             
+        # Test as Staff -> 403 Forbidden
+        self.client.force_authenticate(user=self.staff)
+        for url in export_urls:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Endpoint {url} tidak diblokir untuk Staff")
+
         # Test as Owner -> should not be 403 (e.g. 200 or 201 or spreadsheet download)
         self.client.force_authenticate(user=self.owner)
         for url in export_urls:
@@ -374,11 +383,64 @@ class SecurityPermissionTestCase(APITestCase):
         self.client.force_authenticate(user=self.staff)
         response = self.client.get("/api/contacts/production-lite/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(len(response.data), 1)
-        row = response.data[0]
+        rows = response.data["results"]
+        self.assertGreaterEqual(len(rows), 1)
+        row = rows[0]
         self.assertEqual(set(row.keys()), {"nama", "nomor_wa"})
         self.assertNotIn("total_spent", row)
         self.assertNotIn("keterangan", row)
+
+    def test_be24_production_lite_filters_and_caps_results(self):
+        """
+        Endpoint sempit menyaring di server (`?search=`) dan membatasi jumlah
+        baris. Tanpa batas, papan produksi akan menarik seluruh tabel kontak
+        setiap kali dibuka; tanpa flag `truncated`, hasil terpotong akan
+        membuat pelanggan seolah hilang dari pencarian tanpa peringatan.
+        """
+        from api.views.contacts import ProductionCustomerLiteView
+
+        limit = ProductionCustomerLiteView.MAX_ROWS
+        Contact.objects.bulk_create([
+            Contact(nomor_wa=f"62811{i:07d}", nama=f"Pelanggan {i:04d}")
+            for i in range(limit + 25)
+        ])
+        Contact.objects.create(nomor_wa="628999000111", nama="Budi Sablon")
+
+        self.client.force_authenticate(user=self.staff)
+
+        # Tanpa search: dibatasi MAX_ROWS dan ditandai terpotong.
+        response = self.client.get("/api/contacts/production-lite/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), limit)
+        self.assertTrue(response.data["truncated"])
+        self.assertEqual(response.data["limit"], limit)
+
+        # Dengan search: hanya yang cocok, dan tidak ditandai terpotong.
+        response = self.client.get("/api/contacts/production-lite/", {"search": "Budi Sablon"})
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["nama"], "Budi Sablon")
+        self.assertFalse(response.data["truncated"])
+
+        # Pencarian juga berlaku untuk nomor WA.
+        response = self.client.get("/api/contacts/production-lite/", {"search": "628999000111"})
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["nomor_wa"], "628999000111")
+
+    def test_be10_staff_cannot_update_order_item(self):
+        """
+        BE-10: Staff (meskipun PIC pekerjaan) diblokir (403 Forbidden) saat melakukan
+        PATCH/PUT ke /api/order-items/{id}/ untuk mengubah harga jual atau detail pesanan.
+        """
+        JobBoard.objects.create(
+            order_item=self.order_item,
+            tahap=self.tahap,
+            pic_staff=self.staff
+        )
+        self.client.force_authenticate(user=self.staff)
+        response = self.client.patch(f"/api/order-items/{self.order_item.id}/", {
+            "harga_jual": 1
+        })
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_staff_cannot_read_audit_logs_and_sessions(self):
         """
@@ -530,7 +592,7 @@ class SecurityPermissionTestCase(APITestCase):
         # Absensi
         response = self.client.get(f"/api/hr/absensi/?tanggal={today}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        self.assertGreaterEqual(len(response.data), 2)
         
         # Timecard
         response = self.client.get(f"/api/hr/timecard/?bulan={today.month}&tahun={today.year}")

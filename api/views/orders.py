@@ -803,6 +803,7 @@ class OrderItemViewSet(viewsets.ModelViewSet):
         serializer.save(_current_user=self.request.user)
 
     def perform_update(self, serializer):
+        self._ensure_write_role()
         serializer.instance._current_user = self.request.user
         serializer.save()
 
