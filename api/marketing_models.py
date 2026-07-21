@@ -2,6 +2,8 @@ from django.conf import settings
 from django.db import models
 
 TIPE_DISKON_CHOICES = [('percent', 'Persen'), ('nominal', 'Nominal')]
+KANAL_POS = 'pos'
+KANAL_ONLINE = 'online'
 
 
 class SalesDiscount(models.Model):
@@ -14,7 +16,8 @@ class SalesDiscount(models.Model):
     tipe_diskon = models.CharField(max_length=10, choices=TIPE_DISKON_CHOICES, default='percent')
     jumlah_diskon = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     tipe_pelanggan = models.CharField(max_length=255, blank=True, default='')
-    brand = models.CharField(max_length=255, blank=True, default='')
+    brand_legacy = models.CharField(max_length=255, blank=True, default='')
+    brand = models.ManyToManyField('Brand', blank=True, related_name='sales_discounts')
     catatan = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True)
     dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='sales_discounts')
@@ -53,14 +56,19 @@ class DiscountCoupon(models.Model):
     maksimal_jumlah_diskon = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     all_customers = models.BooleanField(default=True)
     tipe_pelanggan = models.CharField(max_length=255, blank=True, default='')
-    pelanggan = models.CharField(max_length=255, blank=True, default='')
+    pelanggan_legacy = models.CharField(max_length=255, blank=True, default='')
+    pelanggan = models.ManyToManyField('Contact', blank=True, related_name='discount_coupons')
     all_products = models.BooleanField(default=True)
-    grup_produk = models.CharField(max_length=255, blank=True, default='')
-    produk = models.CharField(max_length=255, blank=True, default='')
+    grup_produk_legacy = models.CharField(max_length=255, blank=True, default='')
+    grup_produk = models.ManyToManyField('ProductCategory', blank=True, related_name='discount_coupons')
+    produk_legacy = models.CharField(max_length=255, blank=True, default='')
+    produk = models.ManyToManyField('Product', blank=True, related_name='discount_coupons')
     all_packages = models.BooleanField(default=True)
-    paket_produk = models.CharField(max_length=255, blank=True, default='')
+    paket_produk_legacy = models.CharField(max_length=255, blank=True, default='')
+    paket_produk = models.ManyToManyField('ProductPackage', blank=True, related_name='discount_coupons')
     all_brands = models.BooleanField(default=True)
-    brand = models.CharField(max_length=255, blank=True, default='')
+    brand_legacy = models.CharField(max_length=255, blank=True, default='')
+    brand = models.ManyToManyField('Brand', blank=True, related_name='discount_coupons')
     penggunaan_count = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True)
     dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='discount_coupons')
@@ -94,15 +102,24 @@ class POSPromotion(models.Model):
     combine_qty = models.BooleanField(default=True)
     combine_qty_value = models.IntegerField(default=1)
     produk_qty = models.JSONField(default=list, blank=True)
-    grup_produk = models.CharField(max_length=255, blank=True, default='')
-    paket_produk = models.CharField(max_length=255, blank=True, default='')
-    brand = models.CharField(max_length=255, blank=True, default='')
+    grup_produk_legacy = models.CharField(max_length=255, blank=True, default='')
+    grup_produk = models.ManyToManyField('ProductCategory', blank=True, related_name='pos_promotions')
+    paket_produk_legacy = models.CharField(max_length=255, blank=True, default='')
+    paket_produk = models.ManyToManyField('ProductPackage', blank=True, related_name='pos_promotions')
+    brand_legacy = models.CharField(max_length=255, blank=True, default='')
+    brand = models.ManyToManyField('Brand', blank=True, related_name='pos_promotions')
     berlaku_membeli = models.CharField(max_length=20, choices=BERLAKU_MEMBELI_CHOICES, default='semua')
-    produk_gratis = models.CharField(max_length=255, blank=True, default='')
+    produk_gratis_legacy = models.CharField(max_length=255, blank=True, default='')
+    produk_gratis = models.ManyToManyField('Product', blank=True, related_name='pos_promotions_gratis')
+    qty_gratis = models.IntegerField(default=1)
+    min_total_transaksi = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    tipe_diskon = models.CharField(max_length=10, choices=TIPE_DISKON_CHOICES, default='percent')
+    jumlah_diskon = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     berlaku_kelipatan = models.BooleanField(default=False)
     all_customers = models.BooleanField(default=True)
     tipe_pelanggan = models.CharField(max_length=255, blank=True, default='')
-    pelanggan = models.CharField(max_length=255, blank=True, default='')
+    pelanggan_legacy = models.CharField(max_length=255, blank=True, default='')
+    pelanggan = models.ManyToManyField('Contact', blank=True, related_name='pos_promotions')
     tanggal_aktif = models.DateField()
     tanpa_kadaluarsa = models.BooleanField(default=True)
     tanggal_kadaluarsa = models.DateField(null=True, blank=True)
@@ -120,3 +137,21 @@ class POSPromotion(models.Model):
 
     def __str__(self):
         return f"{self.judul} ({self.tipe_promosi})"
+
+
+class CouponUsage(models.Model):
+    """Riwayat penggunaan kupon diskon oleh pelanggan dalam transaksi POS/Order."""
+    kupon = models.ForeignKey(DiscountCoupon, on_delete=models.CASCADE, related_name='usages')
+    pelanggan = models.ForeignKey('Contact', on_delete=models.SET_NULL, null=True, blank=True, related_name='coupon_usages')
+    pos_sale = models.ForeignKey('POSSale', on_delete=models.CASCADE, null=True, blank=True, related_name='coupon_usages')
+    order = models.ForeignKey('Order', on_delete=models.CASCADE, null=True, blank=True, related_name='coupon_usages')
+    kanal = models.CharField(max_length=10, default=KANAL_POS)
+    nilai_diskon = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    tanggal = models.DateField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Penggunaan {self.kupon.kode} - {self.nilai_diskon}"
