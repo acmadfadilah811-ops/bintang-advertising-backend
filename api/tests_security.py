@@ -283,6 +283,8 @@ class SecurityPermissionTestCase(APITestCase):
             "/api/export/cash-transactions/",
             "/api/export/sales-items-by-brand/",
             "/api/export/sales-details/",
+            "/api/export/customer-notes/",
+            "/api/executive-dashboard/export/",
         ]
         
         # Test as Kasir -> 403 Forbidden
