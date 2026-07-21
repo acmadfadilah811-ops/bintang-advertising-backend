@@ -176,6 +176,11 @@ class OrderViewSet(viewsets.ModelViewSet):
                 from api.models import Contact
                 kupon_obj = DiscountCoupon.objects.filter(kode__iexact=kupon_kode.strip()).first()
                 if kupon_obj:
+                    # Hubungkan kupon dan nilai diskon ke order
+                    instance.kupon = kupon_obj
+                    instance.diskon_kupon = int(diskon_kupon or 0)
+                    instance.save(update_fields=['kupon', 'diskon_kupon'])
+
                     customer = Contact.objects.filter(nomor_wa=instance.nomor_wa).first()
                     CouponUsage.objects.create(
                         kupon=kupon_obj,

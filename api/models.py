@@ -163,6 +163,9 @@ class Order(models.Model):
     diskon_persen = models.FloatField(default=0.0, help_text="Diskon nota dalam persen, 0-100")
     total_harga = models.IntegerField(default=0, help_text="Total harga keseluruhan setelah diskon")
     sisa_tagihan = models.IntegerField(default=0, help_text="total_harga dikurangi dp_dibayar")
+    kupon = models.ForeignKey('DiscountCoupon', on_delete=models.SET_NULL, null=True, blank=True, related_name='orders')
+    diskon_kupon = models.IntegerField(default=0, help_text="Potongan nominal dari kupon")
+    diskon_otomatis = models.IntegerField(default=0, help_text="Potongan nominal dari Diskon Penjualan (Toko Online)")
 
     def update_totals(self):
         """Method bantuan untuk menghitung ulang total dan sisa tagihan dari item-itemnya."""
