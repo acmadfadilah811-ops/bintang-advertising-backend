@@ -1,4 +1,13 @@
 from datetime import timedelta
+import os
+import secrets
+import uuid
+
+from django.conf import settings
+from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
+from django.contrib.auth.password_validation import validate_password
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -12,6 +21,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from api.models import CustomUser
 from api.permissions import IsOwnerOrManager, IsStrictOwnerOrManager
+from api.throttles import LoginRateThrottle, PasswordResetRequestThrottle, PasswordResetVerifyThrottle
 
 from .models import Profile, SecurityAuditLog, SessionToken
 from .serializers import (
@@ -29,10 +39,13 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 
 def _get_client_ip(request):
-    xff = request.META.get("HTTP_X_FORWARDED_FOR")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR")
+    """Ambil IP klien hanya dari rantai proxy yang jumlahnya dikonfigurasi."""
+    remote = request.META.get("REMOTE_ADDR")
+    num_proxies = int(getattr(settings, "NUM_PROXIES", 0) or 0)
+    xff = [part.strip() for part in request.META.get("HTTP_X_FORWARDED_FOR", "").split(",") if part.strip()]
+    if num_proxies > 0 and len(xff) >= num_proxies:
+        return xff[-num_proxies]
+    return remote
 
 
 def _parse_device(user_agent: str) -> str:
@@ -77,6 +90,7 @@ class CustomLoginView(TokenObtainPairView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -84,9 +98,16 @@ class CustomLoginView(TokenObtainPairView):
         ua = request.META.get("HTTP_USER_AGENT", "")
         username_input = request.data.get("username", "")
 
+        failure_key = f"login_fail:{username_input.strip().lower()}"
+        if cache.get(f"{failure_key}:locked"):
+            return Response({"detail": "Terlalu banyak percobaan. Coba lagi 15 menit."}, status=429)
         try:
             serializer.is_valid(raise_exception=True)
         except (InvalidToken, TokenError) as e:
+            attempts = int(cache.get(failure_key, 0) or 0) + 1
+            cache.set(failure_key, attempts, 900)
+            if attempts >= 5:
+                cache.set(f"{failure_key}:locked", True, 900)
             # --- Login GAGAL ---
             SecurityAuditLog.objects.create(
                 user=None,
@@ -103,12 +124,14 @@ class CustomLoginView(TokenObtainPairView):
             )
 
         # --- Login BERHASIL (Kredensial Valid) ---
+        cache.delete(failure_key)
+        cache.delete(f"{failure_key}:locked")
         user = serializer.user
 
         # Deteksi Perubahan IP jika User memiliki Email terdaftar (bisa dibypass via env)
         requires_verification = False
         import os
-        bypass_verification = os.getenv("SECURITY_BYPASS_IP_VERIFICATION", "True").lower() == "true"
+        bypass_verification = os.getenv("SECURITY_BYPASS_IP_VERIFICATION", "False").lower() == "true"
         
         if user.email and not bypass_verification:
             last_success = SecurityAuditLog.objects.filter(
@@ -120,7 +143,6 @@ class CustomLoginView(TokenObtainPairView):
         if requires_verification:
             import secrets
             import uuid
-            from django.core.cache import cache
             from django.core.mail import send_mail
 
             otp = str(secrets.SystemRandom().randint(100000, 999999))
@@ -253,7 +275,6 @@ class VerifyLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        from django.core.cache import cache
         cached_data = cache.get(f"login_otp_{temp_token}")
 
         if not cached_data or cached_data["otp"] != str(otp):
@@ -589,138 +610,85 @@ class ChangePasswordView(APIView):
 
 
 class ForgotPasswordRequestView(APIView):
-    """
-    POST /api/auth/forgot-password/request/
-    Body: { "username": "..." }
-    """
+    """Selalu memberi respons generik untuk mencegah enumerasi username."""
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetRequestThrottle]
 
     def post(self, request):
-        username = request.data.get("username")
+        username = str(request.data.get("username") or "").strip()
         if not username:
-            return Response({"detail": "Username wajib diisi."}, status=status.HTTP_400_BAD_REQUEST)
-
+            return Response({"detail": "Jika akun dan email valid, kode OTP akan dikirim."})
+        reset_token = uuid.uuid4().hex
         user = CustomUser.objects.filter(username=username).first()
-        if not user:
-            return Response({"detail": "Username tidak terdaftar."}, status=status.HTTP_404_NOT_FOUND)
-
-        if not user.email:
-            return Response(
-                {"detail": "Akun Anda belum memiliki email pemulihan terdaftar. Silakan hubungi Owner atau Manager untuk mereset kata sandi Anda."},
-                status=status.HTTP_400_BAD_REQUEST
+        if user and user.email:
+            otp = str(secrets.SystemRandom().randint(100000, 999999))
+            cache.set(f"pw_reset:{reset_token}", {
+                "username": user.username, "otp": otp, "attempts": 0,
+            }, 300)
+            subject = "[Brandy CRM] Kode OTP Lupa Password"
+            message = (
+                f"Halo {user.username},\n\nKode OTP reset password Anda: {otp}\n"
+                "Kode berlaku 5 menit. Abaikan bila Anda tidak meminta reset."
             )
-
-        import secrets
-        from django.core.cache import cache
-        from django.core.mail import send_mail
-
-        otp = str(secrets.SystemRandom().randint(100000, 999999))
-        cache.set(f"pw_reset_otp_{username}", otp, 300) # Berlaku 5 menit
-
-        # Kirim email
-        subject = "[Brandy CRM] Kode OTP Lupa Password"
-        message = f"""Halo {user.username},
-
-Anda menerima email ini karena ada permintaan untuk mengatur ulang kata sandi Akun Brandy CRM Anda.
-
-Silakan gunakan kode OTP berikut untuk mereset kata sandi Anda:
-KODE OTP: {otp}
-
-Kode ini hanya berlaku selama 5 menit. Jika Anda tidak meminta ini, abaikan email ini secara aman.
-
-Terima kasih,
-Tim Keamanan Brandy CRM
-"""
-        send_mail(
-            subject,
-            message,
-            None,
-            [user.email],
-            fail_silently=True
-        )
-
-        # Sembunyikan sebagian email untuk privasi
-        email_parts = user.email.split("@")
-        masked_email = f"{email_parts[0][:3]}***@{email_parts[1]}" if len(email_parts) == 2 else user.email
-
-        # Catat audit log percobaan
-        SecurityAuditLog.objects.create(
-            user=user,
-            username_input=username,
-            event="PASSWORD_CHANGED",
-            ip_address=_get_client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", ""),
-            keterangan=f"Meminta OTP reset password ke {user.email}",
-            berhasil=False,
-        )
-
+            try:
+                send_mail(subject, message, None, [user.email], fail_silently=False)
+            except Exception:
+                cache.delete(f"pw_reset:{reset_token}")
+                return Response({"detail": "Layanan email sedang tidak tersedia. Coba lagi nanti."}, status=503)
+            SecurityAuditLog.objects.create(
+                user=user, username_input=username, event="PASSWORD_RESET_REQUESTED",
+                ip_address=_get_client_ip(request), user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                keterangan="Permintaan OTP reset password", berhasil=True,
+            )
+        # Token acak juga dikembalikan untuk akun tidak valid agar bentuk respons identik.
         return Response({
-            "detail": "OTP_SENT",
-            "email_masked": masked_email
-        }, status=status.HTTP_200_OK)
+            "detail": "Jika akun dan email valid, kode OTP akan dikirim.",
+            "reset_token": reset_token,
+        })
 
 
 class ForgotPasswordVerifyView(APIView):
-    """
-    POST /api/auth/forgot-password/verify/
-    Body: { "username": "...", "otp": "...", "new_password": "..." }
-    """
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetVerifyThrottle]
 
     def post(self, request):
-        username = request.data.get("username")
-        otp = request.data.get("otp")
+        username = str(request.data.get("username") or "").strip()
+        otp = str(request.data.get("otp") or "").strip()
         new_password = request.data.get("new_password")
-
-        if not username or not otp or not new_password:
-            return Response({"detail": "Username, OTP, dan Password Baru wajib diisi."}, status=status.HTTP_400_BAD_REQUEST)
-
+        reset_token = str(request.data.get("reset_token") or "").strip()
+        if not all((username, otp, new_password, reset_token)):
+            return Response({"detail": "Data verifikasi tidak lengkap."}, status=400)
+        key = f"pw_reset:{reset_token}"
+        state = cache.get(key)
+        if not state or state.get("username") != username:
+            return Response({"detail": "Kode OTP salah atau kedaluwarsa."}, status=400)
         user = CustomUser.objects.filter(username=username).first()
         if not user:
-            return Response({"detail": "User tidak ditemukan."}, status=status.HTTP_404_NOT_FOUND)
-
-        from django.core.cache import cache
-        cached_otp = cache.get(f"pw_reset_otp_{username}")
-
-        if not cached_otp or cached_otp != str(otp):
-            # Catat log audit kegagalan
+            cache.delete(key)
+            return Response({"detail": "Kode OTP salah atau kedaluwarsa."}, status=400)
+        if not secrets.compare_digest(str(state.get("otp", "")), otp):
+            state["attempts"] = int(state.get("attempts", 0)) + 1
+            if state["attempts"] >= 5:
+                cache.delete(key)
+            else:
+                cache.set(key, state, 300)
             SecurityAuditLog.objects.create(
-                user=user,
-                username_input=username,
-                event="PASSWORD_CHANGED",
-                ip_address=_get_client_ip(request),
-                user_agent=request.META.get("HTTP_USER_AGENT", ""),
-                keterangan="Gagal mereset password: Kode OTP salah atau kedaluwarsa",
-                berhasil=False,
+                user=user, username_input=username, event="PASSWORD_RESET_FAILED",
+                ip_address=_get_client_ip(request), user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                keterangan="OTP reset salah", berhasil=False,
             )
-            return Response({"detail": "Kode OTP salah atau kedaluwarsa."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Validasi kekuatan password
-        from django.contrib.auth.password_validation import validate_password
-        from django.core.exceptions import ValidationError as DjangoValidationError
+            return Response({"detail": "Kode OTP salah atau kedaluwarsa."}, status=400)
         try:
             validate_password(new_password, user=user)
-        except DjangoValidationError as e:
-            return Response({"detail": ", ".join(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Update password
+        except DjangoValidationError as exc:
+            return Response({"detail": ", ".join(exc.messages)}, status=400)
         user.set_password(new_password)
-        user.save()
-
-        # Bersihkan OTP dari cache
-        cache.delete(f"pw_reset_otp_{username}")
-
-        # Catat audit log sukses
+        user.save(update_fields=["password"])
+        cache.delete(key)
+        SessionToken.objects.filter(user=user, is_active=True).update(is_active=False)
         SecurityAuditLog.objects.create(
-            user=user,
-            username_input=username,
-            event="PASSWORD_CHANGED",
-            ip_address=_get_client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", ""),
-            keterangan="Reset password mandiri via OTP Lupa Password sukses",
-            berhasil=True,
+            user=user, username_input=username, event="PASSWORD_RESET_SUCCEEDED",
+            ip_address=_get_client_ip(request), user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            keterangan="Reset password via OTP berhasil", berhasil=True,
         )
-
-        return Response({"detail": "Password berhasil diubah. Silakan login kembali."}, status=status.HTTP_200_OK)
-
-
+        return Response({"detail": "Password berhasil diubah. Silakan login kembali."})

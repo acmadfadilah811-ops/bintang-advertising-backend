@@ -32,6 +32,27 @@ class CustomUserViewSet(viewsets.ModelViewSet):
                 if not (request.user and getattr(request.user, 'role', '') in ['owner', 'manager', 'admin']):
                     self.permission_denied(request, message="Hanya Owner, Manager, atau Admin yang dapat memodifikasi data karyawan.")
 
+
+    def _guard_role_change(self, request, target):
+        requested_role = request.data.get('role')
+        if requested_role is not None and request.user.role != 'owner':
+            return Response({'error': 'Hanya Owner yang dapat mengubah role.'}, status=403)
+        if target.role in ('owner', 'manager') and request.user.role != 'owner':
+            return Response({'error': 'Hanya Owner yang dapat mengubah akun Owner/Manager.'}, status=403)
+        return None
+
+    def update(self, request, *args, **kwargs):
+        denied = self._guard_role_change(request, self.get_object())
+        return denied or super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        denied = self._guard_role_change(request, self.get_object())
+        return denied or super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        denied = self._guard_role_change(request, self.get_object())
+        return denied or super().destroy(request, *args, **kwargs)
+
     def get_queryset(self):
         queryset = CustomUser.objects.all()
         role = self.request.query_params.get('role')
@@ -54,7 +75,7 @@ class CustomUserViewSet(viewsets.ModelViewSet):
             else:
                 data = dict(request.data)
 
-            if request.user.role not in ['owner', 'manager', 'admin']:
+            if request.user.role != 'owner':
                 hr_fields = [
                     'username', 'email', 'role', 'divisi', 'status_karyawan', 
                     'jenis_kontrak', 'kontrak_mulai', 'kontrak_selesai', 
@@ -115,6 +136,8 @@ class CreateUserView(APIView):
         username = request.data.get('username', '').strip()
         password = request.data.get('password', '').strip()
         role     = request.data.get('role', 'staff')
+        if role in ('owner', 'manager') and request.user.role != 'owner':
+            return Response({'error': 'Hanya Owner yang dapat membuat akun Owner/Manager.'}, status=403)
         no_hp    = request.data.get('no_hp', '')
         divisi   = request.data.get('divisi', None)
         first_name = request.data.get('first_name', '')

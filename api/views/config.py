@@ -5,12 +5,12 @@ from rest_framework.permissions import IsAuthenticated
 
 from ..models import SystemConfig, FAQ
 from ..serializers import SystemConfigSerializer, FAQSerializer, BusinessSettingsSerializer
-from ..permissions import IsOwnerManagerAdminOrReadOnly
+from ..permissions import IsOwnerManagerAdminOrReadOnly, IsStrictOwnerOrManager
 
 class SystemConfigViewSet(viewsets.ModelViewSet):
     queryset = SystemConfig.objects.all()
     serializer_class = SystemConfigSerializer
-    permission_classes = [IsOwnerManagerAdminOrReadOnly]
+    permission_classes = [IsStrictOwnerOrManager]
 
 class FAQViewSet(viewsets.ModelViewSet):
     queryset = FAQ.objects.all()
@@ -26,7 +26,7 @@ class BusinessSettingsView(APIView):
     Pengaturan disimpan di SystemConfig dengan prefix 'bisnis_'.
     Divisi digunakan sebagai satuan organisasi/departemen.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStrictOwnerOrManager]
 
     def get(self, request):
         """Kembalikan semua pengaturan bisnis + daftar divisi."""

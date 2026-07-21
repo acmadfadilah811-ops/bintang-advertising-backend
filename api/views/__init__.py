@@ -15,7 +15,7 @@ from .inventory import (
     ProductPriceViewSet, BillOfMaterialsViewSet, BoMItemViewSet
 )
 from .contacts import (
-    ContactViewSet, ContactStatsView,
+    ContactViewSet, ContactStatsView, ProductionCustomerLiteView,
     KomplainViewSet, CustomerActivityViewSet
 )
 from .config import (

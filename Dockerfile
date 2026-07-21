@@ -30,6 +30,10 @@ RUN uv pip compile pyproject.toml -o requirements.txt && \
 # Copy project files
 COPY . .
 
+RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:app /app
+USER app
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD curl -fsS http://127.0.0.1:${PORT:-8080}/api/health/ || exit 1
+
 # Expose port (Cloud Run sets this dynamically, default to 8080)
 EXPOSE 8080
 

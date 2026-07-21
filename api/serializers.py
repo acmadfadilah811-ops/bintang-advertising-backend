@@ -138,6 +138,16 @@ class JobBoardSerializer(serializers.ModelSerializer):
         model = JobBoard
         fields = '__all__'
 
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get('request')
+        role = getattr(getattr(request, 'user', None), 'role', '')
+        if role not in ('owner', 'manager', 'admin'):
+            for name in ('insentif', 'biaya_desain', 'pic_staff', 'order_item', 'pos_sale_item', 'tahap'):
+                if name in fields:
+                    fields[name].read_only = True
+        return fields
+
     def get_order_item_detail(self, obj):
         if obj.order_item_id:
             return OrderItemShortSerializer(obj.order_item).data
@@ -513,7 +523,7 @@ class BusinessSettingsSerializer(serializers.Serializer):
     smtp_host       = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
     smtp_port       = serializers.IntegerField(required=False, default=587)
     smtp_user       = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
-    smtp_password   = serializers.CharField(max_length=100, required=False, allow_blank=True, default='', style={'input_type': 'password'})
+    smtp_password   = serializers.CharField(max_length=100, required=False, allow_blank=True, default='', write_only=True, style={'input_type': 'password'})
 
     # Catatan Resi POS Settings
     pos_resi_judul = serializers.CharField(max_length=200, required=False, allow_blank=True, default='Resi Pembelian')
@@ -527,13 +537,13 @@ class BusinessSettingsSerializer(serializers.Serializer):
 
     # POS Pass Key Settings
     pos_passkey_belum_bayar_aktif = serializers.BooleanField(required=False, default=False)
-    pos_passkey_belum_bayar_val = serializers.CharField(max_length=20, required=False, allow_blank=True, default='000000')
+    pos_passkey_belum_bayar_val = serializers.CharField(max_length=128, required=False, allow_blank=True, write_only=True)
     pos_passkey_sudah_bayar_aktif = serializers.BooleanField(required=False, default=False)
-    pos_passkey_sudah_bayar_val = serializers.CharField(max_length=20, required=False, allow_blank=True, default='000000')
+    pos_passkey_sudah_bayar_val = serializers.CharField(max_length=128, required=False, allow_blank=True, write_only=True)
     pos_passkey_diskon_aktif = serializers.BooleanField(required=False, default=False)
-    pos_passkey_diskon_val = serializers.CharField(max_length=20, required=False, allow_blank=True, default='000000')
+    pos_passkey_diskon_val = serializers.CharField(max_length=128, required=False, allow_blank=True, write_only=True)
     pos_passkey_pelanggan_aktif = serializers.BooleanField(required=False, default=False)
-    pos_passkey_pelanggan_val = serializers.CharField(max_length=20, required=False, allow_blank=True, default='000000')
+    pos_passkey_pelanggan_val = serializers.CharField(max_length=128, required=False, allow_blank=True, write_only=True)
 
     # POS Extended Settings
     pos_ext_settings = serializers.JSONField(required=False, default=dict)
@@ -844,6 +854,9 @@ class BusinessSettingsSerializer(serializers.Serializer):
                     continue
                 
                 value_to_save = data[field_name]
+                if field_name.startswith('pos_passkey_') and field_name.endswith('_val'):
+                    from django.contrib.auth.hashers import make_password
+                    value_to_save = make_password(str(value_to_save)) if value_to_save else ''
                 if field_name == 'logo_url' and value_to_save:
                     from django.conf import settings
                     media_url = settings.MEDIA_URL  # '/media/'
@@ -971,6 +984,7 @@ class SaldoKasHarianSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaldoKasHarian
         fields = '__all__'
+        read_only_fields = ['kasir', 'kas_akhir', 'waktu_tutup']
 
     def get_kasir_nama(self, obj):
         if obj.kasir:
@@ -991,6 +1005,7 @@ class RingkasanShiftSerializer(serializers.ModelSerializer):
     class Meta:
         model = RingkasanShift
         fields = '__all__'
+        read_only_fields = ['tanggal', 'kasir', 'mulai', 'berakhir', 'expected', 'aktual', 'selisih']
 
     def get_kasir_nama(self, obj):
         if obj.kasir:

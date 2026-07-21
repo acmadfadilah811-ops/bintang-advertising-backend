@@ -1192,41 +1192,38 @@ class SlipGajiViewSet(viewsets.ModelViewSet):
             slip.dibayar_oleh = request.user
             slip.save()
 
-            # Posting Buku Besar otomatis
-            try:
-                akun_beban_gaji, _ = Akun.objects.get_or_create(
-                    kode_akun='5-2000',
-                    defaults={'nama_akun': 'Beban Gaji Karyawan', 'kategori': 'Beban'}
-                )
-                akun_kas_bank, _ = Akun.objects.get_or_create(
-                    kode_akun='1-1001',
-                    defaults={'nama_akun': 'Kas di Bank (Pembayaran Gaji)', 'kategori': 'Aset'}
-                )
-                
-                ref_no = f"SG-{slip.id}"
-                ket_tx = f"Pembayaran Gaji {slip.staff.username} Periode {slip.bulan}/{slip.tahun}"
-                
-                # DEBIT Beban Gaji
-                TransaksiBukuBesar.objects.create(
-                    akun=akun_beban_gaji,
-                    tanggal=timezone.localdate(),
-                    no_referensi=ref_no,
-                    keterangan=ket_tx,
-                    debit=slip.total_gaji_bersih,
-                    kredit=0
-                )
-                
-                # KREDIT Kas/Bank
-                TransaksiBukuBesar.objects.create(
-                    akun=akun_kas_bank,
-                    tanggal=timezone.localdate(),
-                    no_referensi=ref_no,
-                    keterangan=ket_tx,
-                    debit=0,
-                    kredit=slip.total_gaji_bersih
-                )
-            except Exception as e:
-                print(f"Gagal memposting jurnal gaji otomatis: {e}")
+            # Posting Buku Besar otomatis; kegagalan harus me-rollback pembayaran.
+            akun_beban_gaji, _ = Akun.objects.get_or_create(
+                kode_akun='5-2000',
+                defaults={'nama_akun': 'Beban Gaji Karyawan', 'kategori': 'Beban'}
+            )
+            akun_kas_bank, _ = Akun.objects.get_or_create(
+                kode_akun='1-1001',
+                defaults={'nama_akun': 'Kas di Bank (Pembayaran Gaji)', 'kategori': 'Aset'}
+            )
+            
+            ref_no = f"SG-{slip.id}"
+            ket_tx = f"Pembayaran Gaji {slip.staff.username} Periode {slip.bulan}/{slip.tahun}"
+            
+            # DEBIT Beban Gaji
+            TransaksiBukuBesar.objects.create(
+                akun=akun_beban_gaji,
+                tanggal=timezone.localdate(),
+                no_referensi=ref_no,
+                keterangan=ket_tx,
+                debit=slip.total_gaji_bersih,
+                kredit=0
+            )
+            
+            # KREDIT Kas/Bank
+            TransaksiBukuBesar.objects.create(
+                akun=akun_kas_bank,
+                tanggal=timezone.localdate(),
+                no_referensi=ref_no,
+                keterangan=ket_tx,
+                debit=0,
+                kredit=slip.total_gaji_bersih
+            )
 
         return Response(SlipGajiSerializer(slip).data, status=status.HTTP_200_OK)
 

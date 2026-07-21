@@ -2,7 +2,9 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.db import transaction
 from django.db.models import Q, Sum
+from decimal import Decimal, InvalidOperation
 from django.utils import timezone
 
 from ..models import POSAntrianDevice, SaldoKasHarian, RingkasanShift, POSPaymentMethod
@@ -29,6 +31,10 @@ class SaldoKasHarianViewSet(viewsets.ModelViewSet):
     queryset = SaldoKasHarian.objects.all().order_by('-tanggal', '-id')
     serializer_class = SaldoKasHarianSerializer
     permission_classes = [IsAuthenticated, IsOwnerManagerAdminOrKasir]
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def perform_create(self, serializer):
+        serializer.save(kasir=self.request.user, waktu_buka=timezone.now())
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -49,6 +55,7 @@ class SaldoKasHarianViewSet(viewsets.ModelViewSet):
         return queryset
 
     @action(detail=True, methods=['post'], url_path='close')
+    @transaction.atomic
     def close(self, request, pk=None):
         """Tutup shift sekaligus membuat Ringkasan Shift (V2).
 
@@ -62,13 +69,15 @@ class SaldoKasHarianViewSet(viewsets.ModelViewSet):
         from ..pos_models import POSSale
         from ..finance_models import CashTransaction
 
-        shift = self.get_object()
+        shift = SaldoKasHarian.objects.select_for_update().get(pk=pk)
+        if request.user.role == 'kasir' and shift.kasir_id != request.user.id:
+            return Response({'error': 'Anda hanya dapat menutup shift sendiri.'}, status=403)
         if shift.waktu_tutup:
             return Response({'error': 'Shift ini sudah ditutup.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            kas_akhir = float(request.data.get('kas_akhir') or 0)
-        except (TypeError, ValueError):
+            kas_akhir = Decimal(str(request.data.get('kas_akhir') or 0))
+        except (InvalidOperation, TypeError, ValueError):
             return Response({'error': 'kas_akhir harus berupa angka.'}, status=status.HTTP_400_BAD_REQUEST)
 
         sekarang = timezone.now()
@@ -82,16 +91,16 @@ class SaldoKasHarianViewSet(viewsets.ModelViewSet):
         }
         nama_tunai |= {'cash', 'tunai'}
 
-        tunai = 0.0
+        tunai = Decimal('0')
         for s in POSSale.objects.filter(shift=shift, status='paid'):
             if (s.metode_bayar or '').lower() in nama_tunai:
-                tunai += float(s.total or 0)
+                tunai += Decimal(str(s.total or 0))
 
-        tx = CashTransaction.objects.filter(waktu__gte=mulai, waktu__lte=sekarang)
-        masuk = float(tx.filter(arah='pendapatan').aggregate(t=Sum('jumlah'))['t'] or 0)
-        keluar = float(tx.filter(arah='pengeluaran').aggregate(t=Sum('jumlah'))['t'] or 0)
+        tx = CashTransaction.objects.filter(shift=shift)
+        masuk = tx.filter(arah='pendapatan').aggregate(t=Sum('jumlah'))['t'] or Decimal('0')
+        keluar = tx.filter(arah='pengeluaran').aggregate(t=Sum('jumlah'))['t'] or Decimal('0')
 
-        kas_awal = float(shift.kas_awal or 0)
+        kas_awal = Decimal(str(shift.kas_awal or 0))
         expected = kas_awal + tunai + masuk - keluar
 
         shift.kas_akhir = kas_akhir
@@ -120,7 +129,7 @@ class SaldoKasHarianViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_201_CREATED)
 
 
-class RingkasanShiftViewSet(viewsets.ModelViewSet):
+class RingkasanShiftViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = RingkasanShift.objects.all().order_by('-tanggal', '-mulai')
     serializer_class = RingkasanShiftSerializer
     permission_classes = [IsAuthenticated, IsOwnerManagerAdminOrKasir]

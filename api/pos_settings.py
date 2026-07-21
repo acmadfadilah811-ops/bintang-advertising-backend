@@ -1,3 +1,5 @@
+from django.contrib.auth.hashers import check_password, identify_hasher
+from django.core.exceptions import ImproperlyConfigured
 """Pembacaan pengaturan POS untuk **penegakan aturan** di sisi server.
 
 Sebelumnya seluruh setelan di menu Pengaturan POS hanya tersimpan di
@@ -143,6 +145,9 @@ def passkey_cocok(aksi, pin):
         return True
     tersimpan = (_raw(pasangan[1]) or '').strip()
     if not tersimpan:
-        # Aktif tapi PIN belum diatur -> jangan mengunci kasir.
-        return True
-    return str(pin or '').strip() == tersimpan
+        return False  # aktif tanpa PIN harus fail-closed
+    try:
+        identify_hasher(tersimpan)
+    except ValueError:
+        return False  # plaintext lama sengaja ditolak; atur ulang PIN dari Settings
+    return check_password(str(pin or '').strip(), tersimpan)

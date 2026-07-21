@@ -184,7 +184,13 @@ class OrderViewSet(viewsets.ModelViewSet):
                 is_dp=True
             )
 
+    def _ensure_write_role(self):
+        if self.request.user.role not in ('owner', 'manager', 'admin', 'kasir'):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Anda tidak memiliki izin untuk mengubah pesanan.')
+
     def perform_update(self, serializer):
+        self._ensure_write_role()
         serializer.instance._current_user = self.request.user
         serializer.save()
 
@@ -451,8 +457,12 @@ class OrderViewSet(viewsets.ModelViewSet):
 """
 
     @action(detail=True, methods=['post'], url_path='bayar')
+    @transaction.atomic
     def bayar(self, request, pk=None):
-        order = self.get_object()
+        order = Order.objects.select_for_update().get(pk=pk)
+        idem = str(request.data.get('idempotency_key') or '').strip()
+        if idem and OrderActivityLog.objects.filter(order=order, tindakan='PAYMENT', keterangan__contains='[' + idem + ']').exists():
+            return Response(OrderSerializer(order).data)
         jumlah_bayar = request.data.get('jumlah_bayar')
         metode = request.data.get('metode_pembayaran', 'tunai')
 
@@ -468,6 +478,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.metode_pembayaran = metode
         order._current_user = request.user
         order.save()
+        OrderActivityLog.objects.create(order=order, user=request.user, tindakan='PAYMENT', keterangan='Pembayaran %s [%s]' % (jumlah_bayar, idem or 'no-key'))
 
         # Buku Besar Otomatis untuk Pelunasan / Cicilan
         record_payment_to_general_ledger(
@@ -775,7 +786,20 @@ class OrderItemViewSet(viewsets.ModelViewSet):
     serializer_class = OrderItemSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.role in ('owner', 'manager', 'admin', 'kasir'):
+            return qs
+        return qs.filter(order__items__jobs__pic_staff=user).distinct()
+
+    def _ensure_write_role(self):
+        if self.request.user.role not in ('owner', 'manager', 'admin', 'kasir'):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Anda tidak boleh mengubah item order.')
+
     def perform_create(self, serializer):
+        self._ensure_write_role()
         serializer.save(_current_user=self.request.user)
 
     def perform_update(self, serializer):
@@ -783,6 +807,7 @@ class OrderItemViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def perform_destroy(self, instance):
+        self._ensure_write_role()
         instance._current_user = self.request.user
         instance.delete()
 

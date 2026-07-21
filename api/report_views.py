@@ -13,9 +13,11 @@ import io
 import openpyxl
 from django.db.models import Q
 from django.http import HttpResponse
+from datetime import timedelta
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework.permissions import IsAuthenticated
+from .throttles import ReportRateThrottle
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -27,6 +29,7 @@ from .product_models import (
     StockInDocument, StockInDocumentItem,
     StockOutDocument, StockOutDocumentItem,
     StockOpnameDocument, StockOpnameDocumentItem,
+    StockLayerConsumption,
 )
 
 # ---------------------------------------------------------------------------
@@ -330,14 +333,23 @@ def rpt_stok_keluar(params):
     ('subtotal', 'Subtotal', 'money'),
 ])
 def rpt_pergerakan_stok(params):
+    # BE-17: tanpa filter tanggal, endpoint ini memuat SELURUH tabel mutasi ke
+    # memori. Terapkan rentang default 30 hari terakhir bila user tidak memberi
+    # rentang, sehingga request default tidak mematikan worker.
+    start = params.get('start')
+    end = params.get('end')
+    if not start and not end:
+        end = timezone.localdate()
+        start = end - timedelta(days=30)
+
     qs = ProductStockMovement.objects.select_related(
         'product', 'variant', 'stock_in_document', 'stock_out_document',
         'stock_production_document', 'stock_opname_document',
     ).all()
-    if params['start']:
-        qs = qs.filter(Q(tanggal__gte=params['start']) | Q(tanggal__isnull=True, created_at__date__gte=params['start']))
-    if params['end']:
-        qs = qs.filter(Q(tanggal__lte=params['end']) | Q(tanggal__isnull=True, created_at__date__lte=params['end']))
+    if start:
+        qs = qs.filter(Q(tanggal__gte=start) | Q(tanggal__isnull=True, created_at__date__gte=start))
+    if end:
+        qs = qs.filter(Q(tanggal__lte=end) | Q(tanggal__isnull=True, created_at__date__lte=end))
 
     masuk_tipe = {'masuk', 'produksi', 'pengembalian'}
     rows = []
@@ -726,31 +738,57 @@ def _sale_lines(params):
     for o in _orders_in_range(params):
         tgl = o.waktu.date() if o.waktu else None
         for it in o.items.all():
+            qty = _num(it.qty)
             total = _num(it.harga_jual)
+            dp = _num(o.diskon_persen)
             lines.append({
                 'product': it.product, 'variant': it.variant,
                 'nama': it.product.nama if it.product else (it.jenis_produk or ''),
-                'qty': _num(it.qty), 'total': total, 'modal': _num(it.biaya_bahan),
+                'qty': qty, 'total': total, 'modal': _num(it.biaya_bahan),
                 'tanggal': tgl, 'no_pesanan': str(o.id),
                 'pelanggan': o.nama or '', 'id_pelanggan': o.nomor_wa or '',
                 'oleh': '', 'sumber': o.get_sumber_display() if hasattr(o, 'get_sumber_display') else (o.sumber or ''),
                 'pembayaran': o.metode_pembayaran or '',
-                'diskon': _num(o.total_harga) * _num(o.diskon_persen) / 100.0,
+                'diskon': _num(o.total_harga) * dp / 100.0,
+                # --- kolom detail tambahan untuk export lengkap (item-brand) ---
+                'waktu': o.waktu,
+                'harga_satuan': (total / qty if qty else total),
+                'diskon_persen': dp, 'diskon_baris': total * dp / 100.0,
+                'pajak_baris': 0.0,  # order advertising tidak menyimpan pajak per baris
+                'uom': (it.product.satuan if it.product else ''),
+                'qty_konversi': qty,  # OrderItem tidak punya konversi satuan
+                'dilayani_oleh': '',
             })
     for s in _pos_sales_in_range(params):
         tgl = s.created_at.date() if s.created_at else None
+        s_sub = _num(s.subtotal)
         for it in s.items.all():
-            modal = _num(it.product.harga_beli) * _num(it.qty) if it.product else 0.0
+            qty = _num(it.qty)
+            line_total = _num(it.subtotal)
+            modal = _num(it.product.harga_beli) * qty if it.product else 0.0
+            # Diskon & pajak POS tersimpan di tingkat nota; sebar proporsional ke baris.
+            share = (line_total / s_sub) if s_sub else 0.0
+            diskon_baris = _num(s.diskon) * share
+            pajak_baris = _num(s.pajak) * share
+            dp = (_num(s.diskon) / s_sub * 100.0) if s_sub else 0.0
             lines.append({
                 'product': it.product, 'variant': it.variant,
                 'nama': it.nama_snapshot or (it.product.nama if it.product else ''),
-                'qty': _num(it.qty), 'total': _num(it.subtotal), 'modal': modal,
+                'qty': qty, 'total': line_total, 'modal': modal,
                 'tanggal': tgl, 'no_pesanan': s.nomor,
                 'pelanggan': s.pelanggan.nama if s.pelanggan else '',
                 'id_pelanggan': s.pelanggan.nomor_wa if s.pelanggan else '',
                 'oleh': s.kasir.username if s.kasir else '',
                 'sumber': 'POS', 'pembayaran': s.metode_bayar or '',
                 'diskon': 0.0,
+                # --- kolom detail tambahan untuk export lengkap (item-brand) ---
+                'waktu': s.created_at,
+                'harga_satuan': _num(it.harga_snapshot),
+                'diskon_persen': dp, 'diskon_baris': diskon_baris,
+                'pajak_baris': pajak_baris,
+                'uom': (it.uom_kode or (it.product.satuan if it.product else '')),
+                'qty_konversi': (_num(it.uom_qty) if it.uom_qty is not None else qty),
+                'dilayani_oleh': s.kasir.username if s.kasir else '',
             })
     return lines
 
@@ -959,6 +997,9 @@ def rpt_material(params):
     ('biaya_layanan', 'Biaya Layanan', 'money'), ('tambahan_pembayaran', 'Tambahan Pembayaran', 'money'),
     ('diskon', 'Diskon', 'money'), ('tebus_deposit', 'Tebus Deposit', 'money'),
     ('pengunjung', 'Pengunjung', 'qty'),
+    ('sumber', 'Sumber Pesanan', 'text'), ('waktu', 'Waktu Pesanan', 'text'),
+    ('jumlah_item', 'Jumlah Item', 'qty'), ('sisa_tagihan', 'Sisa Tagihan', 'money'),
+    ('status', 'Status', 'text'),
 ])
 def rpt_rincian_penjualan(params):
     """Satu baris per nota, gabungan Order + POS.
@@ -981,6 +1022,11 @@ def rpt_rincian_penjualan(params):
             'pengiriman_pajak': 0, 'modal_produk': modal, 'laba': total - modal,
             'biaya_layanan': 0, 'tambahan_pembayaran': 0, 'diskon': diskon,
             'tebus_deposit': 0, 'pengunjung': 0,
+            'sumber': (o.get_sumber_display() if hasattr(o, 'get_sumber_display') else (o.sumber or '')),
+            'waktu': o.waktu.strftime('%Y-%m-%d %H:%M') if o.waktu else '',
+            'jumlah_item': sum(_num(i.qty) for i in o.items.all()),
+            'sisa_tagihan': _num(o.sisa_tagihan),
+            'status': (o.status_global or ''),
         })
         t_total += total
         t_modal += modal
@@ -999,6 +1045,11 @@ def rpt_rincian_penjualan(params):
             'pengiriman_pajak': _num(s.pajak), 'modal_produk': modal, 'laba': total - modal,
             'biaya_layanan': 0, 'tambahan_pembayaran': 0, 'diskon': _num(s.diskon),
             'tebus_deposit': 0, 'pengunjung': 0,
+            'sumber': 'POS',
+            'waktu': s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '',
+            'jumlah_item': sum(_num(i.qty) for i in s.items.all()),
+            'sisa_tagihan': max(_num(s.total) - _num(s.dibayar), 0.0),
+            'status': (s.status or ''),
         })
         t_total += total
         t_modal += modal
@@ -1017,32 +1068,69 @@ def rpt_rincian_penjualan(params):
 
 
 @report('item-penjualan-tanggal', 'Item Penjualan berdasarkan Tanggal', [
-    ('no_pesanan', 'No. Pesanan', 'text'), ('tanggal', 'Tanggal', 'date'),
-    ('penjualan_oleh', 'Penjualan Oleh', 'text'), ('item', 'Item', 'text'),
+    ('no_pesanan', 'No. Pesanan', 'text'), ('waktu', 'Waktu Pesanan', 'text'),
+    ('tanggal', 'Tanggal', 'date'), ('sumber', 'Sumber Pesanan', 'text'),
+    ('penjualan_oleh', 'Penjualan Oleh', 'text'), ('dilayani_oleh', 'Dilayani Oleh', 'text'),
+    ('brand', 'Brand', 'text'), ('grup_item', 'Grup Item', 'text'),
+    ('item', 'Item', 'text'), ('sku_item', 'SKU Item', 'text'),
     ('no_seri', 'No. Seri', 'text'), ('pelanggan', 'Pelanggan', 'text'),
-    ('diskon', 'Diskon', 'money'), ('total_penjualan', 'Total Penjualan', 'money'),
-    ('modal_produk', 'Modal Produk', 'money'), ('laba', 'Laba', 'money'),
-    ('komisi', 'Komisi', 'money'),
+    ('id_pelanggan', 'ID Pelanggan', 'text'), ('qty', 'Qty', 'qty'),
+    ('uom', 'Satuan', 'text'), ('qty_konversi', 'Qty (Satuan Terpilih)', 'qty'),
+    ('mata_uang', 'Mata Uang', 'text'), ('harga', 'Harga Satuan', 'money'),
+    ('diskon_persen', 'Diskon (%)', 'qty'), ('diskon', 'Nilai Diskon', 'money'),
+    ('pajak', 'Pajak', 'money'), ('total_penjualan', 'Total Penjualan', 'money'),
+    ('modal_satuan', 'Modal / Unit', 'money'), ('modal_produk', 'Modal Produk', 'money'),
+    ('laba', 'Laba', 'money'), ('komisi', 'Komisi', 'money'),
+    ('cara_pembayaran', 'Cara Pembayaran', 'text'),
 ])
 def rpt_item_penjualan(params):
+    """Rincian penjualan per-item lengkap (Order + POS) dengan atribut waktu,
+    sumber, brand, grup, SKU, satuan, harga, diskon, pajak, modal, laba, dan
+    komisi — supaya export memuat data utuh, bukan hanya sebagian kolom."""
     rows = []
     t_qty = t_diskon = t_total = t_modal = 0.0
     for ln in sorted(_sale_lines(params), key=lambda x: (x['tanggal'] or timezone.now().date()), reverse=True):
-        p = ln['product']
+        p, v = ln['product'], ln['variant']
+        brand = p.brand if p and p.brand else None
         komisi = 0.0
-        if p and p.brand and _num(p.brand.komisi_persen):
-            komisi = ln['total'] * _num(p.brand.komisi_persen) / 100.0
+        if brand and _num(brand.komisi_persen):
+            komisi = ln['total'] * _num(brand.komisi_persen) / 100.0
+        qty = ln['qty']
+        modal = ln['modal']
+        amount = ln['total']
+        diskon_baris = ln.get('diskon_baris', 0.0)
+        w = ln.get('waktu')
         rows.append({
             'no_pesanan': ln['no_pesanan'],
+            'waktu': w.strftime('%Y-%m-%d %H:%M') if w else (ln['tanggal'].isoformat() if ln['tanggal'] else ''),
             'tanggal': ln['tanggal'].isoformat() if ln['tanggal'] else '',
-            'penjualan_oleh': ln['oleh'], 'item': ln['nama'], 'no_seri': '',
-            'pelanggan': ln['pelanggan'], 'diskon': 0,
-            'total_penjualan': ln['total'], 'modal_produk': ln['modal'],
-            'laba': ln['total'] - ln['modal'], 'komisi': komisi,
+            'sumber': ln.get('sumber', ''),
+            'penjualan_oleh': ln.get('oleh', ''),
+            'dilayani_oleh': ln.get('dilayani_oleh', ''),
+            'brand': brand.nama if brand else 'Tanpa Brand',
+            'grup_item': (p.kategori.nama if p and p.kategori else ''),
+            'item': ln['nama'],
+            'sku_item': ((v.sku if v and v.sku else (p.sku if p else '')) or ''),
+            'no_seri': '',
+            'pelanggan': ln['pelanggan'],
+            'id_pelanggan': ln.get('id_pelanggan', ''),
+            'qty': qty, 'uom': ln.get('uom', ''),
+            'qty_konversi': ln.get('qty_konversi', qty),
+            'mata_uang': 'IDR',
+            'harga': ln.get('harga_satuan', (amount / qty if qty else amount)),
+            'diskon_persen': ln.get('diskon_persen', 0.0),
+            'diskon': diskon_baris,
+            'pajak': ln.get('pajak_baris', 0.0),
+            'total_penjualan': amount,
+            'modal_satuan': (modal / qty if qty else modal),
+            'modal_produk': modal,
+            'laba': amount - modal, 'komisi': komisi,
+            'cara_pembayaran': ln.get('pembayaran', ''),
         })
-        t_qty += ln['qty']
-        t_total += ln['total']
-        t_modal += ln['modal']
+        t_qty += qty
+        t_diskon += diskon_baris
+        t_total += amount
+        t_modal += modal
     return {
         'rows': rows,
         'summary': {'type': 'grid', 'items': [
@@ -1056,67 +1144,121 @@ def rpt_item_penjualan(params):
 
 
 @report('item-brand', 'Item Penjualan Berdasarkan Brand', [
-    ('no_pesanan', 'No. Pesanan', 'text'), ('brand', 'Brand', 'text'),
-    ('tanggal', 'Tanggal', 'date'), ('penjualan_oleh', 'Penjualan Oleh', 'text'),
-    ('item', 'Item', 'text'), ('pelanggan', 'Pelanggan', 'text'),
-    ('total_penjualan', 'Total Penjualan', 'money'),
-    ('modal_produk', 'Modal Produk', 'money'), ('laba', 'Laba', 'money'),
+    ('no_pesanan', 'No. Pesanan', 'text'), ('waktu', 'Waktu Pesanan', 'text'),
+    ('sumber', 'Sumber Pesanan', 'text'), ('sales_oleh', 'Penjualan Oleh', 'text'),
+    ('dilayani_oleh', 'Dilayani Oleh', 'text'), ('brand', 'Brand', 'text'),
+    ('komisi_persen', 'Rate Komisi Brand (%)', 'qty'),
+    ('komisi_nilai', 'Nilai Komisi Brand', 'money'),
+    ('grup_item', 'Grup Item', 'text'), ('nama_item', 'Nama Item', 'text'),
+    ('sku_item', 'SKU Item', 'text'), ('pelanggan', 'Pelanggan', 'text'),
+    ('qty', 'Qty', 'qty'), ('uom', 'Satuan', 'text'),
+    ('qty_konversi', 'Qty (Satuan Terpilih)', 'qty'),
+    ('mata_uang', 'Mata Uang', 'text'), ('harga', 'Harga Satuan', 'money'),
+    ('harga_addon', 'Harga Add-on', 'money'),
+    ('diskon_persen', 'Diskon (%)', 'qty'), ('diskon_nilai', 'Nilai Diskon', 'money'),
+    ('jumlah', 'Jumlah', 'money'), ('pajak', 'Pajak', 'money'),
+    ('modal_satuan', 'Modal / Unit', 'money'), ('modal_total', 'Total Modal', 'money'),
+    ('laba', 'Laba', 'money'), ('dibayar_ke_brand', 'Dibayar ke Brand', 'money'),
+    ('cara_pembayaran', 'Cara Pembayaran', 'text'),
 ])
 def rpt_item_brand(params):
+    """Rincian penjualan per-item lengkap dengan atribut brand, harga, diskon,
+    pajak, modal, laba, dan komisi brand — supaya export Excel memuat data utuh
+    (bukan sekadar ringkasan beberapa kolom). Kolom yang belum punya sumber data
+    di sistem (mis. harga add-on per baris) sengaja diisi 0/kosong, bukan
+    dihilangkan, agar struktur export tetap konsisten."""
     rows = []
-    t_total = t_modal = 0.0
+    t_total = t_modal = t_komisi = t_diskon = t_pajak = 0.0
     for ln in _sale_lines(params):
-        p = ln['product']
+        p, v = ln['product'], ln['variant']
+        brand = p.brand if p and p.brand else None
+        rate = _num(brand.komisi_persen) if brand else 0.0
+        amount = ln['total']
+        komisi = amount * rate / 100.0
+        qty = ln['qty']
+        modal = ln['modal']
+        w = ln.get('waktu')
         rows.append({
             'no_pesanan': ln['no_pesanan'],
-            'brand': p.brand.nama if p and p.brand else 'Tanpa Brand',
-            'tanggal': ln['tanggal'].isoformat() if ln['tanggal'] else '',
-            'penjualan_oleh': ln['oleh'], 'item': ln['nama'],
-            'pelanggan': ln['pelanggan'], 'total_penjualan': ln['total'],
-            'modal_produk': ln['modal'], 'laba': ln['total'] - ln['modal'],
+            'waktu': w.strftime('%Y-%m-%d %H:%M') if w else (ln['tanggal'].isoformat() if ln['tanggal'] else ''),
+            'sumber': ln.get('sumber', ''),
+            'sales_oleh': ln.get('oleh', ''),
+            'dilayani_oleh': ln.get('dilayani_oleh', ''),
+            'brand': brand.nama if brand else 'Tanpa Brand',
+            'komisi_persen': rate, 'komisi_nilai': komisi,
+            'grup_item': (p.kategori.nama if p and p.kategori else ''),
+            'nama_item': ln['nama'],
+            'sku_item': ((v.sku if v and v.sku else (p.sku if p else '')) or ''),
+            'pelanggan': ln['pelanggan'],
+            'qty': qty, 'uom': ln.get('uom', ''),
+            'qty_konversi': ln.get('qty_konversi', qty),
+            'mata_uang': 'IDR',
+            'harga': ln.get('harga_satuan', (amount / qty if qty else amount)),
+            'harga_addon': 0.0,  # belum ada model harga add-on per baris
+            'diskon_persen': ln.get('diskon_persen', 0.0),
+            'diskon_nilai': ln.get('diskon_baris', 0.0),
+            'jumlah': amount, 'pajak': ln.get('pajak_baris', 0.0),
+            'modal_satuan': (modal / qty if qty else modal),
+            'modal_total': modal, 'laba': amount - modal,
+            'dibayar_ke_brand': komisi,
+            'cara_pembayaran': ln.get('pembayaran', ''),
         })
-        t_total += ln['total']
-        t_modal += ln['modal']
+        t_total += amount
+        t_modal += modal
+        t_komisi += komisi
+        t_diskon += ln.get('diskon_baris', 0.0)
+        t_pajak += ln.get('pajak_baris', 0.0)
     return {
         'rows': rows,
         'summary': {'rows': [{
-            'mata_uang': 'IDR', 'total_penjualan': t_total, 'modal_produk': t_modal,
-            'laba': t_total - t_modal, 'total': t_total,
+            'mata_uang': 'IDR', 'total_penjualan': t_total, 'total_diskon': t_diskon,
+            'total_pajak': t_pajak, 'modal_produk': t_modal,
+            'komisi_brand': t_komisi, 'laba': t_total - t_modal, 'total': t_total,
         }]},
     }
 
 
 @report('pelunasan-kredit', 'Item Penjualan berdasarkan Pelunasan Kredit', [
     ('no_pesanan', 'No. Pesanan', 'text'), ('tanggal', 'Tanggal', 'date'),
+    ('waktu', 'Waktu Pesanan', 'text'), ('sumber', 'Sumber Pesanan', 'text'),
     ('penjualan_oleh', 'Penjualan Oleh', 'text'), ('item', 'Item', 'text'),
+    ('pelanggan', 'Pelanggan', 'text'), ('id_pelanggan', 'ID Pelanggan', 'text'),
     ('total_penjualan', 'Total Penjualan', 'money'),
     ('cara_pembayaran', 'Cara Pembayaran', 'text'),
     ('jumlah_terbayar', 'Jumlah Terbayar', 'money'),
+    ('sisa_tagihan', 'Sisa Tagihan', 'money'),
 ])
 def rpt_pelunasan_kredit(params):
     """Pesanan kredit = ada pembayaran sebagian (dp_dibayar > 0). Sistem belum
     punya tabel pembayaran penjualan, jadi 'Jumlah Terbayar' memakai akumulator
     Order.dp_dibayar."""
     rows = []
-    t_total = 0.0
+    t_total = t_bayar = t_sisa = 0.0
     for o in _orders_in_range(params):
         dp = _num(o.dp_dibayar)
         if dp <= 0:
             continue
         items = ', '.join(filter(None, [(i.product.nama if i.product else i.jenis_produk) for i in o.items.all()]))
         total = _num(o.total_harga)
+        sisa = _num(o.sisa_tagihan)
         rows.append({
             'no_pesanan': str(o.id),
             'tanggal': o.waktu.date().isoformat() if o.waktu else '',
+            'waktu': o.waktu.strftime('%Y-%m-%d %H:%M') if o.waktu else '',
+            'sumber': (o.get_sumber_display() if hasattr(o, 'get_sumber_display') else (o.sumber or '')),
             'penjualan_oleh': '', 'item': items,
+            'pelanggan': o.nama or '', 'id_pelanggan': o.nomor_wa or '',
             'total_penjualan': total,
             'cara_pembayaran': o.metode_pembayaran or '',
             'jumlah_terbayar': dp,
+            'sisa_tagihan': sisa,
         })
         t_total += total
+        t_bayar += dp
+        t_sisa += sisa
     return {
         'rows': rows,
-        'summary': {'rows': [{'mata_uang': 'IDR', 'total_penjualan': t_total, 'total': t_total}]},
+        'summary': {'rows': [{'mata_uang': 'IDR', 'total_penjualan': t_total, 'total_terbayar': t_bayar, 'sisa_tagihan': t_sisa, 'total': t_total}]},
     }
 
 
@@ -1144,8 +1286,10 @@ def rpt_ringkasan_metode(params):
 
 @report('pembayaran-sudah-lunas', 'Pembayaran yang sudah lunas', [
     ('no_pesanan', 'No. Pesanan', 'text'), ('tanggal_pembayaran', 'Tanggal Pembayaran', 'date'),
-    ('pelanggan', 'Pelanggan', 'text'), ('cara_pembayaran', 'Cara Pembayaran', 'text'),
+    ('pelanggan', 'Pelanggan', 'text'), ('id_pelanggan', 'ID Pelanggan', 'text'),
+    ('cara_pembayaran', 'Cara Pembayaran', 'text'),
     ('sumber_pesanan', 'Sumber Pesanan', 'text'),
+    ('total_penjualan', 'Total Penjualan', 'money'),
     ('total_pembayaran', 'Total Pembayaran', 'money'),
 ])
 def rpt_pembayaran_lunas(params):
@@ -1154,23 +1298,28 @@ def rpt_pembayaran_lunas(params):
     for o in _orders_in_range(params):
         if _num(o.sisa_tagihan) > 0:
             continue
+        total = _num(o.total_harga)
         rows.append({
             'no_pesanan': str(o.id),
             'tanggal_pembayaran': o.waktu.date().isoformat() if o.waktu else '',
-            'pelanggan': o.nama or '', 'cara_pembayaran': o.metode_pembayaran or '',
-            'sumber_pesanan': o.sumber or '', 'total_pembayaran': _num(o.dp_dibayar),
+            'pelanggan': o.nama or '', 'id_pelanggan': o.nomor_wa or '',
+            'cara_pembayaran': o.metode_pembayaran or '',
+            'sumber_pesanan': (o.get_sumber_display() if hasattr(o, 'get_sumber_display') else (o.sumber or '')),
+            'total_penjualan': total, 'total_pembayaran': _num(o.dp_dibayar),
         })
-        t_jual += _num(o.total_harga)
+        t_jual += total
         t_bayar += _num(o.dp_dibayar)
     for s in _pos_sales_in_range(params):
+        total = _num(s.total)
         rows.append({
             'no_pesanan': s.nomor,
             'tanggal_pembayaran': s.created_at.date().isoformat() if s.created_at else '',
             'pelanggan': s.pelanggan.nama if s.pelanggan else '',
+            'id_pelanggan': s.pelanggan.nomor_wa if s.pelanggan else '',
             'cara_pembayaran': s.metode_bayar or '', 'sumber_pesanan': 'POS',
-            'total_pembayaran': _num(s.dibayar),
+            'total_penjualan': total, 'total_pembayaran': _num(s.dibayar),
         })
-        t_jual += _num(s.total)
+        t_jual += total
         t_bayar += _num(s.dibayar)
     return {
         'rows': rows,
@@ -1182,7 +1331,9 @@ def rpt_pembayaran_lunas(params):
 
 @report('pembayaran-belum-lunas', 'Pembayaran yang belum lunas', [
     ('no_pesanan', 'No. Pesanan', 'text'), ('tanggal', 'Tanggal', 'date'),
-    ('pelanggan', 'Pelanggan', 'text'), ('cara_pembayaran', 'Cara Pembayaran', 'text'),
+    ('waktu', 'Waktu Pesanan', 'text'), ('sumber_pesanan', 'Sumber Pesanan', 'text'),
+    ('pelanggan', 'Pelanggan', 'text'), ('id_pelanggan', 'ID Pelanggan', 'text'),
+    ('cara_pembayaran', 'Cara Pembayaran', 'text'),
     ('total_penjualan', 'Total Penjualan', 'money'),
     ('telah_dibayar', 'Telah Dibayar', 'money'), ('sisa', 'Sisa Tagihan', 'money'),
 ])
@@ -1196,7 +1347,10 @@ def rpt_pembayaran_belum_lunas(params):
         rows.append({
             'no_pesanan': str(o.id),
             'tanggal': o.waktu.date().isoformat() if o.waktu else '',
-            'pelanggan': o.nama or '', 'cara_pembayaran': o.metode_pembayaran or '',
+            'waktu': o.waktu.strftime('%Y-%m-%d %H:%M') if o.waktu else '',
+            'sumber_pesanan': (o.get_sumber_display() if hasattr(o, 'get_sumber_display') else (o.sumber or '')),
+            'pelanggan': o.nama or '', 'id_pelanggan': o.nomor_wa or '',
+            'cara_pembayaran': o.metode_pembayaran or '',
             'total_penjualan': _num(o.total_harga), 'telah_dibayar': _num(o.dp_dibayar),
             'sisa': sisa,
         })
@@ -1452,8 +1606,57 @@ def rpt_banding_fifo(params):
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
+@report('shortfall-stok', 'Shortfall Stok (Konsumsi Melebihi Lapisan)', [
+    ('tanggal', 'Tanggal', 'date'), ('produk', 'Produk', 'text'),
+    ('sku', 'SKU', 'text'), ('qty', 'Qty Kurang', 'qty'),
+    ('harga_beli', 'Harga Beli Fallback', 'money'), ('nilai', 'Nilai Shortfall', 'money'),
+])
+def rpt_shortfall_stok(params):
+    """BE-29: tampilkan akumulasi shortfall FIFO (is_shortfall=True) sebagai laporan/alert.
+
+    Setiap baris shortfall menandakan konsumsi stok melebihi lapisan yang tersedia
+    (indikasi stok minus / data drift) yang sebelumnya hanya tercatat di log.
+    """
+    qs = StockLayerConsumption.objects.filter(is_shortfall=True).select_related('product', 'variant')
+    if params.get('start'):
+        qs = qs.filter(created_at__date__gte=params['start'])
+    if params.get('end'):
+        qs = qs.filter(created_at__date__lte=params['end'])
+    search = params.get('search')
+    if search:
+        qs = qs.filter(Q(product__nama__icontains=search))
+
+    rows = []
+    total_qty = 0.0
+    total_nilai = 0.0
+    for c in qs.order_by('-created_at'):
+        q = _num(c.qty)
+        hb = _num(c.harga_beli)
+        nilai = q * hb
+        total_qty += q
+        total_nilai += nilai
+        rows.append({
+            'tanggal': c.created_at.date().isoformat() if c.created_at else '',
+            'produk': c.product.nama,
+            'sku': (c.variant.sku if c.variant and c.variant.sku else (c.product.sku or '')),
+            'qty': q,
+            'harga_beli': hb,
+            'nilai': nilai,
+        })
+    return {
+        'rows': rows,
+        'summary': {'rows': [{
+            'jumlah_kejadian': len(rows),
+            'total_qty_kurang': total_qty,
+            'total_nilai_shortfall': total_nilai,
+        }]},
+    }
+
+
 class ReportDataView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ReportRateThrottle]
+    max_rows = 1000
 
     def get(self, request, report_id):
         entry = REPORT_REGISTRY.get(report_id)
@@ -1463,10 +1666,14 @@ class ReportDataView(APIView):
                 status=404,
             )
         result = entry['handler'](_params(request)) or {}
+        all_rows = result.get('rows', [])
         return Response({
             'label': entry['label'],
-            'columns': entry['columns'],
-            'rows': result.get('rows', []),
+            # Sertakan seluruh kolom yang ada di data (bukan hanya yang
+            # dideklarasikan) supaya tampilan & export selalu lengkap.
+            'columns': _effective_columns(entry['columns'], all_rows),
+            'rows': all_rows[:self.max_rows],
+            'truncated': len(all_rows) > self.max_rows,
             'summary': result.get('summary'),
         })
 
@@ -1495,6 +1702,28 @@ def _summary_lines(summary):
     return lines
 
 
+def _effective_columns(columns, rows):
+    """Gabungkan kolom yang dideklarasikan laporan dengan SEMUA key lain yang
+    muncul di data baris, sehingga export Excel / PDF / tampilan layar tidak
+    pernah membuang kolom yang sebenarnya ada di data. Kolom deklaratif tetap
+    di depan (urutan, label, dan tipe aslinya dipertahankan); key tambahan yang
+    ditemukan pada baris diappend dengan label yang di-humanize dan tipe 'text'.
+
+    Ini menjadi jaring pengaman menyeluruh: laporan apa pun (sekarang maupun
+    yang ditambahkan nanti) otomatis mengekspor seluruh kolom datanya.
+    """
+    cols = list(columns or [])
+    seen = {c['key'] for c in cols}
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        for k in r.keys():
+            if k not in seen:
+                seen.add(k)
+                cols.append({'key': k, 'label': _humanize(k), 'type': 'text'})
+    return cols
+
+
 class ReportExportView(APIView):
     """Export laporan: ?format=xlsx (default) atau pdf (HTML siap cetak).
 
@@ -1511,7 +1740,9 @@ class ReportExportView(APIView):
 
         result = entry['handler'](_params(request)) or {}
         rows = result.get('rows', [])
-        columns = entry['columns']
+        # Jaring pengaman: ekspor SEMUA kolom yang muncul di data, bukan hanya
+        # kolom yang dideklarasikan, agar tidak ada data yang terpotong.
+        columns = _effective_columns(entry['columns'], rows)
         ringkasan = _summary_lines(result.get('summary'))
         stamp = timezone.now().strftime('%Y%m%d')
         fmt = (request.query_params.get('format') or 'xlsx').lower()
@@ -1523,22 +1754,92 @@ class ReportExportView(APIView):
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
         response['Content-Disposition'] = f'attachment; filename="{report_id}_{stamp}.xlsx"'
+        self._write_xlsx(response, entry, columns, rows, ringkasan)
+        return response
+
+    def _write_xlsx(self, response, entry, columns, rows, ringkasan):
+        """Tulis workbook yang RAPI: header tebal berwarna, lebar kolom otomatis,
+        format angka (ribuan / desimal), border, freeze header, dan auto-filter —
+        supaya hasil unduhan tidak berdempetan / berantakan."""
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        MONEY_FMT = '#,##0'
+        QTY_FMT = '#,##0.###'
+        thin = Side(style='thin', color='D0D7DE')
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        header_fill = PatternFill('solid', fgColor='1F2937')
+        header_font = Font(bold=True, color='FFFFFF', size=11)
+        header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = entry['label'][:31]
+        ws.title = (entry['label'][:31] or 'Laporan')
+        n_data = len(rows)
+
+        # --- Header ---
         ws.append([c['label'] for c in columns])
+        for ci, _c in enumerate(columns, start=1):
+            cell = ws.cell(row=1, column=ci)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_align
+            cell.border = border
+        ws.row_dimensions[1].height = 28
+
+        # --- Baris data + format sesuai tipe kolom ---
         for r in rows:
             ws.append([r.get(c['key'], '') for c in columns])
+        for ci, c in enumerate(columns, start=1):
+            ctype = c.get('type')
+            for ri in range(2, 2 + n_data):
+                cell = ws.cell(row=ri, column=ci)
+                cell.border = border
+                if ctype == 'money':
+                    cell.number_format = MONEY_FMT
+                    cell.alignment = Alignment(horizontal='right', vertical='top')
+                elif ctype == 'qty':
+                    cell.number_format = QTY_FMT
+                    cell.alignment = Alignment(horizontal='right', vertical='top')
+                elif ctype == 'date':
+                    cell.alignment = Alignment(horizontal='center', vertical='top')
+                else:
+                    cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=False)
 
-        # Ringkasan ditulis di bawah tabel supaya ikut terbawa saat diunduh.
+        # --- Lebar kolom otomatis (berdasar konten, dibatasi 12..48) ---
+        for ci, c in enumerate(columns, start=1):
+            max_len = len(str(c['label']))
+            for r in rows:
+                v = r.get(c['key'], '')
+                if isinstance(v, bool):
+                    s = str(v)
+                elif isinstance(v, (int, float)):
+                    s = f'{v:,.0f}' if c.get('type') == 'money' else f'{v:,.3f}'
+                else:
+                    s = str(v)
+                if len(s) > max_len:
+                    max_len = len(s)
+            ws.column_dimensions[get_column_letter(ci)].width = min(max(max_len + 2, 12), 48)
+
+        # --- Freeze header + auto-filter ---
+        ws.freeze_panes = 'A2'
+        if n_data:
+            ws.auto_filter.ref = f'A1:{get_column_letter(len(columns))}{1 + n_data}'
+
+        # --- Ringkasan di bawah tabel (dengan jarak 1 baris) ---
         if ringkasan:
-            ws.append([])
-            ws.append(['Ringkasan'])
-            for label, nilai in ringkasan:
-                ws.append([label, nilai])
+            start = 3 + n_data
+            tcell = ws.cell(row=start, column=1, value='Ringkasan')
+            tcell.font = Font(bold=True, size=12)
+            for i, (label, nilai) in enumerate(ringkasan, start=start + 1):
+                lc = ws.cell(row=i, column=1, value=label)
+                lc.font = Font(bold=True)
+                vc = ws.cell(row=i, column=2, value=nilai)
+                if isinstance(nilai, (int, float)) and not isinstance(nilai, bool):
+                    vc.number_format = MONEY_FMT
+                    vc.alignment = Alignment(horizontal='right')
 
         wb.save(response)
-        return response
 
     def _html(self, entry, columns, rows, ringkasan=None):
         """PDF via halaman HTML yang otomatis membuka dialog cetak — pola yang

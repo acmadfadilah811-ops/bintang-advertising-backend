@@ -6,6 +6,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
+from .permissions import IsStrictOwnerOrManager
 from rest_framework.response import Response
 
 from .finance_models import CashTransactionType, CashTransaction, CashTransactionAttachment
@@ -43,7 +44,7 @@ class CashTransactionTypeViewSet(viewsets.ModelViewSet):
     """Tipe Transaksi (master) untuk Pendapatan/Pengeluaran."""
     queryset = CashTransactionType.objects.all()
     serializer_class = CashTransactionTypeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStrictOwnerOrManager]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -121,7 +122,7 @@ class CashTransactionViewSet(viewsets.ModelViewSet):
         .prefetch_related('lampiran')
     )
     serializer_class = CashTransactionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStrictOwnerOrManager]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
@@ -135,7 +136,9 @@ class CashTransactionViewSet(viewsets.ModelViewSet):
         tipe = serializer.validated_data.get('tipe_transaksi')
         nomor = _next_number(f"KAS{timezone.now().date().strftime('%y%m%d')}")
         staff = serializer.validated_data.get('staff') or self.request.user
-        obj = serializer.save(nomor=nomor, arah=tipe.tipe, staff=staff, dibuat_oleh=self.request.user)
+        from .models import SaldoKasHarian
+        shift = SaldoKasHarian.objects.filter(kasir=self.request.user, kas_akhir__isnull=True, waktu_tutup__isnull=True).order_by('-id').first()
+        obj = serializer.save(nomor=nomor, arah=tipe.tipe, staff=staff, shift=shift, dibuat_oleh=self.request.user)
         for f in self.request.FILES.getlist('lampiran'):
             CashTransactionAttachment.objects.create(transaction=obj, file=f)
 

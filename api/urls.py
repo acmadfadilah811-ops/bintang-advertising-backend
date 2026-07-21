@@ -1,8 +1,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, EvolutionWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView, KomplainViewSet, ContactStatsView
-from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView, ExportStockMovementView, ExportCustomersView, ExportProductsView, ExportCustomerNotesView, ExportCashTransactionsView
+from .views import DashboardView, CreateUserView, AssignOrderView, ForwardJobView, InventoryRestockView, JobMaterialDeductView, FonnteWebhookView, EvolutionWebhookView, BusinessSettingsView, StaffPerformanceReportView, HealthCheckView, KomplainViewSet, ContactStatsView, ProductionCustomerLiteView
+from .export_views import ExportOrdersView, ExportInventoryView, ExportJobsView, ExportContactsView, ExportAbsensiView, ExportStaffPerformanceView, ExportStockMovementView, ExportCustomersView, ExportProductsView, ExportCustomerNotesView, ExportCashTransactionsView, ExportSalesItemsByBrandView, ExportSalesDetailsView
 from . import product_views
 from . import production_views
 from . import marketing_views
@@ -80,6 +80,8 @@ router.register(r'pos/sales', pos_views.POSSaleViewSet, basename='pos-sale')
 
 urlpatterns = [
     path('contacts/stats/', ContactStatsView.as_view(), name='contact-stats'),
+    # BE-24: endpoint sempit papan produksi (nama + no. WA saja, tanpa finansial).
+    path('contacts/production-lite/', ProductionCustomerLiteView.as_view(), name='contact-production-lite'),
     path('', include(router.urls)),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
     # Dashboard eksekutif (manajemen) — terpisah dari dashboard operasional di atas.
@@ -102,6 +104,8 @@ urlpatterns = [
     path('export/products/', ExportProductsView.as_view(), name='export-products'),
     path('export/customer-notes/', ExportCustomerNotesView.as_view(), name='export-customer-notes'),
     path('export/cash-transactions/', ExportCashTransactionsView.as_view(), name='export-cash-transactions'),
+    path('export/sales-items-by-brand/', ExportSalesItemsByBrandView.as_view(), name='export-sales-items-by-brand'),
+    path('export/sales-details/', ExportSalesDetailsView.as_view(), name='export-sales-details'),
     path('stock-fifo/sync/', product_views.StockFifoSyncView.as_view(), name='stock-fifo-sync'),
     path('stock-fifo/status/', product_views.StockFifoStatusView.as_view(), name='stock-fifo-status'),
 

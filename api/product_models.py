@@ -261,6 +261,12 @@ class ProductStockMovement(models.Model):
 
     def __str__(self):
         return f"{self.product.nama} {self.tipe} {self.qty} ({self.created_at:%Y-%m-%d})"
+    class Meta:
+        indexes = [
+            models.Index(fields=['product', 'variant', '-tanggal'], name='idx_stockmv_prod_var_date'),
+            models.Index(fields=['tanggal', 'tipe'], name='idx_stockmv_date_type'),
+        ]
+
 
 class StockInDocument(models.Model):
     """Dokumen Stok Masuk (header + banyak item), setara fitur 'Stok Masuk' Olsera."""

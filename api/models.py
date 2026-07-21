@@ -256,6 +256,13 @@ class Order(models.Model):
             except Exception as e:
                 logger.error(f"Failed to auto-sync contact on order save for {self.pk}: {e}")
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['status_global', '-waktu'], name='idx_order_status_time'),
+            models.Index(fields=['sumber', 'status_global', '-waktu'], name='idx_order_src_status_time'),
+            models.Index(fields=['nomor_wa', '-waktu'], name='idx_order_wa_time'),
+        ]
+
     def __str__(self):
         return f"{self.id} - {self.nama}"
 
@@ -841,8 +848,8 @@ class SaldoKasHarian(models.Model):
     tanggal = models.DateField(default=timezone.localdate)
     kasir = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='saldo_kas_harian')
     shift = models.CharField(max_length=150)
-    kas_awal = models.FloatField(default=0.0)
-    kas_akhir = models.FloatField(null=True, blank=True)
+    kas_awal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    kas_akhir = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     # Jejak waktu & catatan penutupan. Sebelumnya dikirim frontend tapi tidak ada
     # di model, sehingga dibuang diam-diam oleh serializer.
     waktu_buka = models.DateTimeField(null=True, blank=True)
@@ -861,9 +868,9 @@ class RingkasanShift(models.Model):
     kasir = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='ringkasan_shift')
     mulai = models.DateTimeField(default=timezone.now)
     berakhir = models.DateTimeField(null=True, blank=True)
-    expected = models.FloatField(default=0.0)
-    aktual = models.FloatField(default=0.0)
-    selisih = models.FloatField(default=0.0)
+    expected = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    aktual = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    selisih = models.DecimalField(max_digits=15, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
         self.selisih = self.aktual - self.expected

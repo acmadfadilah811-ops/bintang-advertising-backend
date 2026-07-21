@@ -44,6 +44,10 @@ class CashTransaction(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='cash_transactions_as_staff', help_text="Staff yang melakukan transaksi",
     )
+    shift = models.ForeignKey(
+        'api.SaldoKasHarian', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='cash_transactions', help_text='Shift kas yang menerima transaksi ini',
+    )
     waktu = models.DateTimeField(help_text="Tanggal & jam transaksi")
     catatan = models.TextField(blank=True, default='')
     dibuat_oleh = models.ForeignKey(
@@ -55,6 +59,11 @@ class CashTransaction(models.Model):
 
     class Meta:
         ordering = ['-waktu', '-created_at']
+        indexes = [
+            models.Index(fields=['arah', '-waktu'], name='idx_cash_direction_time'),
+            models.Index(fields=['tipe_transaksi', '-waktu'], name='idx_cash_type_time'),
+            models.Index(fields=['staff', '-waktu'], name='idx_cash_staff_time'),
+        ]
 
     def __str__(self):
         return f"{self.nomor} - {self.arah} {self.jumlah}"

@@ -8,7 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from api.permissions import IsOwnerManagerAdminOrReadOnly
+from api.permissions import IsOwnerManagerAdminOrKasir, IsOwnerManagerAdminOrReadOnly
 
 from .customer_models import (
     CustomerGroup, Customer, CustomerNote, CustomerNoteEntry, CustomerNoteDocument,
@@ -46,7 +46,8 @@ class CustomerGroupViewSet(ToggleStatusMixin, viewsets.ModelViewSet):
     """Tipe Pelanggan: Pelanggan & Supplier > Tipe Pelanggan."""
     queryset = CustomerGroup.objects.all()
     serializer_class = CustomerGroupSerializer
-    permission_classes = [IsOwnerManagerAdminOrReadOnly]
+    # BE-24: staff diblokir penuh (baca & tulis) dari database pelanggan.
+    permission_classes = [IsOwnerManagerAdminOrKasir]
 
     def perform_create(self, serializer):
         serializer.save(dibuat_oleh=self.request.user)
@@ -56,7 +57,8 @@ class CustomerViewSet(ToggleStatusMixin, viewsets.ModelViewSet):
     """Pelanggan: Pelanggan & Supplier > Pelanggan."""
     queryset = Customer.objects.all().select_related('customer_group')
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated]
+    # BE-24: staff diblokir penuh (baca & tulis) dari database pelanggan.
+    permission_classes = [IsOwnerManagerAdminOrKasir]
 
     def get_queryset(self):
         qs = super().get_queryset()

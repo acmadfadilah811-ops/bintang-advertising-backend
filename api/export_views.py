@@ -1099,3 +1099,228 @@ class ExportCashTransactionsView(APIView):
             return Response({'error': f'Gagal membuat file Excel: {str(e)}'}, status=500)
 
         return response
+
+
+class ExportSalesItemsByBrandView(APIView):
+    """
+    GET /api/export/sales-items-by-brand/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+    Mengekspor laporan Item Penjualan Berdasarkan Brand (27 kolom legacy format).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from api.pos_models import POSSaleItem
+        from api.models import OrderItem
+        from django.utils.dateparse import parse_date
+        import datetime
+
+        start_date_str = request.query_params.get('start_date') or request.query_params.get('start')
+        end_date_str = request.query_params.get('end_date') or request.query_params.get('end')
+
+        if start_date_str:
+            start_date = parse_date(start_date_str)
+        else:
+            start_date = datetime.date.today()
+
+        if end_date_str:
+            end_date = parse_date(end_date_str)
+        else:
+            end_date = datetime.date.today()
+
+        filename = f"Item Penjualan Berdasarkan Brand-{start_date.strftime('%Y-%m-%d')}__{end_date.strftime('%Y-%m-%d')}.xlsx"
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Sales Items by Brand"
+
+            headers = [
+                'Grup', 'Produk', 'Label Varian', 'Nama Alternatif', 'Merek', 'Diskon', 
+                'Total Diskon', 'Penjualan Kotor', 'Diskon Produk', 'Penjualan Bersih', 
+                'Harga Beli', 'Total Harga Beli', 'Laba Kotor', 'SKU', 'Barcode', 
+                'Serial/IMEI', 'Jumlah Penjualan', 'Metode Penjualan', 'Cabang', 
+                'Komisi Karyawan', 'Point Terpakai', 'Penerimaan Point', 'Penerimaan Komisi Pelanggan', 
+                'Total Pengembalian', 'Pengembalian', 'Diskon Pengembalian', 'Pengembalian Kotor'
+            ]
+            ws.append(headers)
+
+            # 1. Fetch POS Sale Items
+            pos_items = POSSaleItem.objects.filter(
+                sale__created_at__date__gte=start_date,
+                sale__created_at__date__lte=end_date
+            ).select_related('sale', 'product', 'product__brand', 'product__kategori', 'variant')
+
+            for item in pos_items:
+                product_name = item.nama_snapshot or (item.product.nama if item.product else '')
+                variant_label = item.variant.nama_varian if item.variant else ''
+                brand_name = item.product.brand.nama if item.product and item.product.brand else ''
+                group_name = item.product.kategori.nama if item.product and item.product.kategori else 'Umum'
+                sku = item.variant.sku if item.variant else (item.product.sku if item.product else '')
+                barcode = item.variant.barcode if item.variant else (item.product.barcode if item.product else '')
+
+                qty = float(item.qty or 1)
+                unit_price = float(item.harga_snapshot or 0)
+                subtotal = float(item.subtotal or (qty * unit_price))
+                cost_price = float(item.product.harga_beli if item.product else 0)
+                total_cost = cost_price * qty
+                gross_profit = subtotal - total_cost
+
+                ws.append([
+                    group_name, product_name, variant_label, '', brand_name, 0,
+                    0, subtotal, 0, subtotal,
+                    cost_price, total_cost, gross_profit, sku, barcode,
+                    '', qty, 'POS / Toko Direct', 'Bintang Advertising',
+                    0, 0, 0, 0,
+                    0, 0, 0, 0
+                ])
+
+            # 2. Fetch Production Order Items
+            order_items = OrderItem.objects.filter(
+                order__waktu__date__gte=start_date,
+                order__waktu__date__lte=end_date
+            ).select_related('order')
+
+            for item in order_items:
+                product_name = item.jenis_produk or 'Custom Printing'
+                variant_label = f"{item.panjang}x{item.lebar}m ({item.bahan})" if item.bahan else ''
+                qty = float(item.qty or 1)
+                unit_price = float(item.harga_jual or 0)
+                subtotal = qty * unit_price
+                cost_price = float(item.harga_modal or 0)
+                total_cost = cost_price * qty
+                gross_profit = subtotal - total_cost
+
+                ws.append([
+                    'Produksi', product_name, variant_label, '', 'Bintang', 0,
+                    0, subtotal, 0, subtotal,
+                    cost_price, total_cost, gross_profit, '', '',
+                    '', qty, 'Order Produksi', 'Bintang Advertising',
+                    0, 0, 0, 0,
+                    0, 0, 0, 0
+                ])
+
+            wb.save(response)
+        except Exception as e:
+            return Response({'error': f'Gagal membuat file Excel: {str(e)}'}, status=500)
+
+        return response
+
+
+class ExportSalesDetailsView(APIView):
+    """
+    GET /api/export/sales-details/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+    Mengekspor laporan Rincian Penjualan (48 kolom legacy format).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from api.pos_models import POSSale
+        from api.models import Order
+        from django.utils.dateparse import parse_date
+        import datetime
+
+        start_date_str = request.query_params.get('start_date') or request.query_params.get('start')
+        end_date_str = request.query_params.get('end_date') or request.query_params.get('end')
+
+        if start_date_str:
+            start_date = parse_date(start_date_str)
+        else:
+            start_date = datetime.date.today()
+
+        if end_date_str:
+            end_date = parse_date(end_date_str)
+        else:
+            end_date = datetime.date.today()
+
+        filename = f"Rincian Penjualan-{start_date.strftime('%Y-%m-%d')}__{end_date.strftime('%Y-%m-%d')}.xlsx"
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Sales Details"
+
+            headers = [
+                'Waktu', 'No. Penjualan', 'Metode Penjualan', 'Metode Pembayaran', 
+                'Total Pembayaran', 'Penerimaan Pembayaran', 'Kembalian Pembayaran', 
+                'Penjualan Kotor', 'Penjualan Bersih', 'Diskon Produk', 'Diskon Penjualan', 
+                'Voucher', 'Biaya Pengiriman', 'Service Charge', 'Laba Kotor', 
+                'Kasir', 'Pelanggan', 'Grup Pelanggan', 'Biaya Pembayaran', 'Status', 
+                'Catatan Pembatalan', 'Alasan Pembatalan', 'Tanggal Pengiriman', 'Status Pengiriman', 
+                'Nomor Resi', 'Kurir', 'Kota', 'Provinsi', 'Kode Pos', 'Alamat', 
+                'Nama Penerima', 'No. Telepon Penerima', 'Catatan Penjualan', 'Komisi Karyawan', 
+                'Merek', 'Cabang', 'Penerimaan Point', 'Point Terpakai', 'Penerimaan Komisi Pelanggan', 
+                'Pengembalian Bersih', 'Penjualan Setelah Pengembalian', 'Pengembalian Kotor', 
+                'Pengembalian Diskon Produk', 'Pengembalian Diskon Penjualan', 'PPN', 'Tarif PPN (%)', 
+                'Penjualan Sebelum PPN', 'Pengembalian PPN'
+            ]
+            ws.append(headers)
+
+            # 1. Fetch POS Sales
+            pos_sales = POSSale.objects.filter(
+                created_at__date__gte=start_date,
+                created_at__date__lte=end_date
+            ).select_related('kasir', 'pelanggan')
+
+            for s in pos_sales:
+                waktu_str = s.created_at.strftime('%Y-%m-%d %H:%M:%S') if s.created_at else ''
+                total_harga = float(s.total or 0)
+                bayar = float(s.dibayar or 0)
+                kembali = float(s.kembalian or 0)
+                kasir_name = s.kasir.get_full_name() or s.kasir.username if s.kasir else 'Kasir POS'
+                customer_name = s.pelanggan.nama if s.pelanggan else 'Pelanggan Umum'
+
+                ws.append([
+                    waktu_str, s.nomor, 'POS Direct', s.metode_bayar or 'Cash',
+                    total_harga, bayar, kembali,
+                    total_harga, total_harga, 0, float(s.diskon or 0),
+                    0, 0, 0, total_harga * 0.3,
+                    kasir_name, customer_name, 'Umum', 0, s.status,
+                    '', '', '', '',
+                    '', '', '', '', '', '',
+                    customer_name, '', s.catatan or '', 0,
+                    'Bintang', 'Bintang Advertising', 0, 0, 0,
+                    0, total_harga, 0,
+                    0, 0, float(s.pajak or 0), 0,
+                    total_harga, 0
+                ])
+
+            # 2. Fetch Production Orders
+            orders = Order.objects.filter(
+                waktu__date__gte=start_date,
+                waktu__date__lte=end_date
+            )
+
+            for o in orders:
+                waktu_str = o.waktu.strftime('%Y-%m-%d %H:%M:%S') if o.waktu else ''
+                total_harga = float(o.total_harga or 0)
+                dp = float(o.dp_dibayar or 0)
+                sisa = float(o.sisa_tagihan or 0)
+                kasir_name = o.kasir.get_full_name() or o.kasir.username if o.kasir else 'Admin CS'
+                customer_name = o.nama or 'Pelanggan Order'
+                status_str = 'LUNAS' if sisa <= 0 else f'DP (Sisa {sisa:,.0f})'
+
+                ws.append([
+                    waktu_str, str(o.id), 'Order Produksi', o.metode_pembayaran or 'Transfer/Cash',
+                    total_harga, dp, 0,
+                    total_harga, total_harga, 0, float(o.diskon or 0),
+                    0, 0, 0, total_harga * 0.35,
+                    kasir_name, customer_name, 'Pelanggan Produksi', 0, status_str,
+                    '', '', '', '',
+                    '', '', '', '', '', '',
+                    customer_name, o.nomor_wa or '', o.catatan_pelanggan or '', 0,
+                    'Bintang', 'Bintang Advertising', 0, 0, 0,
+                    0, total_harga, 0,
+                    0, 0, 0, 0,
+                    total_harga, 0
+                ])
+
+            wb.save(response)
+        except Exception as e:
+            return Response({'error': f'Gagal membuat file Excel: {str(e)}'}, status=500)
+
+        return response
+

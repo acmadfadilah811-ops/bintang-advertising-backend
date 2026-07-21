@@ -57,7 +57,7 @@ def _pendapatan(mulai, akhir):
     ).aggregate(v=Sum('total'))['v'] or ZERO
     order = Order.objects.filter(
         waktu__date__gte=mulai, waktu__date__lte=akhir
-    ).aggregate(v=Sum('total_harga'))['v'] or ZERO
+    ).exclude(status_global='batal').aggregate(v=Sum('total_harga'))['v'] or ZERO
     return pos + order
 
 

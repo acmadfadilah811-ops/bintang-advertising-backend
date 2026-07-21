@@ -6,14 +6,15 @@ from django.db.models import Sum, Count, Q, F
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from ..permissions import IsOwnerOrManager
 
 from ..models import Order, OrderItem, JobBoard, CustomUser, InventoryItem
 
 class DashboardView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOwnerOrManager]
 
     def get(self, request):
-        cache_key = "dashboard_data"
+        cache_key = f"dashboard_data:{request.user.role}"
         cached_data = cache.get(cache_key)
         if cached_data:
             return Response(cached_data)

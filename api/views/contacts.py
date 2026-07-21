@@ -11,12 +11,35 @@ from django.utils import timezone
 
 from ..models import Contact, Order, KomplainOrder, KomplainLog, CustomerActivity
 from ..serializers import ContactSerializer, KomplainOrderSerializer, CustomerActivitySerializer
-from ..permissions import IsOwnerOrManager
+from ..permissions import IsOwnerOrManager, IsOwnerManagerAdminOrKasir
+
+
+class ProductionCustomerLiteView(APIView):
+    """BE-24: endpoint SEMPIT khusus papan produksi.
+
+    Papan produksi (dipakai staff) hanya butuh mencocokkan nama pelanggan
+    dengan nomor WhatsApp untuk keperluan menghubungi terkait pekerjaan.
+    Endpoint ini SENGAJA hanya mengembalikan `nama` + `nomor_wa` — TANPA
+    piutang, total belanja, atau catatan pelanggan. Endpoint `/contacts/`
+    penuh dikunci (lihat ContactViewSet) agar staff tidak bisa membaca seluruh
+    database pelanggan beserta data finansialnya.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        data = list(
+            Contact.objects.order_by('nama').values('nama', 'nomor_wa')
+        )
+        return Response(data)
+
 
 class ContactViewSet(viewsets.ModelViewSet):
     queryset = Contact.objects.all()
     serializer_class = ContactSerializer
-    permission_classes = [IsAuthenticated]
+    # BE-24: kunci penuh. Hanya owner/manager/admin/kasir yang boleh membaca
+    # maupun menulis. Staff TIDAK bisa GET seluruh database pelanggan (nama,
+    # no. WA, piutang) — kebutuhan papan produksi dilayani ProductionCustomerLiteView.
+    permission_classes = [IsOwnerManagerAdminOrKasir]
 
     def get_queryset(self):
         # Query efisien — gunakan Subquery untuk dianotasikan ke queryset kontak

@@ -13,6 +13,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
+from rest_framework.exceptions import ValidationError
 from api.permissions import IsOwnerManagerAdminOrReadOnly
 from rest_framework.response import Response
 
@@ -755,11 +756,20 @@ class ProductViewSet(viewsets.ModelViewSet):
                     )
 
             owner.qty_stok = stok_akhir
-            owner.save()
 
-            if tipe == 'masuk' and harga_beli is not None and variant is None:
-                product.harga_beli = harga_beli
-                product.save()
+            # BE-22: harga beli stok masuk manual harus memakai rata-rata
+            # tertimbang (moving average), BUKAN menimpa harga terakhir, dan
+            # berlaku untuk owner apa pun (produk tanpa varian MAUPUN varian).
+            # Sebelumnya `and variant is None` membuat varian tak pernah update
+            # harga beli-nya, dan produk selalu ditimpa harga terakhir.
+            if tipe == 'masuk' and harga_beli is not None:
+                if stok_akhir > 0:
+                    old_value = stok_awal * (owner.harga_beli or 0)
+                    owner.harga_beli = (old_value + qty * harga_beli) / stok_akhir
+                else:
+                    owner.harga_beli = harga_beli
+
+            owner.save()
 
             movement = ProductStockMovement.objects.create(
                 product=product,
@@ -1432,8 +1442,9 @@ class StockInDocumentViewSet(viewsets.ModelViewSet):
         return Response(StockInDocumentSerializer(document).data)
 
     @action(detail=True, methods=['post'], url_path='post-document')
+    @transaction.atomic
     def post_document(self, request, pk=None):
-        document = self.get_object()
+        document = StockInDocument.objects.select_for_update().get(pk=pk)
         if document.status != 'draft':
             return Response({'error': 'Dokumen sudah diposting/dibatalkan.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1443,17 +1454,22 @@ class StockInDocumentViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Tambahkan minimal satu produk sebelum posting.'}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            for item in document.items.select_related('product'):
+            for item in document.items.select_related('product', 'variant'):
                 product = Product.objects.select_for_update().get(pk=item.product_id)
-                stok_awal = product.qty_stok
+                variant = (ProductVariant.objects.select_for_update().get(pk=item.variant_id)
+                           if item.variant_id else None)
+                owner = variant or product
+                stok_awal = owner.qty_stok
                 stok_akhir = stok_awal + item.qty
-                product.qty_stok = stok_akhir
-                if item.harga_beli:
-                    product.harga_beli = item.harga_beli
-                product.save()
+                if item.harga_beli and stok_akhir > 0:
+                    old_value = stok_awal * (owner.harga_beli or 0)
+                    owner.harga_beli = (old_value + item.qty * item.harga_beli) / stok_akhir
+                owner.qty_stok = stok_akhir
+                owner.save(update_fields=['qty_stok', 'harga_beli'])
 
                 ProductStockMovement.objects.create(
                     product=product,
+                    variant=variant,
                     user=request.user,
                     tipe='masuk',
                     qty=item.qty,
@@ -2039,8 +2055,9 @@ class StockOutDocumentViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['post'], url_path='post-document')
+    @transaction.atomic
     def post_document(self, request, pk=None):
-        document = self.get_object()
+        document = StockOutDocument.objects.select_for_update().get(pk=pk)
         if document.status != 'draft':
             return Response({'error': 'Dokumen sudah diposting/dibatalkan.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -2057,10 +2074,7 @@ class StockOutDocumentViewSet(viewsets.ModelViewSet):
                 stok_awal = owner.qty_stok
                 stok_akhir = stok_awal - item.qty
                 if stok_akhir < 0:
-                    return Response(
-                        {'error': f"Stok produk '{owner}' tidak mencukupi. Stok saat ini {stok_awal}, diminta {item.qty}."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                    raise ValidationError({'error': f"Stok produk '{owner}' tidak mencukupi. Stok saat ini {stok_awal}, diminta {item.qty}."})
 
                 owner.qty_stok = stok_akhir
                 owner.save()
@@ -2217,8 +2231,9 @@ class StockProductionDocumentViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['post'], url_path='post-document')
+    @transaction.atomic
     def post_document(self, request, pk=None):
-        document = self.get_object()
+        document = StockProductionDocument.objects.select_for_update().get(pk=pk)
         if document.status != 'draft':
             return Response({'error': 'Dokumen sudah diposting/dibatalkan.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -2563,8 +2578,9 @@ class StockOpnameDocumentViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['post'], url_path='post-document')
+    @transaction.atomic
     def post_document(self, request, pk=None):
-        document = self.get_object()
+        document = StockOpnameDocument.objects.select_for_update().get(pk=pk)
         if document.status != 'draft':
             return Response({'error': 'Dokumen sudah diposting/dibatalkan.'}, status=status.HTTP_400_BAD_REQUEST)
 

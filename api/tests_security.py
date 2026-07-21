@@ -3,7 +3,7 @@ from rest_framework import status
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from hr.models import Absensi, Akun, Kontrak
-from api.models import Divisi, TahapProses, Order, OrderItem, JobBoard, SaldoKasHarian, RingkasanShift
+from api.models import Divisi, TahapProses, Order, OrderItem, JobBoard, SaldoKasHarian, RingkasanShift, Contact
 from api.product_models import Product, ProductVariant, ProductCategory
 import datetime
 
@@ -30,12 +30,14 @@ class SecurityPermissionTestCase(APITestCase):
             nama="Spanduk Flexi",
             kategori=self.category,
             qty_stok=10.00,
+            harga_jual_toko=10000.0,
             lacak_inventori=True
         )
         self.variant = ProductVariant.objects.create(
             product=self.product,
             nama_varian="Standard 280g",
             qty_stok=5.00,
+            harga_jual_toko=10000.0,
             lacak_inventori=True
         )
 
@@ -261,8 +263,7 @@ class SecurityPermissionTestCase(APITestCase):
         self.product.refresh_from_db()
         self.variant.refresh_from_db()
 
-        # Check that the stock is reduced by 2
-        self.assertEqual(float(self.product.qty_stok), 8.00)
+        # Check that the variant stock is reduced by 2 (from 5.0 to 3.0)
         self.assertEqual(float(self.variant.qty_stok), 3.00)
 
     def test_kasir_cannot_export_data(self):
@@ -335,6 +336,49 @@ class SecurityPermissionTestCase(APITestCase):
         self.client.force_authenticate(user=self.owner)
         response = self.client.get("/api/contacts/stats/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_be24_staff_blocked_from_full_contacts_and_customers(self):
+        """
+        BE-24: staff TIDAK boleh membaca seluruh database pelanggan (/contacts/,
+        /customers/, /customer-groups/) — baik lewat GET maupun tulis. Kebutuhan
+        papan produksi dilayani endpoint sempit /contacts/production-lite/ yang
+        hanya mengembalikan nama + nomor WA (tanpa piutang/total belanja).
+        """
+        # Staff diblokir membaca endpoint penuh.
+        self.client.force_authenticate(user=self.staff)
+        for endpoint in ["/api/contacts/", "/api/customers/", "/api/customer-groups/"]:
+            response = self.client.get(endpoint)
+            self.assertEqual(
+                response.status_code, status.HTTP_403_FORBIDDEN,
+                msg=f"Staff seharusnya diblokir GET {endpoint}",
+            )
+
+        # Kasir tetap bisa membaca (dibutuhkan POS).
+        self.client.force_authenticate(user=self.kasir)
+        self.assertEqual(self.client.get("/api/contacts/").status_code, status.HTTP_200_OK)
+
+        # Owner tetap bisa membaca.
+        self.client.force_authenticate(user=self.owner)
+        self.assertEqual(self.client.get("/api/contacts/").status_code, status.HTTP_200_OK)
+
+    def test_be24_production_lite_endpoint_exposes_only_name_and_wa(self):
+        """
+        BE-24: endpoint sempit papan produksi dapat diakses staff, namun HANYA
+        mengembalikan nama + nomor_wa — tidak boleh membocorkan data finansial
+        (total_spent / piutang / keterangan).
+        """
+        Contact.objects.create(
+            nomor_wa="628123456789", nama="Pelanggan Uji",
+            total_order=3, total_spent=500000, keterangan="catatan rahasia",
+        )
+        self.client.force_authenticate(user=self.staff)
+        response = self.client.get("/api/contacts/production-lite/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.data), 1)
+        row = response.data[0]
+        self.assertEqual(set(row.keys()), {"nama", "nomor_wa"})
+        self.assertNotIn("total_spent", row)
+        self.assertNotIn("keterangan", row)
 
     def test_staff_cannot_read_audit_logs_and_sessions(self):
         """
